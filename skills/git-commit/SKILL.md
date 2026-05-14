@@ -16,7 +16,7 @@ platforms:
   - openai-codex
 maintainers: []
 ---
-
+When the user specifies this skill, assume they want to commit by default.
 When this skill is activated, always start your first response with the 📝 emoji.
 
 # Git Commit
