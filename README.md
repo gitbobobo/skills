@@ -27,3 +27,11 @@
 触发关键词：`verify review results`、`fix audit findings`、`remediate issues`、`process review report`。
 
 详见 [skills/review-remediator/SKILL.md](skills/review-remediator/SKILL.md)。
+
+### code-review-mastery
+
+对本地 git 变更（已暂存或未暂存）进行项目感知的代码审查。自动收集项目上下文（lint 规则、编码规范、框架模式），按安全性、正确性、性能、设计、可读性、约定的优先级分层分析，输出结构化的 `[MAJOR]` / `[MINOR]` 审查报告，支持交互式逐条修复。
+
+触发关键词：`review my changes`、`review staged`、`review my diff`、`check my code`、`code review`、`review before commit`。
+
+详见 [skills/code-review-mastery/SKILL.md](skills/code-review-mastery/SKILL.md)。
