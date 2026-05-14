@@ -95,6 +95,26 @@ git commit -m "feat(auth): add passwordless login with OTP"
 > everything indiscriminately, including files that may not belong in this
 > commit.
 
+### Commit message style
+
+Before writing a commit message, check the project's existing style:
+
+```bash
+git log --oneline -n 10
+```
+
+- **If the repo has prior commits**, follow the established convention (e.g.,
+  Conventional Commits, Gitmoji, or simple present-tense sentences).
+- **If the repo has no history** (new repo, initial commit, or no prior commits),
+  **default to Conventional Commits**:
+
+  ```
+  <type>(<scope>): <description>
+  ```
+
+  Common types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`.
+  Example: `feat(auth): add passwordless login with OTP`
+
 ### Update .gitignore for untracked files
 
 When untracked files (`??`) should not be committed:
