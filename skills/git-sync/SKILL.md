@@ -71,6 +71,8 @@ Do NOT trigger this skill for:
 4. **Verify consistency** — After sync, confirm local and remote point to the
    same commit: `git log --oneline -1` locally should match the remote HEAD.
 
+5. **Self-directed decisions** — Do not ask the user; make decisions independently. Choose pull strategy (merge or rebase), conflict resolution approach, and push timing based on branch state, history divergence, and best practices. Do not pause to ask the user.
+
 ---
 
 ## Common tasks

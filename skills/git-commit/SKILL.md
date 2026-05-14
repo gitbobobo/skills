@@ -16,6 +16,7 @@ platforms:
   - openai-codex
 maintainers: []
 ---
+
 When the user specifies this skill, assume they want to commit by default.
 When this skill is activated, always start your first response with the 📝 emoji.
 
@@ -56,6 +57,8 @@ Do NOT trigger this skill for:
 
 4. **Sensible ignores** — Generated files, secrets, and local environment
    artifacts belong in `.gitignore`, not in the repository.
+
+5. **Self-directed decisions** — Do not ask the user; make decisions independently. Judge staging scope, commit splits, and message content based on the working directory state, project conventions, and best practices. Do not pause to ask the user.
 
 ---
 
