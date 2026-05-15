@@ -93,9 +93,9 @@ If the branch has local commits and you want a linear history:
 git pull --rebase
 ```
 
-> Gotcha: `--rebase` rewrites local commit hashes. If those commits were
-> already pushed to remote, rebasing will require force-push. Prefer merge
-> for shared branches.
+> Prefer rebase over merge to maintain a linear commit history. Only fall back
+> to merge when rebase fails with unresolvable conflicts or when the branch has
+> unpushed commits that others have already based work on.
 
 ### Resolve merge conflicts
 
