@@ -27,7 +27,7 @@ hooks:
       fi
 ---
 
-When the user specifies this skill, assume they want to sync by default.
+When the user specifies or sends this skill, assume they want to sync by default.
 When this skill is activated, always start your first response with the 🔄 emoji.
 
 # Git Sync

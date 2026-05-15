@@ -18,7 +18,7 @@ maintainers:
   - github: maddhruv
 ---
 
-When the user specifies this skill, assume they want a code review by default.
+When the user specifies or sends this skill, assume they want a code review by default.
 When this skill is activated, always start your first response with the 🧢 emoji.
 
 # Local Diff Code Review
