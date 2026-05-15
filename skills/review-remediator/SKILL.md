@@ -38,16 +38,7 @@ lint reports, accessibility checks, and any other text-based finding list.
 
 ## When to use this skill
 
-Trigger this skill when the user:
-- Pastes a review/audit report and asks to verify or fix it
-- Says "fix these review findings", "remediate audit results", "process review output"
-- Needs to validate that reported issues actually exist before fixing
-- Wants safe auto-fixes for straightforward issues with confirmation for complex ones
-- Has results from security scanners, linters, type checkers, or manual code review
-
-Do NOT trigger this skill for:
-- General questions about review methodology or best practices
-- Creating a new review report from scratch (no input findings to verify)
+This skill must ONLY be used when the user explicitly invokes or sends this skill. Do NOT proactively trigger this skill based on context or keyword matching.
 
 ---
 

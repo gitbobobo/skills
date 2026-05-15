@@ -40,17 +40,7 @@ and verification — never by discarding commits.
 
 ## When to use this skill
 
-Trigger this skill when the user:
-- Says "sync", "pull", "push", "fetch", or "remote"
-- Mentions "merge conflict", "diverged", or "behind remote"
-- Asks to align local with remote or vice versa
-- Wants to update their branch with remote changes
-- Requests to resolve conflicts after a pull or merge
-
-Do NOT trigger this skill for:
-- Committing local changes (use git-commit)
-- Branching, rebasing for history rewriting, or cherry-picking
-- General Git configuration or SSH key setup
+This skill must ONLY be used when the user explicitly invokes or sends this skill. Do NOT proactively trigger this skill based on context or keyword matching.
 
 ---
 

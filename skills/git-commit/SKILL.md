@@ -29,16 +29,7 @@ relevant, and leaves the working directory in a clean state.
 
 ## When to use this skill
 
-Trigger this skill when the user:
-- Says "commit", "提交", "save changes", or "stage files"
-- Asks to clean up the working directory
-- Wants to prepare changes for version control
-- Requests a review of what should be committed
-
-Do NOT trigger this skill for:
-- Pushing to remote (use a separate push/pull workflow)
-- Branching, merging, or rebasing operations
-- General Git configuration questions
+This skill must ONLY be used when the user explicitly invokes or sends this skill. Do NOT proactively trigger this skill based on context or keyword matching.
 
 ---
 

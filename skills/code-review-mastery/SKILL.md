@@ -32,17 +32,7 @@ you can work through interactively.
 
 ## When to use this skill
 
-Trigger this skill when the user:
-- Asks to review their local changes, staged changes, or unstaged changes
-- Says "review my diff", "check my code", "code review before commit"
-- Wants a quality check on what they're about to commit or push
-- Asks "what's wrong with my changes" or "anything I should fix before committing"
-
-Do NOT trigger this skill for:
-- Reviewing remote PRs or GitHub links (use a PR review tool instead)
-- Writing or refactoring code from scratch
-- Architecture discussions not tied to a specific set of changes
-- General code quality advice without a concrete diff to review
+This skill must ONLY be used when the user explicitly invokes or sends this skill. Do NOT proactively trigger this skill based on context or keyword matching.
 
 ---
 
