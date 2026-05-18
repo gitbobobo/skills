@@ -28,16 +28,22 @@
 
 触发关键词：`review my changes`、`review staged`、`review my diff`、`check my code`、`code review local changes`、`review unstaged`、`review before commit`。
 
-详见 [skills/code-review-mastery/SKILL.md](skills/code-review-mastery/SKILL.md)。
+详见 [skills/code-review-mastery/SKILL.md](skills/code-review-mastery/SKILL.md)。源仓库：[AbsolutelySkilled/AbsolutelySkilled](https://github.com/AbsolutelySkilled/AbsolutelySkilled)。
 
 ### deslop
 
 移除 AI 生成的代码冗余（slop），清理代码风格。检查当前分支相对于 main 的 diff，清理不必要的注释、过度的防御性检查、类型绕过、过深嵌套等与项目风格不一致的模式。
 
-详见 [skills/deslop/SKILL.md](skills/deslop/SKILL.md)。
+详见 [skills/deslop/SKILL.md](skills/deslop/SKILL.md)。源仓库：[cursor/plugins](https://github.com/cursor/plugins)。
 
 ### grill-me
 
 针对用户的计划或设计进行 relentless 追问，逐条遍历决策树的每个分支，逐步达成共识。每轮提问一个问题，同时给出推荐答案。如果问题可以通过探索代码库解决，则优先探索代码库。
 
-详见 [skills/grill-me/SKILL.md](skills/grill-me/SKILL.md)。
+详见 [skills/grill-me/SKILL.md](skills/grill-me/SKILL.md)。源仓库：[mattpocock/skills](https://github.com/mattpocock/skills)。
+
+### complexity-optimizer
+
+分析代码库的算法复杂度和性能热点，安全地提出或实施优化方案而不破坏现有行为。支持扫描嵌套循环、重复遍历、N+1 查询、不必要的 O(n^2) 操作等模式，并提供结构化的复杂度分析报告。内置启发式扫描器，支持 Python、JavaScript、TypeScript、Java、Go、C/C++、C#、Ruby、PHP、Swift 等语言。
+
+详见 [skills/complexity-optimizer/SKILL.md](skills/complexity-optimizer/SKILL.md)。源仓库：[Kappaemme-git/codex-complexity-optimizer](https://github.com/Kappaemme-git/codex-complexity-optimizer)。
