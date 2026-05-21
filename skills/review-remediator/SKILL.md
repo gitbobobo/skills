@@ -5,9 +5,7 @@ description: Verify review or audit findings and fix confirmed issues
 
 # Review Remediator
 
-Read the review text the user provides, cross-check each finding against the actual
-source files, and apply targeted fixes. Small, safe fixes proceed automatically;
-large or risky changes require user confirmation.
+Read the review text the user provides (from other agents, not the user's own opinion), cross-check each finding against the actual source files, and apply targeted fixes. Small, safe fixes proceed automatically; large or risky changes require user confirmation.
 
 ## Focus Areas
 
