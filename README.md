@@ -47,3 +47,9 @@
 分析代码库的算法复杂度和性能热点，安全地提出或实施优化方案而不破坏现有行为。支持扫描嵌套循环、重复遍历、N+1 查询、不必要的 O(n^2) 操作等模式，并提供结构化的复杂度分析报告。内置启发式扫描器，支持 Python、JavaScript、TypeScript、Java、Go、C/C++、C#、Ruby、PHP、Swift 等语言。
 
 详见 [skills/complexity-optimizer/SKILL.md](skills/complexity-optimizer/SKILL.md)。源仓库：[Kappaemme-git/codex-complexity-optimizer](https://github.com/Kappaemme-git/codex-complexity-optimizer)。
+
+### improve-codebase-architecture
+
+基于模块深度理论系统性改善代码库架构。识别浅层模块（接口复杂度≈实现复杂度），通过删除测试判断其价值，然后加深接口以提升杠杆率和局部性。支持依赖分类、缝隙分析、"设计两次"接口设计等方法。
+
+详见 [skills/improve-codebase-architecture/SKILL.md](skills/improve-codebase-architecture/SKILL.md)。源仓库：[mattpocock/skills](https://github.com/mattpocock/skills)。
