@@ -5,7 +5,7 @@ description: Remove AI-generated code slop and clean up code style
 
 # Remove AI code slop
 
-Check the diff against main and remove AI-generated slop introduced in the branch.
+Check the changed code and remove AI-generated slop introduced in the branch.
 
 ## Focus Areas
 
