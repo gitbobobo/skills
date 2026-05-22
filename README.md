@@ -53,3 +53,11 @@
 基于模块深度理论系统性改善代码库架构。识别浅层模块（接口复杂度≈实现复杂度），通过删除测试判断其价值，然后加深接口以提升杠杆率和局部性。支持依赖分类、缝隙分析、"设计两次"接口设计等方法。
 
 详见 [skills/improve-codebase-architecture/SKILL.md](skills/improve-codebase-architecture/SKILL.md)。源仓库：[mattpocock/skills](https://github.com/mattpocock/skills)。
+
+### thermo-nuclear-code-quality-review
+
+极其严格的代码质量审查，聚焦抽象质量、巨型文件和面条式条件增长。主动寻找"代码柔道"手法：在保持行为不变的前提下，通过重构使实现大幅简化。禁止文件超过 1000 行、不允许面条式增长、要求直接可维护的代码风格。
+
+触发关键词：`thermo-nuclear code quality review`、`thermonuclear review`、`deep code quality audit`、`harsh maintainability review`。
+
+详见 [skills/thermo-nuclear-code-quality-review/SKILL.md](skills/thermo-nuclear-code-quality-review/SKILL.md)。源仓库：[cursor/plugins](https://github.com/cursor/plugins)。
