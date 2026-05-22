@@ -61,3 +61,9 @@
 触发关键词：`thermo-nuclear code quality review`、`thermonuclear review`、`deep code quality audit`、`harsh maintainability review`。
 
 详见 [skills/thermo-nuclear-code-quality-review/SKILL.md](skills/thermo-nuclear-code-quality-review/SKILL.md)。源仓库：[cursor/plugins](https://github.com/cursor/plugins)。
+
+### review-and-ship
+
+审查当前分支的 bug、意图匹配度和测试覆盖率；运行或编写测试；提交聚焦的工作成果；创建或更新 PR。按正确性、安全性和回归风险优先级排序，使用并行子代理处理较大的 diff。
+
+详见 [skills/review-and-ship/SKILL.md](skills/review-and-ship/SKILL.md)。源仓库：[cursor/plugins](https://github.com/cursor/plugins)。
