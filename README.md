@@ -22,14 +22,6 @@
 
 详见 [skills/review-remediator/SKILL.md](skills/review-remediator/SKILL.md)。
 
-### code-review-mastery
-
-对本地 git 变更（已暂存或未暂存）进行项目感知的代码审查。自动收集项目上下文（lint 规则、编码规范、框架模式），按安全性、正确性、性能、设计、可读性、约定的优先级分层分析，输出结构化的 `[MAJOR]` / `[MINOR]` 审查报告，支持交互式逐条修复。
-
-触发关键词：`review my changes`、`review staged`、`review my diff`、`check my code`、`code review local changes`、`review unstaged`、`review before commit`。
-
-详见 [skills/code-review-mastery/SKILL.md](skills/code-review-mastery/SKILL.md)。源仓库：[AbsolutelySkilled/AbsolutelySkilled](https://github.com/AbsolutelySkilled/AbsolutelySkilled)。
-
 ### deslop
 
 移除 AI 生成的代码冗余（slop），清理代码风格。检查当前分支相对于 main 的 diff，清理不必要的注释、过度的防御性检查、类型绕过、过深嵌套等与项目风格不一致的模式。
@@ -41,12 +33,6 @@
 针对用户的计划或设计进行 relentless 追问，逐条遍历决策树的每个分支，逐步达成共识。每轮提问一个问题，同时给出推荐答案。如果问题可以通过探索代码库解决，则优先探索代码库。
 
 详见 [skills/grill-me/SKILL.md](skills/grill-me/SKILL.md)。源仓库：[mattpocock/skills](https://github.com/mattpocock/skills)。
-
-### complexity-optimizer
-
-分析代码库的算法复杂度和性能热点，安全地提出或实施优化方案而不破坏现有行为。支持扫描嵌套循环、重复遍历、N+1 查询、不必要的 O(n^2) 操作等模式，并提供结构化的复杂度分析报告。内置启发式扫描器，支持 Python、JavaScript、TypeScript、Java、Go、C/C++、C#、Ruby、PHP、Swift 等语言。
-
-详见 [skills/complexity-optimizer/SKILL.md](skills/complexity-optimizer/SKILL.md)。源仓库：[Kappaemme-git/codex-complexity-optimizer](https://github.com/Kappaemme-git/codex-complexity-optimizer)。
 
 ### improve-codebase-architecture
 
@@ -61,9 +47,3 @@
 触发关键词：`thermo-nuclear code quality review`、`thermonuclear review`、`deep code quality audit`、`harsh maintainability review`。
 
 详见 [skills/thermo-nuclear-code-quality-review/SKILL.md](skills/thermo-nuclear-code-quality-review/SKILL.md)。源仓库：[cursor/plugins](https://github.com/cursor/plugins)。
-
-### review-and-ship
-
-审查当前分支的 bug、意图匹配度和测试覆盖率；运行或编写测试；提交聚焦的工作成果；创建或更新 PR。按正确性、安全性和回归风险优先级排序，使用并行子代理处理较大的 diff。
-
-详见 [skills/review-and-ship/SKILL.md](skills/review-and-ship/SKILL.md)。源仓库：[cursor/plugins](https://github.com/cursor/plugins)。
