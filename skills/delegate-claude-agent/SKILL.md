@@ -36,16 +36,19 @@ npm install -g @anthropic-ai/claude-code
 
 ```bash
 tmux new -d -s <agent名>
-tmux send-keys -t <agent名> 'claude --dangerously-skip-permissions' Enter
+tmux send-keys -t <agent名> 'claude --dangerously-skip-permissions'
 sleep 3
-tmux send-keys -t <agent名> '<任务描述>' Enter
+tmux send-keys -t <agent名> '<任务描述>'
+tmux send-keys -t <agent名> Enter
 ```
 
-> 发送提示词后，需要按 enter 键才能在交互式 claude 中发送消息。
+> 发送提示词后，需要按 Enter 键才能在交互式 claude 中发送消息。
+
+子代理开始执行任务后，告诉用户该通过什么命令查看子代理会话。
 
 ### 任务进度报告
 
-每3分钟轮询一次任务进度，报告最新进展。
+每3分钟轮询一次，向用户报告子代理当前的工作内容。
 
 ### 验收
 
@@ -56,19 +59,21 @@ tmux send-keys -t <agent名> '<任务描述>' Enter
 ```bash
 # 启动
 tmux new -d -s <name>                                           # 创建后台会话
-tmux send-keys -t <name> 'claude --dangerously-skip-permissions' Enter  # 启动 claude
-tmux send-keys -t <name> '<任务>' Enter                          # 发送任务
+tmux send-keys -t <name> 'claude --dangerously-skip-permissions'  # 启动 claude
+tmux send-keys -t <name> '<任务>'                          # 输入提示词
+tmux send-keys -t <name> Enter                          # 发送任务
 
 # 监控
 tmux ls                                      # 列出所有 agent
 tmux attach -t <name>                        # 连接查看（Ctrl+b d 分离）
+tmux capture-pane -t musiver-phase-d -p | tail -80    # 获取最新输出
 
 # 追加指令
-tmux send-keys -t <name> '<指令>' Enter      # 向 agent 追加指令
+tmux send-keys -t <name> '<指令>'      # 向 agent 追加指令
 
 # 清理
-tmux kill-session -t <name>                  # 终止指定 agent
-tmux kill-session -a                         # 终止所有 agent
+tmux kill-session -t <name>                  # 终止指定会话
+tmux kill-session -a                         # 终止所有会话
 ```
 
 更多命令可直接查看 cli 的帮助命令。
