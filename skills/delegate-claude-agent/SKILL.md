@@ -62,8 +62,10 @@ tmux send-keys -t <agent名> Enter
 # 启动
 tmux new -d -s <name>                                           # 创建后台会话
 tmux send-keys -t <name> 'claude --dangerously-skip-permissions'  # 启动 claude
-tmux send-keys -t <name> '<任务>'                          # 输入提示词
-tmux send-keys -t <name> Enter                          # 发送任务
+
+# 输入提示词并提交
+tmux send-keys -t <name> '<任务>'
+tmux send-keys -t <name> Enter # 这一步很重要，不做提示词就一直在输入框中不会发送
 
 # 监控
 tmux ls                                      # 列出所有 agent
