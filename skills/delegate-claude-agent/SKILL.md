@@ -39,10 +39,9 @@ tmux new -d -s <agent名>
 tmux send-keys -t <agent名> 'claude --dangerously-skip-permissions'
 sleep 3
 tmux send-keys -t <agent名> '<任务描述>'
+sleep 1
 tmux send-keys -t <agent名> Enter
 ```
-
-> 发送提示词后，需要按 Enter 键才能在交互式 claude 中发送消息。
 
 子代理开始执行任务后，告诉用户该通过什么命令查看子代理会话。
 
@@ -65,6 +64,7 @@ tmux send-keys -t <name> 'claude --dangerously-skip-permissions'  # 启动 claud
 
 # 输入提示词并提交
 tmux send-keys -t <name> '<任务>'
+sleep 1
 tmux send-keys -t <name> Enter # 这一步很重要，不做提示词就一直在输入框中不会发送
 
 # 监控
