@@ -66,7 +66,7 @@ tmux send-keys -t <name> Enter                          # 发送任务
 # 监控
 tmux ls                                      # 列出所有 agent
 tmux attach -t <name>                        # 连接查看（Ctrl+b d 分离）
-tmux capture-pane -t musiver-phase-d -p | tail -80    # 获取最新输出
+tmux capture-pane -t <name> -p | tail -80    # 获取最新输出
 
 # 追加指令
 tmux send-keys -t <name> '<指令>'      # 向 agent 追加指令
