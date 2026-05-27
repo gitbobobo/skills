@@ -16,11 +16,11 @@
 
 详见 [skills/git-sync/SKILL.md](skills/git-sync/SKILL.md)。
 
-### review-remediator
+### request-review
 
 验证审计或代码审查结果的正确性，并自动修复已确认的问题。接收自由文本格式的审查报告，逐条交叉验证后应用修复，小问题自动处理，大改动需用户确认。
 
-详见 [skills/review-remediator/SKILL.md](skills/review-remediator/SKILL.md)。
+详见 [skills/request-review/SKILL.md](skills/request-review/SKILL.md)。
 
 ### deslop
 
