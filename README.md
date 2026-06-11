@@ -47,3 +47,9 @@
 触发关键词：`thermo-nuclear code quality review`、`thermonuclear review`、`deep code quality audit`、`harsh maintainability review`。
 
 详见 [skills/thermo-nuclear-code-quality-review/SKILL.md](skills/thermo-nuclear-code-quality-review/SKILL.md)。源仓库：[cursor/plugins](https://github.com/cursor/plugins)。
+
+### plan-review
+
+三阶段流程：创建计划 → 请求编码代理审查 → 修订计划。确保计划复用已有设施、长期可维护、无需实现时决策。支持向多个编码代理发送审查请求并汇总结果。
+
+详见 [skills/plan-review/SKILL.md](skills/plan-review/SKILL.md)。
