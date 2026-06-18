@@ -33,7 +33,7 @@ description: 创建计划，请求审查，修订计划
 opencode run "<提示词>" --format json --dangerously-skip-permissions | grep '"type":"text"'
 
 # Kimi
-kimi --prompt "<提示词>" --quiet --yolo
+kimi --prompt "<提示词>" --yolo
 
 # Cursor Agent
 agent -p "<提示词>" --yolo
