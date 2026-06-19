@@ -28,4 +28,4 @@ claude -p "<提示词>" --dangerously-skip-permissions
 
 - 按可审计粒度提交，提交信息清晰，且只提交应入库文件
 - 提交内容满足 Conventional Commits 规范
-- 运行相关测试，如果失败需要修复并提交
+- 运行修改内容相关的测试，如果失败需要修复并提交
