@@ -18,19 +18,16 @@ description: 创建计划，请求审查，修订计划
 
 ## 请求审查
 
-用户提供编码代理名称（`claude`、`cursor`、`kimi`、`opencode`），则通过 CLI 方式向该代理发送审查请求。
+用户提供编码代理名称（`claude`、`cursor`、`kimi`），则通过 CLI 方式向该代理发送审查请求。
 
-用户提供的代理名称如果不是以上四种，就先考虑别名，再考虑这是用户笔误。
+用户提供的代理名称如果不是以上3种，就先考虑别名，再考虑这是用户笔误。
 
 如果在用户的终端配置中找到对应的别名，就结合别名的配置和示例命令选择对应的代理。
 
-严格按照示例命令发送（10 分钟超时），提示词自由发挥，但必须包含计划内容。
+严格按照示例命令发送（10 分钟超时），提示词自由发挥，但必须包含计划内容，并指定审查结果保存路径（系统临时目录）。
 
 ```bash
 # Windows 平台必须通过 powershell 运行以下命令： powershell.exe -Command "<command>"
-
-# Opencode
-opencode run "<提示词>" --format json --dangerously-skip-permissions | grep '"type":"text"'
 
 # Kimi
 kimi --prompt "<提示词>"
