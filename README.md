@@ -6,13 +6,13 @@
 
 ### git-commit
 
-规范的本地提交工作流。确保每次提交都可审计、相关且工作目录干净。
+规范的本地提交工作流。确保每次提交都可审计、相关且工作目录干净。默认主代理直接提交；用户指定子代理时，委托子代理完成（Kimi / Cursor / Claude Code 等）。
 
 详见 [skills/git-commit/SKILL.md](skills/git-commit/SKILL.md)。
 
 ### git-sync
 
-同步 git 远程并解决冲突，确保本地和远程保持一致。禁止直接丢弃提交内容，必须根据提交时间理解修改意图。
+同步 git 远程并解决冲突，确保本地和远程保持一致。禁止直接丢弃提交内容，必须根据提交时间理解修改意图。默认主代理直接同步；用户指定子代理时，委托子代理完成（Kimi / Cursor / Claude Code 等）。
 
 详见 [skills/git-sync/SKILL.md](skills/git-sync/SKILL.md)。
 
