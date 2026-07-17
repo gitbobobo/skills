@@ -28,11 +28,11 @@
 
 详见 [skills/deslop/SKILL.md](skills/deslop/SKILL.md)。源仓库：[cursor/plugins](https://github.com/cursor/plugins)。
 
-### grill-me
+### batch-grill-me
 
-针对用户的计划或设计进行 relentless 追问，逐条遍历决策树的每个分支，逐步达成共识。每轮提问一个问题，同时给出推荐答案。如果问题可以通过探索代码库解决，则优先探索代码库。
+针对用户的计划或设计进行 relentless 追问，直到达成共识。将决策映射为设计树，按轮次推进：每轮一次性提出所有"前沿"问题（前置条件已确定的决策），并附上推荐答案。需要环境事实的问题由子代理异步探索，不阻塞其他问题。
 
-详见 [skills/grill-me/SKILL.md](skills/grill-me/SKILL.md)。源仓库：[mattpocock/skills](https://github.com/mattpocock/skills)。
+详见 [skills/batch-grill-me/SKILL.md](skills/batch-grill-me/SKILL.md)。源仓库：[mattpocock/skills](https://github.com/mattpocock/skills)。
 
 ### improve-codebase-architecture
 
