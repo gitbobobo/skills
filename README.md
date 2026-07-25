@@ -1,18 +1,18 @@
 # skills
 
-个人开发工作流，保存常用技能。
+个人开发工作流，保存常用技能与工具脚本。
 
 ## 技能列表
 
 ### git-commit
 
-规范的本地提交工作流。确保每次提交都可审计、相关且工作目录干净。默认主代理直接提交；用户指定子代理时，委托子代理完成（Kimi / Cursor / Claude Code 等）。
+规范的本地提交工作流。确保每次提交都可审计、相关且工作目录干净。
 
 详见 [skills/git-commit/SKILL.md](skills/git-commit/SKILL.md)。
 
 ### git-sync
 
-同步 git 远程并解决冲突，确保本地和远程保持一致。禁止直接丢弃提交内容，必须根据提交时间理解修改意图。默认主代理直接同步；用户指定子代理时，委托子代理完成（Kimi / Cursor / Claude Code 等）。
+同步 git 远程并解决冲突，确保本地和远程保持一致。禁止直接丢弃提交内容，必须根据提交时间理解修改意图。
 
 详见 [skills/git-sync/SKILL.md](skills/git-sync/SKILL.md)。
 
@@ -34,12 +34,6 @@
 
 详见 [skills/batch-grill-me/SKILL.md](skills/batch-grill-me/SKILL.md)。源仓库：[mattpocock/skills](https://github.com/mattpocock/skills)。
 
-### improve-codebase-architecture
-
-基于模块深度理论系统性改善代码库架构。识别浅层模块（接口复杂度≈实现复杂度），通过删除测试判断其价值，然后加深接口以提升杠杆率和局部性。支持依赖分类、缝隙分析、"设计两次"接口设计等方法。
-
-详见 [skills/improve-codebase-architecture/SKILL.md](skills/improve-codebase-architecture/SKILL.md)。源仓库：[mattpocock/skills](https://github.com/mattpocock/skills)。
-
 ### thermo-nuclear-code-quality-review
 
 极其严格的代码质量审查，聚焦抽象质量、巨型文件和面条式条件增长。主动寻找"代码柔道"手法：在保持行为不变的前提下，通过重构使实现大幅简化。禁止文件超过 1000 行、不允许面条式增长、要求直接可维护的代码风格。
@@ -53,3 +47,19 @@
 三阶段流程：创建计划 → 请求编码代理审查 → 修订计划。确保计划复用已有设施、长期可维护、无需实现时决策。支持向多个编码代理发送审查请求并汇总结果。
 
 详见 [skills/plan-review/SKILL.md](skills/plan-review/SKILL.md)。
+
+## 工具脚本
+
+### patch-cursor-cli-acp-retry
+
+为 Cursor CLI 的 ACP 模式开启 `enableAgentRetries`。交互式 CLI 会对瞬时网络错误自动重试，但 ACP 路径默认未传入该开关；本脚本在确认结构匹配后向 ACP 的 run options 插入该开关，结构变化或不适用时拒绝机械替换并给出明确原因。支持 Windows 与 Unix，写入成功后默认清理 Node compile cache 使补丁立即生效。
+
+```bash
+./scripts/patch-cursor-cli-acp-retry.py           # 补丁当前激活版本
+./scripts/patch-cursor-cli-acp-retry.py --status  # 仅检查
+./scripts/patch-cursor-cli-acp-retry.py --dry-run
+./scripts/patch-cursor-cli-acp-retry.py --all
+./scripts/patch-cursor-cli-acp-retry.py --version 2026.07.23-e383d2b
+```
+
+详见 [scripts/patch-cursor-cli-acp-retry.py](scripts/patch-cursor-cli-acp-retry.py)。
