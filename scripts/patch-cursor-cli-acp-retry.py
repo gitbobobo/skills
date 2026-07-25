@@ -11,6 +11,9 @@ enableAgentRetries。本脚本在确认结构匹配后，向 ACP 的 run options
   ./scripts/patch-cursor-cli-acp-retry.py --dry-run
   ./scripts/patch-cursor-cli-acp-retry.py --all
   ./scripts/patch-cursor-cli-acp-retry.py --version 2026.07.23-e383d2b
+
+写入成功后会自动清理 Node compile cache 使补丁立即生效；
+用 --no-clear-cache 跳过此步骤。
 """
 
 from __future__ import annotations
@@ -24,8 +27,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-DEFAULT_VERSIONS_ROOT = Path.home() / ".local/share/cursor-agent/versions"
-DEFAULT_BIN = Path.home() / ".local/bin/cursor-agent"
+if sys.platform == "win32":
+    _LOCAL_APPDATA = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData/Local"))
+    DEFAULT_VERSIONS_ROOT = _LOCAL_APPDATA / "cursor-agent" / "versions"
+    DEFAULT_BIN = _LOCAL_APPDATA / "cursor-agent" / "cursor-agent.cmd"
+else:
+    DEFAULT_VERSIONS_ROOT = Path.home() / ".local/share/cursor-agent/versions"
+    DEFAULT_BIN = Path.home() / ".local/bin/cursor-agent"
 
 # ACP 独有：仅写 debug 日志的重连文案（交互式 CLI 用 "Connection lost"）
 ACP_RECONNECT_LOG = "Connection state: reconnecting"
@@ -35,6 +43,11 @@ FLAG_TRUE = "enableAgentRetries:!0"
 
 # 运行时仍支持该开关的证据（在任意 chunk 中出现即可）
 RUNTIME_FLAG_HINT = "enableAgentRetries"
+
+# Windows 下 cursor-agent.ps1 用于筛选版本目录名的正则
+VERSION_PATTERN = re.compile(
+    r"^(\d{4})\.(\d{1,2})\.(\d{1,2})(?:-(\d{2})-(\d{2})-(\d{2}))?-[a-f0-9]+$"
+)
 
 
 @dataclass
@@ -58,8 +71,43 @@ def eprint(*args: object) -> None:
     print(*args, file=sys.stderr, flush=True)
 
 
+def parse_version_for_sort(name: str) -> tuple[int, ...] | None:
+    """把版本目录名解析为可比较的元组，对齐 cursor-agent.ps1 的「选最新」逻辑。
+
+    PowerShell 仅按 YYYYMMDD 数值排序，同日多版本依赖枚举顺序兜底
+    （Get-ChildItem 顺序不保证）。这里把可选的 HH-MM-SS 也纳入元组，
+    使同日多版本也能确定性地排序。
+    """
+    m = VERSION_PATTERN.match(name)
+    if m is None:
+        return None
+    y, mo, d, hh, mm, ss = m.groups()
+    return (int(y), int(mo), int(d), int(hh or 0), int(mm or 0), int(ss or 0))
+
+
 def resolve_active_version_dir(versions_root: Path, bin_path: Path) -> Path | None:
-    """通过 cursor-agent 启动脚本解析当前激活的 versions/<id> 目录。"""
+    """解析当前激活的 versions/<id> 目录。
+
+    - Windows: 入口是 cursor-agent.cmd → PowerShell 启动器，按版本号字符串
+      排序选最新；不是 symlink，所以复制启动器的版本挑选逻辑。
+    - Unix: cursor-agent 是 symlink，沿 realpath 回到 versions/<id>/cursor-agent。
+    """
+    if sys.platform == "win32":
+        if not versions_root.is_dir():
+            return None
+        best_key: tuple[int, ...] | None = None
+        best_dir: Path | None = None
+        for entry in versions_root.iterdir():
+            if not entry.is_dir():
+                continue
+            key = parse_version_for_sort(entry.name)
+            if key is None:
+                continue
+            if best_key is None or key > best_key:
+                best_key = key
+                best_dir = entry
+        return best_dir
+
     if not bin_path.exists():
         return None
     target = bin_path
@@ -358,7 +406,11 @@ def analyze_version(version_dir: Path) -> VersionResult:
 
 
 def clear_compile_cache_hint() -> str:
-    if sys.platform == "darwin":
+    if sys.platform == "win32":
+        # 与 cursor-agent.ps1 中 $env:NODE_COMPILE_CACHE 的设置保持一致
+        local = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData/Local"))
+        cache = local / "cursor-compile-cache"
+    elif sys.platform == "darwin":
         cache = Path.home() / "Library/Caches/cursor-compile-cache"
     else:
         xdg = os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))
@@ -476,8 +528,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--no-backup", action="store_true", help="写入时不创建 .acp-retry.bak")
     p.add_argument(
         "--clear-cache",
-        action="store_true",
-        help="写入成功后删除 Node compile cache",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="写入成功后删除 Node compile cache 使补丁立即生效（默认开启；用 --no-clear-cache 跳过）",
     )
     return p.parse_args(argv)
 
