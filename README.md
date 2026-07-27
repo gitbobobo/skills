@@ -42,11 +42,11 @@
 
 详见 [skills/thermo-nuclear-code-quality-review/SKILL.md](skills/thermo-nuclear-code-quality-review/SKILL.md)。源仓库：[cursor/plugins](https://github.com/cursor/plugins)。
 
-### plan-review
+### create-plan-by
 
-三阶段流程：创建计划 → 请求编码代理审查 → 修订计划。确保计划复用已有设施、长期可维护、无需实现时决策。支持向多个编码代理发送审查请求并汇总结果。
+委托多个子代理分别创建计划，对各计划评分、评估利弊，再综合多个计划的优点创建修订版计划展示给用户。子代理通过 CLI 调用，支持 Kimi、Cursor Agent、Claude Code 以及用户终端中配置的其他别名代理。
 
-详见 [skills/plan-review/SKILL.md](skills/plan-review/SKILL.md)。
+详见 [skills/create-plan-by/SKILL.md](skills/create-plan-by/SKILL.md)。
 
 ## 工具脚本
 
