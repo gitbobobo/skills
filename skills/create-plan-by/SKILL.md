@@ -32,3 +32,5 @@ claude -p "<提示词>" --dangerously-skip-permissions
 ## 修订计划
 
 对多个计划评分，评估利弊，创建修订版计划展示给用户。
+
+如果用户安装了 `html-preview` 技能且已配置，则制作一个图文并茂的计划并上传，有效期设为 30d。
