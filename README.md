@@ -48,6 +48,12 @@
 
 详见 [skills/create-plan-by/SKILL.md](skills/create-plan-by/SKILL.md)。
 
+### plain-plan
+
+生成用户向、简洁的实现计划：少术语、无代码库类名，用人话说明会做成什么样，便于不写代码的人通读与拍板。文字计划结束后主动询问是否需要网页版；用户同意后再生成有教育性的图文网页讲解（非文字计划的照搬），必要时通过 html-preview 发布预览链接。
+
+详见 [skills/plain-plan/SKILL.md](skills/plain-plan/SKILL.md)。
+
 ## 工具脚本
 
 ### patch-cursor-cli-acp-retry
