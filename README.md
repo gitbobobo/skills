@@ -2,57 +2,81 @@
 
 个人开发工作流，保存常用技能与工具脚本。
 
+## 目录结构
+
+- `skills/godbobo/general/`：通用原创技能
+- `skills/godbobo/specialized/`：专用原创技能
+- `skills/forks/`：分叉技能（导入时注明来源，保持可独立安装）
+
 ## 技能列表
 
 ### git-commit
 
 规范的本地提交工作流。确保每次提交都可审计、相关且工作目录干净。
 
-详见 [skills/git-commit/SKILL.md](skills/git-commit/SKILL.md)。
+详见 [skills/godbobo/general/git-commit/SKILL.md](skills/godbobo/general/git-commit/SKILL.md)。
 
 ### git-sync
 
-同步 git 远程并解决冲突，确保本地和远程保持一致。禁止直接丢弃提交内容，必须根据提交时间理解修改意图。
+同步 git 远程并解决冲突，确保本地和远程保持一致。优先通过 rebase 保持线性历史，禁止直接丢弃提交内容，必须根据提交时间理解修改意图。
 
-详见 [skills/git-sync/SKILL.md](skills/git-sync/SKILL.md)。
-
-### request-review
-
-验证审计或代码审查结果的正确性，并自动修复已确认的问题。接收自由文本格式的审查报告，逐条交叉验证后应用修复，小问题自动处理，大改动需用户确认。
-
-详见 [skills/request-review/SKILL.md](skills/request-review/SKILL.md)。
-
-### deslop
-
-移除 AI 生成的代码冗余（slop），清理代码风格。检查当前分支相对于 main 的 diff，清理不必要的注释、过度的防御性检查、类型绕过、过深嵌套等与项目风格不一致的模式。
-
-详见 [skills/deslop/SKILL.md](skills/deslop/SKILL.md)。源仓库：[cursor/plugins](https://github.com/cursor/plugins)。
-
-### batch-grill-me
-
-针对用户的计划或设计进行 relentless 追问，直到达成共识。将决策映射为设计树，按轮次推进：每轮一次性提出所有"前沿"问题（前置条件已确定的决策），并附上推荐答案。需要环境事实的问题由子代理异步探索，不阻塞其他问题。
-
-详见 [skills/batch-grill-me/SKILL.md](skills/batch-grill-me/SKILL.md)。源仓库：[mattpocock/skills](https://github.com/mattpocock/skills)。
-
-### thermo-nuclear-code-quality-review
-
-极其严格的代码质量审查，聚焦抽象质量、巨型文件和面条式条件增长。主动寻找"代码柔道"手法：在保持行为不变的前提下，通过重构使实现大幅简化。禁止文件超过 1000 行、不允许面条式增长、要求直接可维护的代码风格。
-
-触发关键词：`thermo-nuclear code quality review`、`thermonuclear review`、`deep code quality audit`、`harsh maintainability review`。
-
-详见 [skills/thermo-nuclear-code-quality-review/SKILL.md](skills/thermo-nuclear-code-quality-review/SKILL.md)。源仓库：[cursor/plugins](https://github.com/cursor/plugins)。
-
-### create-plan-by
-
-委托多个子代理分别创建计划，对各计划评分、评估利弊，再综合多个计划的优点创建修订版计划展示给用户。子代理通过 CLI 调用，支持 Kimi、Cursor Agent、Claude Code 以及用户终端中配置的其他别名代理。
-
-详见 [skills/create-plan-by/SKILL.md](skills/create-plan-by/SKILL.md)。
+详见 [skills/godbobo/general/git-sync/SKILL.md](skills/godbobo/general/git-sync/SKILL.md)。
 
 ### plain-plan
 
 生成用户向、简洁的实现计划：少术语、无代码库类名，用人话说明会做成什么样，便于不写代码的人通读与拍板。文字计划结束后主动询问是否需要网页版；用户同意后再生成有教育性的图文网页讲解（非文字计划的照搬），必要时通过 html-preview 发布预览链接。
 
-详见 [skills/plain-plan/SKILL.md](skills/plain-plan/SKILL.md)。
+详见 [skills/godbobo/general/plain-plan/SKILL.md](skills/godbobo/general/plain-plan/SKILL.md)。
+
+### html-preview
+
+通过 HTML Preview REST API 上传、管理 HTML/ZIP 预览页：生成公开分享链接、更新元数据与有效期、替换内容、回收站与收藏管理。API Key 认证，配置持久化在 `~/.config/html-preview/config.yaml`。专用技能，配合同名服务使用。
+
+来源：[gitbobobo/html-preview — skills/html-preview](https://github.com/gitbobobo/html-preview/tree/main/skills/html-preview)
+
+详见 [skills/godbobo/specialized/html-preview/SKILL.md](skills/godbobo/specialized/html-preview/SKILL.md)。
+
+### fast-ship
+
+通过 Fast Ship REST API 创建、更新与查询 Issue：项目管理、打标、工作流状态推进、人机协作区（建议/计划/审查/总结）读写与项目日志上传。API Key 认证，配置持久化在 `~/.config/fast-ship/config.yaml`。专用技能，配合同名服务使用。
+
+来源：[gitbobobo/fast_ship — skills/fast-ship](https://github.com/gitbobobo/fast_ship/tree/main/skills/fast-ship)
+
+详见 [skills/godbobo/specialized/fast-ship/SKILL.md](skills/godbobo/specialized/fast-ship/SKILL.md)。
+
+## 分叉技能
+
+### grilling
+
+就一个计划、决策或想法对用户连环追问，直到达成共同理解。把决策组织成设计树，按轮次推进：每轮只问前置问题已就绪的「前沿」问题，编号并附上推荐答案，等用户回答后再计算下一轮。事实自己查（派子代理），决策交给用户。
+
+来源：[mattpocock/skills — skills/productivity/grilling](https://github.com/mattpocock/skills/tree/main/skills/productivity/grilling)
+
+详见 [skills/forks/grilling/SKILL.md](skills/forks/grilling/SKILL.md)。
+
+### handoff
+
+把当前会话压缩成交接文档，保存到系统临时目录，供新会话接着干。不重复引用已有产物（规格、计划、ADR、issue、提交、diff），敏感信息先脱敏；可传入参数说明下一会话的用途，据此裁剪内容。仅限用户手动调用。
+
+来源：[mattpocock/skills — skills/productivity/handoff](https://github.com/mattpocock/skills/tree/main/skills/productivity/handoff)
+
+详见 [skills/forks/handoff/SKILL.md](skills/forks/handoff/SKILL.md)。
+
+### unslop
+
+去除文字中的 AI 写作痕迹并注入人味：按内容、语言、风格、沟通痕迹、废话、行话、平实表达七类共 31 条模式检测改写，改完自审「哪里一眼是 AI 写的」。
+
+来源：[cursor/plugins — pstack/skills/unslop](https://github.com/cursor/plugins/tree/main/pstack/skills/unslop)
+
+详见 [skills/forks/unslop/SKILL.md](skills/forks/unslop/SKILL.md)。
+
+### thermo-nuclear-code-quality-review
+
+极严格的代码可维护性评审：不止挑局部清理点，主动找「code judo」式重构，让整段分支、辅助层、条件判断直接消失。硬性红线包括文件被推过 1k 行、在无关流程里插特判分支、薄封装与多余 cast、逻辑放错层等。行为正确不足以通过评审。仅限用户手动调用。
+
+来源：[cursor/plugins — cursor-team-kit/skills/thermo-nuclear-code-quality-review](https://github.com/cursor/plugins/tree/main/cursor-team-kit/skills/thermo-nuclear-code-quality-review)
+
+详见 [skills/forks/thermo-nuclear-code-quality-review/SKILL.md](skills/forks/thermo-nuclear-code-quality-review/SKILL.md)。
 
 ## 工具脚本
 
