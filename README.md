@@ -7,6 +7,17 @@
 - `skills/godbobo/general/`：通用原创技能
 - `skills/godbobo/specialized/`：专用原创技能
 - `skills/forks/`：分叉技能（导入时注明来源，保持可独立安装）
+- `docs/`：文档
+
+技能的安装与更新步骤见 [docs/setup.md](docs/setup.md)（通过 `skills` CLI 安装到通用目录 + Claude Code，避免链接到所有 agent）。
+
+## 给 Agent 的安装提示词
+
+在新设备上，把下面代码块的内容直接发给任意 agent，即可按文档安装/更新本仓库全部技能：
+
+```text
+请阅读 https://raw.githubusercontent.com/gitbobobo/skills/main/docs/setup.md，按文档安装/更新该仓库的全部技能，不确定时先问我。
+```
 
 ## 技能列表
 
