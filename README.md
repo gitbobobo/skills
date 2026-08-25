@@ -49,7 +49,7 @@
 
 ### fast-ship
 
-通过 Fast Ship REST API 创建、更新与查询 Issue：项目管理、打标、工作流状态推进、人机协作区（建议/计划/审查/总结）读写与项目日志上传。API Key 认证，配置持久化在 `~/.config/fast-ship/config.yaml`。专用技能，配合同名服务使用。
+通过 Fast Ship REST API 创建、更新与查询 Issue：项目管理、打标、工作流状态推进、人机协作区（共识/总结）读写、发货后钩子只读与项目日志上传。API Key 认证，配置持久化在 `~/.config/fast-ship/config.yaml`。专用技能，配合同名服务使用。
 
 来源：[gitbobobo/fast_ship — skills/fast-ship](https://github.com/gitbobobo/fast_ship/tree/main/skills/fast-ship)
 

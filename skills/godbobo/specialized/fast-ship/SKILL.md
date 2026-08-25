@@ -37,7 +37,8 @@ api_key: "fsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
 - API Key **不可**通过 `PUT /api/issues/:issue_id` 修改 `state` / `state_reason`（open/close）；Agent 应改用 `PUT /api/issues/:issue_id/internal-meta` 的 `workflow_status` 标记完成，open/close 由 JWT 用户在 Web 端操作。
 - API Key **不可**发表评论（`POST /api/issues/:issue_id/comments`）。
-- 协作区旧端点 `POST/PUT/DELETE /collab/notes`、`/collab/questions` 已移除；`GET /collab` 响应字段为 `suggestions` / `plan` / `review` / `summary`。
+- API Key **不可** `PUT`/`DELETE /api/issues/:issue_id/ship-hook`。`ship_hook` 仅出现在 Issue GET/列表中供只读。发货后关单/留言由 JWT 用户在 Web 配置，发货成功后由服务器执行。
+- 协作区旧端点 `POST/PUT/DELETE /collab/notes`、`/collab/questions` 已移除；`suggestions`、`plan`、`review` 与 `commit_ids` 一并废弃。当前 `GET /collab` 只返回 `consensus` 与 `summary`。
 
 ### 后续使用
 
@@ -181,6 +182,29 @@ GET /api/projects/:project_id/issues?q=关键词&state=open&source=internal&work
 | `sort` | 默认 `updated_desc` |
 | `page` / `page_size` | 默认 1 / 20，最大 100 |
 
+### 发货后钩子（`ship_hook`，只读）
+
+`GET /api/issues/:issue_id` 及列表项可能带 `ship_hook`（无钩子时字段省略）。`PUT`/`DELETE /api/issues/:issue_id/ship-hook` **仅 JWT**；API Key 调用返回 403（40301）。**不要**用 API Key 发评论或改 `state` 来「代替」钩子；Agent 继续只用 `internal-meta.workflow_status` 标记进度。创建 Issue 时**不要**带钩子，**不要**设钩子。
+
+发货后钩子是 JWT 用户在 Web 上配置的一次性动作：该 Issue 所属项目下一次任意版本 **成功** 发货后执行。可选动作：发一条顶层评论、关闭问题（`state_reason=completed`）、改内部状态。
+
+`pending` 示例（`comment_enabled` / `close_enabled` / `workflow_enabled` 为显式布尔，**总是出现**，false 也输出；`workflow_status` 同样总是出现，`workflow_enabled=true` 且值为 `""` 表示「重置为未设置」；`comment_body` 仅在启用评论动作时出现）：
+
+```json
+{
+  "status": "pending",
+  "comment_enabled": true,
+  "comment_body": "已随 {version} 发出。",
+  "close_enabled": true,
+  "workflow_enabled": true,
+  "workflow_status": "done"
+}
+```
+
+`fired` 另有 `version_id`、`version_number`、`release_url`、`fired_at`、`results`（每步 `ok` / `skipped` / `error`）。占位符 `{version}`、`{release_url}` 在发货时替换，`comment_body` 随之变为渲染后正文。Agent 看到 `pending` 只表示用户已预约，**不要**自行再关单或留言。
+
+`running` 表示服务器正在执行该预约；Agent 不应干预或代执行。`fired` 且带内部 `retry_pending` 表示上次动作未持久化完成，服务器会在后续成功发货时自动重试，仍归属于原触发版本；Agent 不应自行补执行。
+
 ## API Key 权限范围
 
 | 资源 | 读 | 写 |
@@ -191,32 +215,29 @@ GET /api/projects/:project_id/issues?q=关键词&state=open&source=internal&work
 | 构建产物上传/下载 | ✅ | ✅ |
 | Issue 评论 | ✅ | ❌ |
 | Issue 工作流（internal-meta）/ Checklist / 附件 | ✅ | ✅ |
+| Issue 发货后钩子（ship-hook） | ✅（随 Issue GET/列表只读） | ❌ |
 | 人机协作区 | ✅ | ✅（PUT 写；JWT 只读 + DELETE） |
 | Ship 发布 | ❌ | ❌ |
 | AI 辅助 | ❌ | 部分（仅 `checklist-suggestions`） |
 
-> **凭证分工**：仅 JWT — `state` / `state_reason`、发表评论、`generate-title`、`/ai/settings`；仅 API Key — 协作区 PUT、日志上传（AI 端点中仅 `checklist-suggestions` 对 API Key 开放）。越权返回 403（40301 或 40303）。
+> **凭证分工**：仅 JWT — `state` / `state_reason`、发表评论、`ship-hook` 写入、`generate-title`、`/ai/settings`；仅 API Key — 协作区 PUT、日志上传（AI 端点中仅 `checklist-suggestions` 对 API Key 开放）。越权返回 403（40301 或 40303）。
 
 ## 人机协作区
 
-代理（API Key）产出实施建议、计划、审查结果、完成总结；用户（JWT）可只读浏览并 DELETE，不可 PUT。数据存于 Fast Ship 内部，不回写 GitHub。
+代理（API Key）产出**共识**与**完成总结**两块；用户（JWT）可只读浏览并 DELETE，不可 PUT。数据存于 Fast Ship 内部，不回写 GitHub。
 
 路径前缀 `/api/issues/:issue_id/collab`。**GET / DELETE**：JWT 或 API Key；**PUT 写端点**：仅 API Key（JWT 返回 40303）。
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| GET | `/collab` | 获取协作区全部内容 |
-| DELETE | `/collab` | 清空全部四块（幂等 200） |
-| PUT | `/collab/suggestions` | 全量替换实施建议（API Key） |
-| DELETE | `/collab/suggestions` | 清空建议 |
-| PUT | `/collab/plan` | 写入/覆盖计划（API Key） |
-| DELETE | `/collab/plan` | 删除计划 |
-| PUT | `/collab/review` | 写入/覆盖审查结果（API Key） |
-| DELETE | `/collab/review` | 删除审查结果 |
+| GET | `/collab` | 获取协作区全部内容（`consensus` 与 `summary`） |
+| DELETE | `/collab` | 清空两块（幂等 200） |
+| PUT | `/collab/consensus` | 写入/覆盖共识（API Key） |
+| DELETE | `/collab/consensus` | 删除共识（幂等） |
 | PUT | `/collab/summary` | 写入/覆盖完成总结（API Key） |
-| DELETE | `/collab/summary` | 删除总结 |
+| DELETE | `/collab/summary` | 删除完成总结（幂等） |
 
-> DELETE 幂等：目标块不存在仍返回 200。清空建议请走 DELETE `/collab/suggestions`，勿用 PUT `items:[]`。Agent 重新 PUT 前应先 GET，尊重用户已清空的状态。
+> DELETE 幂等：目标块不存在仍返回 200。Agent 重新 PUT 前应先 GET，尊重用户已清空的状态。
 
 ### GET 响应示例
 
@@ -224,41 +245,31 @@ GET /api/projects/:project_id/issues?q=关键词&state=open&source=internal&work
 {
   "code": 0,
   "data": {
-    "suggestions": [{ "id": "sug-uuid", "body": "…", "sort_order": 0, "author": { "kind": "agent", "login": "代理" } }],
-    "plan": { "body": "…", "author": { "kind": "agent", "login": "代理" } },
-    "review": null,
+    "consensus": {
+      "issue_id": "…",
+      "body": "…",
+      "author": { "kind": "agent", "login": "代理" },
+      "created_at": "…",
+      "updated_at": "…"
+    },
     "summary": null
   }
 }
 ```
 
-`suggestions` 未产出为 `[]`；`plan` / `review` / `summary` 未产出为 `null`。
+`consensus` / `summary` 未产出为 `null`。
 
-### PUT 实施建议（全量替换）
+### PUT 共识（覆盖 upsert）
 
 ```http
-PUT /api/issues/:issue_id/collab/suggestions
+PUT /api/issues/:issue_id/collab/consensus
 ```
 
 ```json
-{ "items": [{ "body": "建议一" }, { "body": "建议二" }] }
+{ "body": "…" }
 ```
 
-| 字段 | 说明 |
-|---|---|
-| `items` | 必填，最多 30 条；`items[].body` 1..4000 字符 |
-| 行为 | 全量替换，**id 每次重建勿缓存**；变更请 GET 后整包重新 PUT |
-
-### PUT 计划 / 审查结果（覆盖 upsert）
-
-| 路径 | `body` 要求 | 备注 |
-|---|---|---|
-| `PUT …/collab/plan` | 1..8000 字符，Markdown | 每 Issue 一份，重复 PUT 覆盖 |
-| `PUT …/collab/review` | 1..8000 字符，Markdown | 建议含「结论 / 测试 / 遗留」小节 |
-
-```json
-{ "body": "正文内容" }
-```
+`body` 1..8000 字符，Markdown。每 Issue 一份，重复 PUT 覆盖。
 
 ### PUT 完成总结（覆盖 upsert）
 
@@ -267,23 +278,25 @@ PUT /api/issues/:issue_id/collab/summary
 ```
 
 ```json
-{
-  "body": "已完成功能的非技术摘要",
-  "commit_ids": ["abc1234"]
-}
+{ "body": "…" }
 ```
 
-`commit_ids` 可选，0..20 个 git SHA（7..64 位十六进制）。总结讲「做了什么」，审查讲「做得好不好」，两者并存。
+`body` 1..8000 字符，Markdown，覆盖 upsert。`commit_ids` 字段已移除：PUT summary 只收 `body`，多传 `commit_ids` 会被忽略，不要依赖它。
+
+### Summary 内容约束
+
+给普通人看，短、能读完。结构是「**之前**怎样 / **现在**怎样」两段。三条禁令：不准列文件，不准贴 commit SHA，不准写测试清单。可感知的改动落地后再写「现在」；半成品不要写。
 
 ### 推荐工作流
 
 1. `GET /collab` — 先读后写，尊重用户已清空的内容
-2. `PUT /collab/suggestions` — 要点清单
-3. `PUT /collab/plan` — 执行计划
-4. 据计划实施（用户许可范围内）
-5. `PUT /collab/review` — 质量审查
-6. `PUT /collab/summary` — 非技术摘要 + 提交 SHA
-7. 未经用户许可**不要**改 Issue open/closed 状态，**不要**提交/推送代码
+2. 追问确认决策（用户明确表示别追问则跳过）
+3. 整棵决策树问完、用户确认可以开工后，才 `PUT /collab/consensus` 写**已拍板的决策**。追问过程中不写。用户明确说「别问了直接做」→ **共识留空**，不要编「按 Issue 原文实施」充数
+4. 实施（用户许可范围内）
+5. `PUT /collab/summary` — 之前/现在两段；禁文件列表、禁 SHA、禁测试清单
+6. 未经用户许可**不要**改 Issue open/closed 状态，**不要**提交/推送代码
+
+用户 DELETE 清空后，本轮**不要**自动写回，除非用户又一起拍了新板；共识允许反复 PUT 覆盖，不留历史。
 
 ## 项目日志
 
