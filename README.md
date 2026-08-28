@@ -57,6 +57,14 @@
 
 ## 分叉技能
 
+### frontend-design
+
+前端界面设计指导：以小型工作室设计负责人的视角做 UI，先基于设计简报头脑风暴出一套设计 token（色板、字体、布局、签名元素）并用 ASCII 线框图比较方案，对照 AI 模板化的三种默认审美自审后再动手写代码。强调排版承载个性、结构编码信息、动效与文案保持克制，追求「不像模板」的独特视觉方向。
+
+来源：[anthropics/skills — skills/frontend-design](https://github.com/anthropics/skills/tree/main/skills/frontend-design)（Apache-2.0，含 LICENSE.txt）
+
+详见 [skills/forks/frontend-design/SKILL.md](skills/forks/frontend-design/SKILL.md)。
+
 ### grilling
 
 就一个计划、决策或想法对用户连环追问，直到达成共同理解。把决策组织成设计树，按轮次推进：每轮只问前置问题已就绪的「前沿」问题，编号并附上推荐答案，等用户回答后再计算下一轮。事实自己查（派子代理），决策交给用户。
