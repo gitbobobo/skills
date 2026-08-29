@@ -67,6 +67,25 @@ Apply the baseline prompt above, plus these explicit review rules:
    - If related updates can leave state half-applied, push for a more atomic structure.
    - Do not over-index on micro-optimizations, but do flag avoidable orchestration complexity that makes the implementation more brittle.
 
+## Fowler Smell Heuristics
+
+Label these when they show up. They are heuristics from Fowler, *Refactoring*, ch.3, not automatic blockers. Escalate only when the smell also violates a non-negotiable rule above. A smell that is only local polish stays a comment.
+
+Each smell is what it is, then how to fix:
+
+- **Mysterious Name**: a function, variable, or type whose name does not reveal what it does or holds. → rename it. If no honest name comes, the design is murky, and the finding is structural, not a rename nit.
+- **Duplicated Code**: the same logic shape appears in more than one hunk or file. → extract the shared shape, call it from both.
+- **Feature Envy**: a method that reaches into another object's data more than its own. → move the method onto the data it envies.
+- **Data Clumps**: the same few fields or params keep travelling together (a type wanting to be born). → bundle them into one type, pass that.
+- **Primitive Obsession**: a primitive or string standing in for a domain concept that deserves its own type. → give the concept its own small type.
+- **Repeated Switches**: the same `switch`/`if`-cascade on the same type recurs across the change. → replace with polymorphism, or one map both sites share.
+- **Shotgun Surgery**: one logical change forces scattered edits across many files. → gather what changes together into one module.
+- **Divergent Change**: one file or module is edited for several unrelated reasons. → split so each module changes for one reason.
+- **Speculative Generality**: abstraction, parameters, or hooks added for hypothetical future needs. → delete it; inline back until a real need shows.
+- **Message Chains**: long `a.b().c().d()` navigation the caller should not depend on. → hide the walk behind one method on the first object.
+- **Middle Man**: a class or function that mostly just delegates onward. → cut it, call the real target direct.
+- **Refused Bequest**: a subclass or implementer that ignores or overrides most of what it inherits. → drop the inheritance, use composition.
+
 ## Primary Review Questions
 
 For every meaningful change, ask:
@@ -84,6 +103,7 @@ For every meaningful change, ask:
 - Did the diff introduce casts, optionality, or ad-hoc object shapes that obscure the real invariant?
 - Is this logic living in the canonical layer, or did the diff leak details across a boundary?
 - Is this orchestration more sequential or less atomic than it needs to be?
+- Does this match a named Fowler smell, and is the fix a structural move rather than local polish?
 
 ## What to Flag Aggressively
 
@@ -106,6 +126,7 @@ Escalate findings when you see:
 - Logic added in the wrong layer/package when it should live somewhere more central.
 - Sequential async flow where obviously independent work could stay simpler and clearer with parallel execution.
 - Partial-update logic that leaves state less atomic than necessary.
+- Feature Envy, Data Clumps, Shotgun Surgery, Message Chains, or Refused Bequest that also tangle a flow or leak a boundary.
 
 ## Preferred Remedies
 
@@ -127,6 +148,11 @@ When you identify a code-quality problem, prefer suggestions like:
 - Move the logic to the package/module/layer that already owns the concept.
 - Parallelize independent work when that also simplifies the orchestration.
 - Restructure related updates into a more atomic flow when partial state would be harder to reason about.
+- Move a method onto the data it envies.
+- Bundle fields that always travel together into one type.
+- Gather a scattered same-reason change into one module.
+- Hide a message chain behind one method on the first object.
+- Replace refused inheritance with composition.
 
 Do not be satisfied with "maybe rename this" feedback when the real issue is structural.
 Do not be satisfied with a merely cleaner version of the same messy idea if there is a plausible path to a much simpler idea.
@@ -149,6 +175,9 @@ Good phrases:
 - `this looks like a bespoke helper for something we already have elsewhere. can we reuse the canonical one?`
 - `i think there's a code-judo move here that makes this much simpler. can we reframe this so these branches disappear?`
 - `this refactor moves complexity around, but doesn't really delete it. is there a way to make the model itself simpler?`
+- `this looks like Feature Envy. can we move this onto the type that owns the data?`
+- `these fields always travel together. that's a Data Clump. can they be one type?`
+- `one change is touching many files. can we gather this so it isn't Shotgun Surgery?`
 
 ## Output Expectations
 
