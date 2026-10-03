@@ -86,6 +86,14 @@ GLM 的 API Key 依次从环境变量（`BIGMODEL_API_KEY`、`ZHIPU_API_KEY`、`
 
 详见 [skills/godbobo/specialized/fast-ship/SKILL.md](skills/godbobo/specialized/fast-ship/SKILL.md)。
 
+### uiv
+
+把截图、录屏等图片和视频上传到 UIV，拿到公开链接和可直接粘贴的 Markdown，用于在 PR 描述、评论、issue 中展示端到端验证成果。通过 `UIV_URL`（公网地址）与 `UIV_TOKEN` 环境变量配置。专用技能，配合同名自托管服务使用。
+
+来源：[gitbobobo/uiv — skills/uiv](https://github.com/gitbobobo/uiv/tree/main/skills/uiv)
+
+详见 [skills/godbobo/specialized/uiv/SKILL.md](skills/godbobo/specialized/uiv/SKILL.md)。
+
 ## 分叉技能
 
 ### frontend-design

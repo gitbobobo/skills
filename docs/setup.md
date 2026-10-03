@@ -70,4 +70,4 @@ npx skills remove <skill...> -g -y   # 省略 -a 时会同时清理所有 agent 
 
 - 查看有效 agent 标识符：给 `-a` 传一个无效值（如 `-a xx`），报错信息会列出全部有效标识（如 `universal`、`claude-code`、`codex`、`cursor` 等）
 - CLI 默认收集匿名遥测，设置环境变量 `DISABLE_TELEMETRY=1` 可关闭
-- 专用技能 `fast-ship`、`html-preview` 需要先配置对应服务的 API Key（`~/.config/fast-ship/config.yaml`、`~/.config/html-preview/config.yaml`），详见各自 SKILL.md
+- 专用技能 `fast-ship`、`html-preview` 需要先配置对应服务的 API Key（`~/.config/fast-ship/config.yaml`、`~/.config/html-preview/config.yaml`），`uiv` 需要 `UIV_URL` 和 `UIV_TOKEN` 环境变量，详见各自 SKILL.md
