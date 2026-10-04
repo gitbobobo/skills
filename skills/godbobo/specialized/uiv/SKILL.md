@@ -14,7 +14,7 @@ UIV 是一个自托管的图片/视频服务。上传后返回公开链接，任
 - `UIV_URL`：UIV 的**公网**地址，例如 `https://uiv.example.com` 或 `http://1.2.3.4:7000`。必须是 GitHub 能访问到的地址，局域网或 Tailscale 地址生成的链接在 PR 里会显示为裂图。
 - `UIV_TOKEN`：上传用的 token。
 
-缺少任意一个时，停下来请用户提供，不要猜测。
+当前 shell 里没有这两个变量时，先加载 `~/.agents/env/uiv.sh`（`source ~/.agents/env/uiv.sh`），不要到处搜索配置文件。加载后仍缺少任意一个，或文件不存在，就停下来请用户提供，不要猜测。
 
 ## 上传
 
