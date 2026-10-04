@@ -57,8 +57,15 @@ description: T3 Code 多 harness 编排：主代理按任务难度和各 harness
 
 规则：
 
-- 同一个工作树同一时间只能有一个会写文件的子代理。只读调研和审查可以并行。
-- 实现和审查都走 `delegate_task`，方便看到失败原因并换路。只读探索可以用当前 harness 自带的子代理。
+- 同一个工作树可以同时跑多个写文件的子代理，但要同时满足：
+  - 各自「可以改」的范围互不重叠；
+  - 都不碰共享文件：生成物（l10n 输出、绑定生成的类型文件等）、锁文件（`Cargo.lock`、`pnpm-lock.yaml`、`oh-package-lock.json5` 等）、全局配置、预算和基线清单；
+  - 都不提交，也不跑会改写整个仓库的命令（生成器、全仓库格式化、依赖安装）；
+  - 后一个任务不需要参照前一个任务的产出（例如 OHOS 要照着 desktop 的新代码对齐语义时，只能串行）。
+
+  不满足就串行。共享文件的改动、生成器和全仓库测试由主代理在所有写任务验收后统一处理。只读调研和审查随时可以并行。
+- 并行派写任务时，在每个子代理的「范围」里写明同一工作树还有哪些任务在改哪些目录，要求它不碰、不回滚 `git status` 里的这些改动；「验收标准」只写本范围的定向检查（单个 crate 的 `cargo check`/`cargo test`、单个包的 lint）。并行的 cargo 命令会争用同一个 target 目录，`Blocking waiting for file lock` 是正常等待，不要当成卡死去结束进程。
+- 实现、审查和需要执行命令的调研都走 `delegate_task`，方便看到失败原因并换路。当前 harness 自带的子代理只用于不执行命令的只读探索（读文件、搜索）。自带子代理在后台运行时，需要审批的工具（shell、写文件）会被自动拒绝，它跑不了构建和测试，只能交回没验证过的改动。
 - 只有用户明确要求新线程时，才用 `create_threads` 或 `t3_thread_launch`。
 - 派端到端验证或截图任务时，把项目 AGENTS.md 里关于端到端验证的约束原文写进「约束」。环境事实只写查证过的，不要猜（例如把用户的工作电脑说成 CI 机），也不要建议约束以外的手段。
 
@@ -78,6 +85,7 @@ description: T3 Code 多 harness 编排：主代理按任务难度和各 harness
 
 ## 约束
 <编码规范、需要用到的技能（写明技能名，例如 $git-commit）、禁止事项（例如不要提交、不要开 PR、不要回滚已有改动）>
+harness 拒绝执行工具时（例如 `Permission denied for this tool`、`was denied because this agent is running in the background`），立即停止，在回报里写明被拒的工具和命令。不要换别的工具绕过，也不要在无法验证的情况下继续改代码。
 
 ## 验收标准
 <需要跑的命令、需要满足的行为>
@@ -95,6 +103,7 @@ description: T3 Code 多 harness 编排：主代理按任务难度和各 harness
 | 临时过载 | `at capacity`、`server_is_overloaded`、`503`、`stream disconnected`、`Reconnecting... 5/5`、`runtime stream failed`、`Aborted` | 原目标重试一次；还失败就换同模型的其他入口 |
 | 额度或限流 | `usage limit`、`hit your usage limit`、`429`、`exceeded retry limit`、`quota`、`credits` | 本会话内把这个额度池标记为不可用，换同模型的其他入口 |
 | 配置或环境 | `provider_unavailable`、`model_unavailable`、`Invalid value ... model`、`auth`、`Provider session failed to open`、`does not exist` | 不在原目标重试；重新调 `orchestrator_capabilities`，换入口 |
+| 权限被拒 | `Permission denied for this tool`、`was denied because this agent is running in the background` | 不在原目标重试。如果用的是 harness 自带子代理，改用 `delegate_task` 重新派；如果已经是 `delegate_task`，不能升级权限，停下向用户报告被拒的工具 |
 | 任务没做好 | 状态是 completed，但结果不达标 | 不算 harness 故障，见「验收」 |
 | 长时间没进展 | `running`，但 `t3_thread_read` 的 activity 视图很久没有新内容 | `task_cancel`，然后按临时过载处理 |
 
