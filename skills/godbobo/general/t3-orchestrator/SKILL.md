@@ -51,7 +51,7 @@ description: T3 Code 多 harness 编排：主代理按任务难度和各 harness
 
 - `target`：写明 `providerInstanceId`、`model`，需要时加 `options`（例如 `{"fastMode": false}`、`{"reasoningEffort": "medium"}`）。选项名以 `orchestrator_capabilities` 返回的为准。
 - `role`：按任务填 `implementation`、`review`、`research`、`design`、`test` 之一。
-- `mode`：预计 10 分钟内完成的用 `wait`；更长的用 `async`，派完就结束本轮，等 T3 唤醒，不要轮询，也不要另起监视任务。
+- `mode`：预计 10 分钟内完成的用 `wait`；更长的用 `async`，派完就结束本轮，等 T3 唤醒，不要轮询，也不要另起监视任务。只有 `delegate_task` 派出的任务会唤醒你。结束本轮前，先确认没有自己用 `t3_thread_send` 发出、还没结束的 run，有的话按「验收」第 2 步用 `t3_thread_wait` 等完。
 - `clientRequestId`：写成 `<任务简称>-a<尝试序号>`，例如 `fix-seek-a1`，换路时序号加一。
 - `runtimeMode`、`interactionMode` 保持继承，不能升级权限。
 
@@ -100,9 +100,10 @@ harness 拒绝执行工具时（例如 `Permission denied for this tool`、`was 
 
 | 类型 | 典型原文 | 处理 |
 |---|---|---|
-| 临时过载 | `at capacity`、`server_is_overloaded`、`503`、`stream disconnected`、`Reconnecting... 5/5`、`runtime stream failed`、`Aborted` | 原目标重试一次；还失败就换同模型的其他入口 |
+| 临时过载 | `at capacity`、`server_is_overloaded`、`503`、`stream disconnected`、`Reconnecting... 5/5`、`runtime stream failed`、`Aborted` | 不在原目标重试，直接换同模型的其他入口 |
 | 额度或限流 | `usage limit`、`hit your usage limit`、`429`、`exceeded retry limit`、`quota`、`credits` | 本会话内把这个额度池标记为不可用，换同模型的其他入口 |
-| 配置或环境 | `provider_unavailable`、`model_unavailable`、`Invalid value ... model`、`auth`、`Provider session failed to open`、`does not exist` | 不在原目标重试；重新调 `orchestrator_capabilities`，换入口 |
+| 配置或环境 | `provider_unavailable`、`model_unavailable`、`Invalid value ... model`、`is not enabled`、`auth`、`Provider session failed to open`、`does not exist` | 不在原目标重试；重新调 `orchestrator_capabilities`，换入口 |
+| 启动即失败 | 开始后 1 分钟内失败，期间没有任何工具调用，原文不属于上面几类（例如 `Provider turn failed`） | 按配置或环境处理 |
 | 权限被拒 | `Permission denied for this tool`、`was denied because this agent is running in the background` | 不在原目标重试。如果用的是 harness 自带子代理，改用 `delegate_task` 重新派；如果已经是 `delegate_task`，不能升级权限，停下向用户报告被拒的工具 |
 | 任务没做好 | 状态是 completed，但结果不达标 | 不算 harness 故障，见「验收」 |
 | 长时间没进展 | `running`，但 `t3_thread_read` 的 activity 视图很久没有新内容 | `task_cancel`，然后按临时过载处理 |
@@ -135,7 +136,8 @@ harness 拒绝执行工具时（例如 `Permission denied for this tool`、`was 
 
 1. 自己看 diff，跑验收标准里的命令。不能只信子代理的回报。
 2. 不达标时：
-   - 小问题用 `t3_thread_send`（`mode: "queue"`）把具体问题发回同一个子线程，上下文还在，成本最低；
+   - 小问题用 `t3_thread_send`（`mode: "queue"`）把具体问题发回同一个子线程，上下文还在，成本最低。这样追加的 run 结束时不会唤醒你，发完要在同一轮里调 `t3_thread_wait`，传入返回的 `threadId` 和 `runId`；返回 `timedOut: true` 就再调一次，不要结束本轮。结束后用 `t3_thread_read` 读子线程最后的回报，再按第 1 步验收；
+   - 修复量大、预计超过 15 分钟的，不用 `t3_thread_send`，按「续跑」重新 `delegate_task` 一个 `async` 任务，靠完成通知唤醒；
    - 方向错了或者反复改不对，换高一档的模型，按「续跑」重新派活。
 3. 改动较大时，派一个审查子代理做最终审查：实现者是 GPT 系列时用 Grok 4.7，其他情况用 GPT-6.1 Sol。主代理自己看过 diff 不能代替这一步。
 
