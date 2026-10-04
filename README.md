@@ -74,6 +74,21 @@ GLM 的 API Key 依次从环境变量（`BIGMODEL_API_KEY`、`ZHIPU_API_KEY`、`
 
 详见 [skills/godbobo/general/t3-orchestrator/SKILL.md](skills/godbobo/general/t3-orchestrator/SKILL.md)。
 
+### relay-audit
+
+分析近期 T3 Code 线程里人的介入、agent 跑过的命令和各仓库新增的坏模式，按仓库找出人在充当传话员、agent 在走捷径或重复造轮子的地方，提出改进建议，并复盘已采纳改进的效果。仅限用户主动调用（发 `$relay-audit`）。思路来自 Poteto（Lauren Tan）的演讲《上个月我往生产环境合了 2500 个 PR》，以及她和 Matt Pocock 的访谈：给 agent 验证能力（验证 CLI 加特性地图），收紧环境让错误写法写不出来，把外部信息接进 agent 的工作循环；代码库是 agent 的记忆，坏模式会像病毒一样被照抄，需要有人当园丁。
+
+问题分七类：搬运信息、验证缺口、约束缺口、无效停顿、重复粘贴的长提示词、坏模式扩散、agent 重复造轮子（临时脚本、手搓超时、长时间 sleep、手动起服务）。改法按演讲里的五层顺序从强到弱选：代码库和架构 > 静态分析 > 规则、审查 bot、技能 > 风格指南和人工审查，每条建议都要说明为什么做不到更强的一层。每轮最多提 5 条新建议，每条都附证据、具体改法和可统计的指标；下一轮先用指标复盘已完成的改进，没降下来的标为无效并重新诊断。
+
+技能只提建议，不改任何仓库。用户采纳后，需要改仓库文件的建议按 Fast Ship、GitHub、本地 markdown 的优先级建问题。多久跑一次由 T3 Code 的定时任务决定，技能本身不关心调度。
+
+- `scripts/collect.mjs`：只读打开 `~/.t3/userdata/statev2.sqlite`，跨项目汇总人类消息（排除子代理线程、自动消息、定时任务提示词和审计自己的线程），聚类重复消息、打标签、附上每条消息前 agent 的最后一句话；统计 agent 命令里的临时脚本、手搓超时、sleep 等待和反复执行的命令；对每个仓库的默认分支做只读 `git log`，统计新增的类型逃逸、lint 豁免、临时方案注释、跳过的测试和吞掉的错误；列出 AGENTS.md、PR 模板、CI、lint 配置、仓库内技能和特性地图；全部脱敏，并按消息、命令、代码库三种指标计算 ledger 中已采纳条目的变化。另有 `--count <正则>`、`--count-command <正则>` 统计频率，`--thread <ID 前缀>` 读单个线程。T3 数据库结构变化时直接报错退出
+- `references/signals.md`：五层落点顺序，七类问题的识别特征、改法、指标和排序规则
+
+运行状态（ledger、摘要、报告、本地问题）保存在 `~/.local/state/relay-audit/`（可用 `RELAY_AUDIT_HOME` 覆盖），不进任何仓库。需要 Node 22.5 以上（使用内置 `node:sqlite`）。
+
+详见 [skills/godbobo/general/relay-audit/SKILL.md](skills/godbobo/general/relay-audit/SKILL.md)。
+
 ### html-preview
 
 通过 HTML Preview REST API 上传、管理 HTML/ZIP 预览页：生成公开分享链接、更新元数据与有效期、替换内容、回收站与收藏管理。API Key 认证，配置持久化在 `~/.config/html-preview/config.yaml`。专用技能，配合同名服务使用。
