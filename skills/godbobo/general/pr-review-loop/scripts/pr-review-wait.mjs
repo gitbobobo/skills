@@ -127,6 +127,16 @@ function stripNoise(body) {
   return body.replace(/<!--[\s\S]*?-->/g, "").replace(/<picture>[\s\S]*?<\/picture>/g, "").replace(/<a [^>]*>\s*<\/a>/g, "").trim();
 }
 
+// 回复一律发新评论。Code Bot 和 agent 共用账号，改已有评论会覆盖审查结论，所以不给 PATCH/DELETE 的写法。
+// 行内意见只能回复到线程的第一条评论，回复的回复也挂到 replyTo 上
+function replyCommand(repo, number, item) {
+  if (item.kind === "inline") {
+    const root = item.replyTo ?? item.id.slice(1);
+    return `gh api repos/${repo}/pulls/${number}/comments -X POST -F in_reply_to=${root} -F body=@<回复文件>`;
+  }
+  return `gh api repos/${repo}/issues/${number}/comments -X POST -F body=@<回复文件>`;
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const pr = loadPr();
@@ -161,7 +171,7 @@ const fresh = items.filter((i) => !seen.has(i.id) && isFeedback(i, prAuthor));
 console.log(`\n## 新意见（${fresh.length} 条未读）`);
 for (const i of fresh) {
   const where = i.kind === "inline" ? ` ${i.path}:${i.line ?? "?"}${i.replyTo ? "（回复）" : ""}` : "";
-  console.log(`\n### [${i.kind}] ${i.author} ${i.at}${where}\n${i.url}\n\n${truncate(stripNoise(i.body))}`);
+  console.log(`\n### [${i.kind}] ${i.author} ${i.at}${where}\n${i.url}\n回复：${replyCommand(repo, pr.number, i)}\n\n${truncate(stripNoise(i.body))}`);
 }
 
 if (!peek) writeFileSync(file, JSON.stringify([...seen, ...fresh.map((i) => i.id)]));

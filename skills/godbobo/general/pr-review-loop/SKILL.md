@@ -25,6 +25,15 @@ description: PR 推送并请求复审后，自动等待审查 bot 与 CI、处�
 
 脚本提示某个审查者无响应时，重新请求一次；再次无响应就不再等它，在结束汇报里说明。
 
+## 回复
+
+脚本在每条新意见下面打印了「回复：」命令，照着用，把 `<回复文件>` 换成回复正文的文件路径。正文先写进 UTF-8 无 BOM 的临时文件，不要把中文内联在命令里。
+
+- 行内意见：`gh api repos/<repo>/pulls/<n>/comments -X POST -F in_reply_to=<线程第一条评论的 id> -F body=@<回复文件>`
+- 顶层评论、审查总结和 Code Bot 结论：`gh api repos/<repo>/issues/<n>/comments -X POST -F body=@<回复文件>`，正文开头引用被回复的意见或附上它的链接。
+
+不要对任何评论执行 `PATCH` 或 `DELETE`，自己账号发的也不行。Code Bot 和 agent 用的是同一个 GitHub 账号，GitHub 不会拦，改错了就会覆盖审查结论。回复发错了就再发一条更正，不要改原评论。修改 PR 描述用 `gh pr edit`，不受这条限制。
+
 ## 暂停
 
 - 遇到需要产品决策的意见，停下来问用户。
