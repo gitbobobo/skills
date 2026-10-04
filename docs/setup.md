@@ -22,17 +22,20 @@ npx skills add gitbobobo/skills -l
 
 ### 2. 确认安装范围
 
-- **技能**：全部（`-s '*'`）或指定技能（`-s git-commit`，多个重复传参）
+- **技能**：全部（`-s "*"`）或指定技能（`-s git-commit`，多个重复传参）
 - **agent**：默认 `-a universal -a claude-code`；用户另有要求时按需调整
 - **范围**：默认全局 `-g`（本机所有项目可用）
 
-注意：`-a` 必须重复传递，`-a claude-code,universal` 这种逗号写法会报 `Invalid agents`。
+注意：
+
+- `-a` 必须重复传递，`-a claude-code,universal` 这种逗号写法会报 `Invalid agents`。
+- 通配符用双引号 `"*"`。Windows cmd 不会剥掉单引号，`'*'` 会被当成字面字符串传给 CLI，报 `No matching skills found`；双引号在 cmd、PowerShell、bash 下都能用。
 
 ### 3. 执行安装
 
 ```bash
 # 全部技能，装到通用目录 + Claude Code（推荐）
-npx skills add gitbobobo/skills -g -s '*' -a universal -a claude-code -y
+npx skills add gitbobobo/skills -g -s "*" -a universal -a claude-code -y
 
 # 单个技能
 npx skills add gitbobobo/skills -g -s plain-plan -a universal -a claude-code -y
