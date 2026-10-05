@@ -401,16 +401,26 @@ const remoteOf = (root) => {
 };
 
 // 坏模式：agent 会照着已有写法扩写，这些一旦出现就会扩散
+// 第三个元素是可选的 { inTestFiles }：只在测试文件里才算数的写法
 const GARDEN = [
-  ["类型逃逸", /@ts-ignore|@ts-expect-error|@ts-nocheck|\bas any\b|:\s*any\b|#\s*type:\s*ignore/],
+  // `: any` 只认 TypeScript 的类型标注：前面不能再有冒号（排除 Rust 的 `路径::any(`），
+  // 后面不能跟标识符（排除 Swift 的存在类型 `any Decoder`）。
+  // 泛型参数位的 `any`（`Record<string, any>`）本来就不在这条里，宁可漏报也不扩大范围
+  ["类型逃逸", /@ts-ignore|@ts-expect-error|@ts-nocheck|\bas any\b|(?<!:):\s*any\b(?!\s*[A-Za-z_])|#\s*type:\s*ignore/],
   ["lint 豁免", /eslint-disable|biome-ignore|oxlint-disable|swiftlint:disable|#\[allow\(|@Suppress|#\s*noqa|\/\/\s*nolint/],
   ["待办与临时方案注释", /(\/\/|#|\/\*|--)\s*(TODO|FIXME|HACK|XXX)\b|workaround|临时方案|暂时|兼容旧/i],
-  ["跳过的测试", /\.skip\(|\bx(it|describe|test)\(|t\.Skip\(|#\[ignore\]|XCTSkip/],
-  // 只收确定吞掉的写法。Swift 的 try? 另算：它在 teardown、StoreKit 这类地方是惯用法，
-  // 混进来会让这一类几乎全是误报，把真正的空 catch 淹掉。
-  ["吞掉错误", /catch\s*(\([^)]*\))?\s*\{\s*\}|_\s*=\s*err\b|\.ok\(\);/],
+  // 裸 .skip( 不能放进无条件那一组：Rust 的 .skip(offset)、JS 的迭代器 .skip() 全是生产代码，
+  // 不限定路径就会把它们当成跳过的测试。限定在测试文件里才认 .skip( / .only(
+  ["跳过的测试", /\bx(it|describe|test)\(|t\.Skip\(|#\[ignore\b|XCTSkip/, { inTestFiles: /\.(skip|only)\(/ }],
+  // 只收确定吞掉的写法。两类东西故意不收，收了这一类就几乎全是误报，把真正的空 catch 淹掉：
+  //   - Swift 的 try?：在 teardown、StoreKit 这类地方是惯用法，单列为参考项
+  //   - Rust 的 .ok();：绝大多数是 Result→Option 的转换，后面还有 let-else / if let 接着处理；
+  //     它又常常是多行链式调用的最后一行，单行正则看不到前面有没有绑定，分不出丢弃和转换
+  ["吞掉错误", /catch\s*(\([^)]*\))?\s*\{\s*\}|_\s*=\s*err\b/],
   ["Swift try?（参考，多为惯用法）", /\btry\?\s/],
 ];
+// inTestFiles 用的测试文件路径约定
+const TEST_FILE = /(^|\/)(tests?|__tests__|spec|e2e|androidTest)\/|[.\-_](test|spec)\.[cm]?[jt]sx?$|Tests?\.(swift|kt|java)$/i;
 // 末尾那条排除本采集器自身：它按定义就包含上面每一个 pattern 的字面量，扫自己必然全中
 const SKIP_FILE =
   /(^|\/)(node_modules|vendor|dist|build|target|\.next|Pods|generated|__snapshots__)\/|\.lock$|lock\.(json|ya?ml)$|\.min\.js$|\.snap$|\.(md|mdx|txt)$|(^|\/)relay-audit\/scripts\//;
@@ -435,16 +445,19 @@ const gardenScan = (root) => {
       return Number(git(root, ["rev-list", "--count", "--no-merges", ...range]).trim());
     };
     const scan = (from, to) => {
-      const acc = Object.fromEntries(GARDEN.map(([label]) => [label, { n: 0, files: {} }]));
+      const acc = Object.fromEntries(GARDEN.map(([label]) => [label, { n: 0, files: {}, samples: [] }]));
       if (!from || !to || from === to) return acc;
       let file = "";
       for (const line of git(root, ["diff", "--unified=0", "--no-color", "--no-ext-diff", `${from}..${to}`]).split("\n")) {
         if (line.startsWith("+++ ")) file = line.slice(6);
         else if (line.startsWith("+") && !SKIP_FILE.test(file)) {
-          for (const [label, re] of GARDEN) {
-            if (!re.test(line)) continue;
+          for (const [label, re, extra] of GARDEN) {
+            const hit = re.test(line) || (extra?.inTestFiles && TEST_FILE.test(file) && extra.inTestFiles.test(line));
+            if (!hit) continue;
             acc[label].n += 1;
             acc[label].files[file] = (acc[label].files[file] ?? 0) + 1;
+            // 附命中原文，让下一轮能当场看出误报，不必回仓库翻代码
+            if (acc[label].samples.length < 2) acc[label].samples.push(`${file}：${line.slice(1)}`);
           }
         }
       }
@@ -455,7 +468,7 @@ const gardenScan = (root) => {
     const headW = commitAt(windowEnd) || ref;
     const w = scan(baseW, headW);
     const b = scan(baseB, baseW);
-    const stats = Object.fromEntries(GARDEN.map(([label]) => [label, { w: w[label].n, b: b[label].n, files: w[label].files }]));
+    const stats = Object.fromEntries(GARDEN.map(([label]) => [label, { w: w[label].n, b: b[label].n, files: w[label].files, samples: w[label].samples }]));
     const commitCount = { w: countCommits(baseW, headW), b: countCommits(baseB, baseW) };
     result = { ref, lastCommit, stats, commitCount };
   } catch {}
@@ -661,6 +674,7 @@ for (const name of projectNames) {
     detail.push(
       `先看每百提交那一列再下结论：本期提交 ${fmtRate(perDay(garden.commitCount.w, windowMs))}/天、基线 ${fmtRate(perDay(garden.commitCount.b, baselineMs))}/天，提交速率本身就会把每天的数字整体抬高或压低。`,
     );
+    detail.push(`每类下面附了最多 2 行命中原文：先读原文确认不是误报，再去仓库里查上下文。`);
     detail.push("");
     for (const [label, s] of Object.entries(garden.stats)) {
       if (!s.w && !s.b) continue;
@@ -668,6 +682,7 @@ for (const name of projectNames) {
       detail.push(
         `- ${label}：本期 ${s.w} 行（${per100(s.w, garden.commitCount.w)}/百提交，${fmtRate(perDay(s.w, windowMs))}/天），基线 ${per100(s.b, garden.commitCount.b)}/百提交、${fmtRate(perDay(s.b, baselineMs))}/天${files.length ? `；集中在 ${files.join("、")}` : ""}`,
       );
+      for (const sample of s.samples ?? []) detail.push(`  - 命中原文：${head(sample, 160)}`);
     }
     detail.push("");
   }
