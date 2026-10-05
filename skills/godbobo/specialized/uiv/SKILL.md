@@ -53,6 +53,35 @@ curl.exe -fsS -H "Authorization: Bearer $env:UIV_TOKEN" -F "file=@screenshot.png
 - 较长的演示：MP4（H.264）或 WebM，贴链接即可。
 - 只接受图片和视频（PNG、JPEG、GIF、WebP、AVIF、HEIC、BMP、SVG、MP4、WebM、MOV、AVI），按文件内容判断，和扩展名无关。默认单文件上限 200MB。
 
+## 演示动图
+
+本节针对能用几张状态图讲清的短演示；较长的演示不拼 GIF，按「选择格式」直接上传 MP4 链接。
+
+- 默认按状态截图再拼成 GIF，不录连续视频。操作中每个有意义的状态截一张，单独设停留时间：中间状态 1 秒以内，最终状态至少 3 秒。
+- 第一帧必须是加载完成后的页面。等数据加载完再开始截，不能出现「加载中」。
+- 关键 UI 要占画面主体。视口用 900 宽左右，或只裁操作区域，保证贴进 PR 表格后文字还能看清。
+- 只有改动本身是动画或过渡效果时才录连续视频。这时上传 MP4 作为链接，同时贴几张关键状态截图。
+- 上传前自检：最长的一帧必须是最终状态，而且不少于 3 秒；第一帧不是加载中；每一帧都用眼睛看过。
+
+按状态截图拼 GIF，每帧单独设停留时长：
+
+```python
+from PIL import Image
+frames = [("board.png", 1000), ("hover.png", 700), ("dialog.png", 3600)]
+imgs = [Image.open(f) for f, _ in frames]
+imgs[0].save("demo.gif", save_all=True, append_images=imgs[1:],
+             duration=[d for _, d in frames], loop=0, optimize=True)
+```
+
+上传前自检，打印尺寸、帧数、每帧时长和总时长：
+
+```python
+from PIL import Image, ImageSequence
+im = Image.open("demo.gif")
+d = [f.info.get("duration", 0) for f in ImageSequence.Iterator(im)]
+print(im.size, len(d), d, sum(d))
+```
+
 ## 注意
 
 - 链接是公开的，没有 token 也能访问。不要上传含密钥、个人信息或内部数据的截图；必要时先裁剪或打码。

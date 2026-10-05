@@ -99,7 +99,7 @@ GLM 的 API Key 依次从环境变量（`BIGMODEL_API_KEY`、`ZHIPU_API_KEY`、`
 
 ### fast-ship
 
-通过 Fast Ship REST API 创建、更新与查询 Issue：项目管理、打标、工作流状态推进、人机协作区（共识/总结）读写、推荐任务读写、发货后钩子只读与项目日志上传。API Key 认证，配置持久化在 `~/.config/fast-ship/config.yaml`。专用技能，配合同名服务使用。
+通过 Fast Ship REST API 创建、更新与查询 Issue：项目管理、打标、工作流状态推进、人机协作区（共识/总结）读写、推荐任务读写、发货后钩子只读与项目日志上传。API Key 认证，配置持久化在 `~/.config/fast-ship/config.yaml`；所有请求走 `scripts/fast-ship-api.mjs`，Key 不出现在命令行，请求体、参数与错误码以 `references/api.md` 为准。专用技能，配合同名服务使用。
 
 来源：[gitbobobo/fast_ship — skills/fast-ship](https://github.com/gitbobobo/fast_ship/tree/main/skills/fast-ship)
 
@@ -107,7 +107,7 @@ GLM 的 API Key 依次从环境变量（`BIGMODEL_API_KEY`、`ZHIPU_API_KEY`、`
 
 ### uiv
 
-把截图、录屏等图片和视频上传到 UIV，拿到公开链接和可直接粘贴的 Markdown，用于在 PR 描述、评论、issue 中展示端到端验证成果。通过 `UIV_URL`（公网地址）与 `UIV_TOKEN` 环境变量配置，当前 shell 没有时从 `~/.agents/env/uiv.sh` 加载。专用技能，配合同名自托管服务使用。
+把截图、录屏等图片和视频上传到 UIV，拿到公开链接和可直接粘贴的 Markdown，用于在 PR 描述、评论、issue 中展示端到端验证成果；另附短演示按状态截图拼 GIF 的规则与自检方法。通过 `UIV_URL`（公网地址）与 `UIV_TOKEN` 环境变量配置，当前 shell 没有时从 `~/.agents/env/uiv.sh` 加载。专用技能，配合同名自托管服务使用。
 
 来源：[gitbobobo/uiv — skills/uiv](https://github.com/gitbobobo/uiv/tree/main/skills/uiv)
 
