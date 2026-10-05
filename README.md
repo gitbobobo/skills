@@ -117,7 +117,7 @@ GLM 的 API Key 依次从环境变量（`BIGMODEL_API_KEY`、`ZHIPU_API_KEY`、`
 
 ### frontend-design
 
-前端界面设计指导：以小型工作室设计负责人的视角做 UI，先基于设计简报头脑风暴出一套设计 token（色板、字体、布局、签名元素）并用 ASCII 线框图比较方案，对照 AI 模板化的三种默认审美自审后再动手写代码。强调排版承载个性、结构编码信息、动效与文案保持克制，追求「不像模板」的独特视觉方向。
+前端界面设计指导：以设计工作室负责人的视角做 UI，先基于设计简报头脑风暴出一套设计 token（色板、字体、布局、原则）并用 ASCII 线框图比较方案，对照 AI 模板化的五类默认审美自审后再动手写代码。强调排版承载个性、结构编码信息、非用户触发的动效与文案保持克制，追求「不像模板」的独特视觉方向。
 
 来源：[anthropics/skills — skills/frontend-design](https://github.com/anthropics/skills/tree/main/skills/frontend-design)（Apache-2.0，含 LICENSE.txt）
 
@@ -138,14 +138,6 @@ GLM 的 API Key 依次从环境变量（`BIGMODEL_API_KEY`、`ZHIPU_API_KEY`、`
 来源：[mattpocock/skills — skills/productivity/handoff](https://github.com/mattpocock/skills/tree/main/skills/productivity/handoff)
 
 详见 [skills/forks/handoff/SKILL.md](skills/forks/handoff/SKILL.md)。
-
-### unslop
-
-去除文字中的 AI 写作痕迹并注入人味：按内容、语言、风格、沟通痕迹、废话、行话、平实表达七类共 31 条模式检测改写，改完自审「哪里一眼是 AI 写的」。
-
-来源：[cursor/plugins — pstack/skills/unslop](https://github.com/cursor/plugins/tree/main/pstack/skills/unslop)
-
-详见 [skills/forks/unslop/SKILL.md](skills/forks/unslop/SKILL.md)。
 
 ### thermo-nuclear-code-quality-review
 
