@@ -198,14 +198,6 @@ create-verification-skill 生成的验证技能的维护回路：每个 feature 
 
 详见 [skills/forks/retro/SKILL.md](skills/forks/retro/SKILL.md)。
 
-### thermo-nuclear-code-quality-review
-
-极严格的代码可维护性评审：不止挑局部清理点，主动找「code judo」式重构，让整段分支、辅助层、条件判断直接消失。硬性红线包括文件被推过 1k 行、在无关流程里插特判分支、薄封装与多余 cast、逻辑放错层等。另用 Fowler 的 12 条 smell 作为带名字的启发式（非自动 blocker）。行为正确不足以通过评审。仅限用户手动调用。
-
-来源：[cursor/plugins — cursor-team-kit/skills/thermo-nuclear-code-quality-review](https://github.com/cursor/plugins/tree/main/cursor-team-kit/skills/thermo-nuclear-code-quality-review)。Fowler smell 词表改编自 [mattpocock/skills — code-review](https://github.com/mattpocock/skills/tree/main/skills/engineering/code-review)。
-
-详见 [skills/forks/thermo-nuclear-code-quality-review/SKILL.md](skills/forks/thermo-nuclear-code-quality-review/SKILL.md)。
-
 ### writing-for-agents
 
 给 agent 写文档的通用参考，适用于技能、`AGENTS.md`/`CLAUDE.md` 以及被指针引用的 docs：context pointer 的措辞（leading word 前置、一个分支一个触发词）、context load 与 cognitive load 两种开销、信息层级（文内步骤 / 文内参考 / 披露式参考）、完成标准的清晰度与强度、按序列或调用方式拆分、leading words 与删减原则。写技能时另读同目录 `SKILL-MECHANICS.md`（frontmatter、模型调用 vs 用户调用、router 技能）。
