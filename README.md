@@ -49,6 +49,8 @@ PR 推送并请求复审后，由 agent 自己等待审查 bot（Codex、Code Bo
 - [ ] 请求复审后按 `$pr-review-loop` 自动等待并处理新意见，直到收敛（规则见该 skill，不需要用户转达）
 ```
 
+处理新意见按「收敛规则」一节执行：先把意见归并进 Act on / Consider / Noted / Dismissed 四桶再按桶回复（Consider 档补上了「对但本 PR 不做」的中间档）；云端 bot 的一致性要降权（各 bot 输入不同）；跨轮判断记在工作树外的 TSV 账本里；上一轮已 Dismissed 的意见被重复提出时引用旧驳回理由而不是重新辩论。
+
 对话中断后恢复时，发 `$pr-review-loop 继续（加 --reset）`。
 
 详见 [skills/godbobo/general/pr-review-loop/SKILL.md](skills/godbobo/general/pr-review-loop/SKILL.md)。
@@ -70,6 +72,8 @@ node ~/.agents/skills/setup-env/scripts/setup-env.mjs --copy    # Windows/无符
 T3 Code 多 harness 编排，仅限用户主动调用（在 T3 Code 线程里发 `$t3-orchestrator`）。调用后主代理按任务难度和各 harness 额度，通过 `t3-code` MCP 的 `delegate_task` 把活派给合适的子代理模型，再由主代理验收。审查交给 GPT-6.1 Sol 或 Grok 4.7。低难度任务优先用额度充足的 `glm-5.3-flash`、DeepSeek V4.1 Flash、GPT-6 Luna。子代理遇到限流、额度用尽或服务过载时，主代理按错误原文分类，先换同模型的其他入口，再换同档位或降档模型，读取旧子线程的进度和工作区 diff 后接着做，最后汇报换路情况。服务过载不在原入口重试；开始后 1 分钟内就失败、没调用过工具的，按配置问题处理。Factory Droid 在 [Factory-AI/factory#9](https://github.com/Factory-AI/factory/issues/9) 修复前暂停使用，路由表和备用入口里已移除。主代理自己中断仍由用户处理。派端到端验证或截图任务时，主代理要把项目 AGENTS.md 里的端到端约束原文转给子代理，不得猜测环境事实；引用词表或生成物条目的任务，由主代理先查证并把可用名单写进任务背景，子代理只引用名单内名字。
 
 同一工作树可以并行跑多个写文件的子代理，条件是改动范围互不重叠、都不碰生成物和锁文件、都不提交，且彼此不依赖对方的产出；生成器、锁文件和全仓库测试由主代理在汇合后统一处理。需要执行命令的工作一律走 `delegate_task`，harness 自带的子代理只做不执行命令的只读探索，因为它在后台运行时 shell 和写文件会被自动拒绝。子代理被拒绝权限时要立即停下汇报，不得绕过或在无法验证的情况下继续改。
+
+改动较大时的最终审查派一个审查子代理（实现者是 GPT 系列用 Grok 4.7，其他用 GPT-6.1 Sol）；推送前的多模型并行审查用 `$code-review-panel`，模型按路由表挑、优先不同家族。
 
 验收时，小问题用 `t3_thread_send` 发回原子线程，上下文还在。这样追加的 run 结束时不会触发完成通知，所以主代理发完必须在同一轮里用 `t3_thread_wait` 等它结束，不能结束本轮干等唤醒。修复量大的改为重新 `delegate_task` 一个 async 任务。
 
@@ -118,6 +122,38 @@ GLM 的 API Key 依次从环境变量（`BIGMODEL_API_KEY`、`ZHIPU_API_KEY`、`
 
 ## 分叉技能
 
+### blast-radius
+
+在改动发布前找出它会在别处破坏什么：列出调用方不是目标，目标是 grep 看不到的破坏。先找出「这个改动安全所依赖的那一个事实」，按 0-5 级证据阶梯（从「我说了算」到「在运行中的应用里复现」）把它推到尽可能高，再用真实代码验证。大改动可派多个不同模型的只读子代理并行提问再合并答案（见 code-review-panel）。
+
+来源：[cursor/plugins — pstack/skills/blast-radius](https://github.com/cursor/plugins/tree/main/pstack/skills/blast-radius)（MIT）。已改造：原文对 `how`/`why`/`arena`/`unslop` 四个技能的引用全部内联化，可独立安装。
+
+详见 [skills/forks/blast-radius/SKILL.md](skills/forks/blast-radius/SKILL.md)。
+
+### code-review-panel
+
+推送之前，派多个不同模型的只读子代理并行审查同一份改动（同一份 prompt 和 rubric），再由主代理按 Act on / Consider / Noted / Dismissed 四桶归并裁决，不自动改代码。
+
+来源：[cursor/plugins — pstack/skills/interrogate](https://github.com/cursor/plugins/tree/main/pstack/skills/interrogate)（MIT），改名改造而来：审查者模型来源从 Cursor 的 `pstack-models.mdc` 配置换成 `t3-orchestrator` 的路由表（至少两个、优先不同家族），派发走 `delegate_task` 或 harness 自带只读子代理，换路沿用 t3-orchestrator 的规则；并新增与 `pr-review-loop` 的分工一节（本技能只管推送之前，PR 阶段的云端 bot 意见走 pr-review-loop）。
+
+详见 [skills/forks/code-review-panel/SKILL.md](skills/forks/code-review-panel/SKILL.md)。
+
+### create-verification-skill
+
+生成一个项目本地的验证技能：通过访谈仓库（而非用户）弄清应用的表面、启动、驱动方式与可采集证据，产出带 Launch/Doctor/Drive/Evidence/Cleanup 五段规格的 SKILL.md 和一份 feature map（每个用户可见功能一个文件，固定四个 H2）。生成后必须按自己的说明完整跑一遍才交付——没跑过的叫草稿。
+
+来源：[cursor/plugins — pstack/skills/create-verification-skill](https://github.com/cursor/plugins/tree/main/pstack/skills/create-verification-skill)（MIT）。已改造：生成物落点从硬编码 `.cursor/skills/` 改为跟随目标仓库自己的 agent 技能目录约定（本机 `.agents/skills/`）。
+
+详见 [skills/forks/create-verification-skill/SKILL.md](skills/forks/create-verification-skill/SKILL.md)。
+
+### diagnosing-bugs
+
+疑难 bug 与性能回退的诊断纪律，六个阶段：先建一条能对「这个 bug」变红的紧反馈回路（这是技能本体，其余都是机械步骤），再复现最小化、列出 3-5 个可证伪假设、按假设逐个插桩、在对的缝上先写回归测试再修，最后清理。附带 HITL 回路脚本模板。已补一节：仓库级的放弃规则只管端到端截图采集，不管 Phase 1 的回路构建。
+
+来源：[mattpocock/skills — skills/engineering/diagnosing-bugs](https://github.com/mattpocock/skills/tree/main/skills/engineering/diagnosing-bugs)
+
+详见 [skills/forks/diagnosing-bugs/SKILL.md](skills/forks/diagnosing-bugs/SKILL.md)。
+
 ### frontend-design
 
 前端界面设计指导：以设计工作室负责人的视角做 UI，先基于设计简报头脑风暴出一套设计 token（色板、字体、布局、原则）并用 ASCII 线框图比较方案，对照 AI 模板化的五类默认审美自审后再动手写代码。强调排版承载个性、结构编码信息、非用户触发的动效与文案保持克制，追求「不像模板」的独特视觉方向。
@@ -142,11 +178,21 @@ GLM 的 API Key 依次从环境变量（`BIGMODEL_API_KEY`、`ZHIPU_API_KEY`、`
 
 详见 [skills/forks/handoff/SKILL.md](skills/forks/handoff/SKILL.md)。
 
+### maintain-verification-skill
+
+create-verification-skill 生成的验证技能的维护回路：每个 feature 文件派一个只读子代理从源码核查，再由主代理一次长会话把每个功能实际驱动一遍，全程持三条不变量（驱动前先 doctor、已采证据不被清理吃掉、驱动不留残余）。结局只有 clean / changed / blocked 三种，changed 产出一个 PR 的已验证修正。
+
+来源：[cursor/plugins — pstack/skills/maintain-verification-skill](https://github.com/cursor/plugins/tree/main/pstack/skills/maintain-verification-skill)（MIT）。已改造：定位路径从 `.cursor/skills/verify-*/` 改为跟随目标仓库的技能目录约定。
+
+详见 [skills/forks/maintain-verification-skill/SKILL.md](skills/forks/maintain-verification-skill/SKILL.md)。
+
 ### retro
 
 复盘一次编码会话，向 agent 的工作环境提改进建议：只提议不落地，用户采纳后才改。读指定会话的原始记录（默认当前会话，可查本机会话日志），按七类问题找候选并按严重度排序——导航指引、自动化检查（机械性错误优先落成 lint/pre-commit/CI 等确定性检查，而不是写规则；仓库缺少守卫本身也算发现）、编码标准（判断力层面的规则进 `CODING_STANDARDS.md` 供评审环节读）、臃肿的 AGENTS.md 精简外移、工具调用成本、steering 文件中的无效指令、信息获取缺口。仅限用户主动调用。
 
 依赖同仓库的 writing-for-agents（已一并导入；单独安装本技能时需一并安装它）。`CODING_STANDARDS.md` 规则需要有复审流程读取才能生效，否则需人工接手。
+
+另吸收了 [cursor/plugins — pstack/skills/correct](https://github.com/cursor/plugins/tree/main/pstack/skills/correct) 的两条主张（不单独导入 correct，触发词与 retro 相近）：修复层级阶梯（架构 > 类型 > 报错能指名替代物的 lint/CI > 行为测试 > 文档和 agent 规则垫底），以及「新检查必须在一条真实历史错误上证明会变红」加规则↔强制者表（规则无人强制时再犯要在同次改动里提到更高层级，错误不可能再发生就删规则）。
 
 来源：[mattpocock/skills — skills/engineering/retro](https://github.com/mattpocock/skills/tree/main/skills/engineering/retro)
 

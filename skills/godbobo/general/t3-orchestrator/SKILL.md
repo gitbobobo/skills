@@ -140,7 +140,7 @@ harness 拒绝执行工具时（例如 `Permission denied for this tool`、`was 
    - 小问题用 `t3_thread_send`（`mode: "queue"`）把具体问题发回同一个子线程，上下文还在，成本最低。这样追加的 run 结束时不会唤醒你，发完要在同一轮里调 `t3_thread_wait`，传入返回的 `threadId` 和 `runId`；返回 `timedOut: true` 就再调一次，不要结束本轮。结束后用 `t3_thread_read` 读子线程最后的回报，再按第 1 步验收；
    - 修复量大、预计超过 15 分钟的，不用 `t3_thread_send`，按「续跑」重新 `delegate_task` 一个 `async` 任务，靠完成通知唤醒；
    - 方向错了或者反复改不对，换高一档的模型，按「续跑」重新派活。
-3. 改动较大时，派一个审查子代理做最终审查：实现者是 GPT 系列时用 Grok 4.7，其他情况用 GPT-6.1 Sol。主代理自己看过 diff 不能代替这一步。
+3. 改动较大时，派一个审查子代理做最终审查：实现者是 GPT 系列时用 Grok 4.7，其他情况用 GPT-6.1 Sol。主代理自己看过 diff 不能代替这一步。推送前需要多个模型并行审查时，用 `$code-review-panel`，审查者模型按本技能的路由表挑，优先不同家族。
 
 ## 汇报
 
