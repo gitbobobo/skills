@@ -54,7 +54,7 @@ for (const dir of walk(skillsDir)) {
   const name = dir.split(sep).at(-1);
   const text = readFileSync(join(dir, "SKILL.md"), "utf8");
 
-  const fm = text.match(/^---\n([\s\S]*?)\n---/);
+  const fm = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!fm) {
     fail(`${rel}/SKILL.md：缺少 frontmatter`);
   } else {
