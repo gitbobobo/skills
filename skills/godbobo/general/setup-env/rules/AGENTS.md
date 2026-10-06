@@ -10,7 +10,7 @@
   cmd > /tmp/x.log 2>&1; s=$?; tail -30 /tmp/x.log; echo "exit=$s"
   ```
 
-- 等待长任务（构建、e2e、后台服务）：后台跑、日志落文件，轮询同一份日志和进程状态；不要堆叠 `sleep N && ...` 链。本机装有 `run-watch` 时优先用它：`run-watch start <名> -- <命令>` 起后台任务，`run-watch status <名>` 查状态（退出码：还在跑=2、成功=0、失败=1）。仓库或技能自带 wait 类脚本时一律用脚本。
+- 等待长任务（构建、e2e、后台服务）：后台跑、日志落文件，轮询同一份日志和进程状态；不要堆叠 `sleep N && ...` 链，也不要把长命令放前台同步等到超时再回头查日志。终端工具自带后台执行（exec 的后台模式加输出轮询）时优先用，其次 `run-watch`：`run-watch start <名> -- <命令>` 起后台任务，`run-watch status <名>` 查状态（退出码：还在跑=2、成功=0、失败=1）。仓库或技能自带 wait 类脚本时一律用脚本。
 - 向外部服务发非 ASCII 内容（中文评论、JSON 体）：先写 UTF-8 无 BOM 文件再引用——`gh --body-file`、`gh api --input`、`curl --data-binary @file`；不内联、不经 stdin 管道。
 
 ## gh api 陷阱
