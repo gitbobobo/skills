@@ -55,7 +55,7 @@ PR 推送并请求复审后，由 agent 自己等待审查 bot（Codex、Code Bo
 
 ### setup-env
 
-统一设置本机各 agent harness 的全局代理规则：把技能内置的 `rules/AGENTS.md`（唯一真源）链接到 devin、codex、claude、opencode、factory droid 的全局规则路径，cursor 则写入 `~/.cursor/rules/global.mdc`（包 `alwaysApply` frontmatter 的派生文件），让所有 CLI 代理在任何项目里加载同一套约定（命令输出截断保留退出码、长任务日志轮询、非 ASCII 请求体走文件、gh api 陷阱、macOS 进程组与失效 cwd 等）。附带环境体检：报告各 harness CLI 安装情况与规则文件状态，已有非空文件先备份再替换，幂等可重跑。另把 `run-watch`（后台长任务封装：start 起任务写日志+状态文件，status 轮询返回退出码）链接到 `~/.local/bin`。仅限用户主动调用。
+统一设置本机各 agent harness 的全局代理规则：把技能内置的 `rules/AGENTS.md`（唯一真源）链接到 devin、codex、claude、opencode、factory droid 的全局规则路径，cursor 则写入 `~/.cursor/rules/global.mdc`（包 `alwaysApply` frontmatter 的派生文件），让所有 CLI 代理在任何项目里加载同一套约定（命令输出截断保留退出码、长任务日志轮询、非 ASCII 请求体走文件、gh api 陷阱、macOS 进程组与失效 cwd、Windows 删除目录与工作树约束等）。附带环境体检：报告各 harness CLI 安装情况与规则文件状态，已有非空文件先备份再替换，幂等可重跑。另把 `run-watch`（后台长任务封装：start 起任务写日志+状态文件，status 轮询返回退出码）链接到 `~/.local/bin`。仅限用户主动调用。
 
 ```bash
 node ~/.agents/skills/setup-env/scripts/setup-env.mjs --check   # 只体检

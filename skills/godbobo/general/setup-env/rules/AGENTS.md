@@ -23,3 +23,15 @@
 
 - 没有 `setsid`、`timeout`；命令超时会连同整个进程组被杀。需要脱离会话存活的进程用 `nohup cmd >log 2>&1 & disown` 或工具自带的 detached 选项。
 - exec 报 "terminal failed to create" / 目录不存在：会话 cwd（典型是被删除的 git worktree）失效，先在命令里 `cd` 到存在的目录再重试。
+
+## Windows 环境
+
+### 删除目录和工作树
+
+背景：曾有代理在 PowerShell 里执行 `cmd /c "rmdir /s /q \"$target\""`。PowerShell 不把 `\"` 当作转义，cmd 实际执行的是 `rmdir /s /q \ <路径>`，从 D 盘根目录开始递归删除，毁掉了多个工作树和开发环境。
+
+- 删除目录只允许两种写法：`git worktree remove --force '<绝对路径>'`，或 PowerShell 的 `Remove-Item -LiteralPath '\\?\<盘符>:\<完整路径>' -Recurse -Force`。`\\?\` 前缀不能省，Windows PowerShell 5.1 不带它就删不掉超过 260 字符的深层路径。前缀后面只能用反斜杠，不能有 `..`。
+- 路径必须是写死的完整绝对路径，不要用变量拼接。变量一旦为空，目标就会退化成当前目录或根目录。
+- 禁止用 `cmd /c rmdir /s`、`rd /s`、`del /s`、`rm -rf` 删除 Windows 上的目录，从 WSL 访问的 `/mnt/<盘符>/` 路径同样适用。不要在 PowerShell 里嵌套 cmd，也不要用 `\"` 转义引号，PowerShell 的转义符是反引号。
+- 删除失败（文件被占用、权限不足、路径过长）就停下，列出没删掉的内容交给用户处理。不要换更强硬的命令重试，也不要为了解锁去结束不是你启动的进程。
+- 只删除属于当前任务的工作树。删除前用 `git worktree list` 和 `git -C '<工作树路径>' status -sb` 确认它检出的是当前任务的分支。发现其他代理或会话正在这个工作树里写文件，就停下来问用户，不要删除。
