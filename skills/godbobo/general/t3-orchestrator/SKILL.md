@@ -29,7 +29,7 @@ description: T3 Code 多 harness 编排：主代理按任务难度和各 harness
 
 ## 开工前
 
-1. 调一次 `orchestrator_capabilities`，确认哪些实例 `canRunChildTask`、有哪些模型和选项。工具没出现时，按 T3 注入的说明直接调用一次，或用 `acp-mcp-call` 兜底。
+1. 调一次 `orchestrator_capabilities`，确认哪些实例 `canRunChildTask`、有哪些模型和选项。工具没出现时，按 T3 注入的说明直接调用一次，或用 `acp-mcp-call` 兜底（具体语法见 `t3-code` 技能）。
 2. 运行 `node ~/.agents/skills/t3-orchestrator/scripts/t3-quota.mjs` 查看额度。它会读 T3 的额度缓存，并直接查询 GLM 和 Droid 的额度。
 3. 读 [references/models.md](references/models.md)，里面有额度池、模型画像、路由表和同模型的备用入口。
 
