@@ -10,6 +10,7 @@ description: 提交变更
 - 按可审计粒度提交，提交信息清晰，且只提交应入库文件
 - 提交信息满足 Conventional Commits 规范
 - 运行修改内容相关的最小范围测试，如果失败需要修复并提交
+- 改动涉及 `skills/` 或 `README.md` 时，提交前运行 `node scripts/check.mjs` 校验一致性
 
 ## 流程
 
