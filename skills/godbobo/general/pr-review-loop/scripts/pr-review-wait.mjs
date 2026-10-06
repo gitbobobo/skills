@@ -62,7 +62,7 @@ function loadPr() {
   return ghJson("pr", "view", ...(prArg ? [prArg] : []), "--json", "number,url,state,headRefOid,headRepository,headRepositoryOwner");
 }
 
-function collect(repo, pr, head, headDate) {
+function collect(repo, pr, head) {
   const items = [];
   for (const c of ghPaged(`repos/${repo}/issues/${pr.number}/comments`)) {
     items.push({ id: `c${c.id}`, kind: "comment", author: c.user.login, at: c.created_at, body: c.body ?? "", url: c.html_url });
@@ -84,21 +84,23 @@ function collect(repo, pr, head, headDate) {
     const lastTrigger = items.filter((i) => i.kind === "comment" && rv.trigger.test(i.body.trim())).at(-1);
     const lastArtifact = items.filter(rv.isArtifact).at(-1);
     if (!lastTrigger && !lastArtifact) continue;
-    const waiting = Boolean(lastTrigger && (!lastArtifact || lastArtifact.at < lastTrigger.at));
-    reviewers.push({ name: rv.name, pending: waiting && !isStale(lastTrigger.at), stale: waiting && isStale(lastTrigger.at) });
+    // 「已回应」必须同时晚于最近一次触发和当前 HEAD 提交——推送新提交后，上一轮的意见不算数
+    const baseline = [lastTrigger?.at, head.date].filter(Boolean).sort().at(-1);
+    const waiting = !lastArtifact || lastArtifact.at < baseline;
+    reviewers.push({ name: rv.name, pending: waiting && !isStale(baseline), stale: waiting && isStale(baseline) });
   }
 
   // Devin 每次推送自动审查，用 HEAD 上的 commit status 判断是否完成
-  const statuses = ghJson("api", `repos/${repo}/commits/${head}/status`).statuses;
+  const statuses = ghJson("api", `repos/${repo}/commits/${head.sha}/status`).statuses;
   const devin = statuses.find((s) => s.context === DEVIN_STATUS);
   const devinSeen = devin || items.some((i) => i.author === DEVIN_LOGIN);
   if (devinSeen) {
     const waiting = !devin || devin.state === "pending";
-    const since = devin?.updated_at ?? headDate;
+    const since = devin?.updated_at ?? head.date;
     reviewers.push({ name: "Devin", pending: waiting && !isStale(since), stale: waiting && isStale(since) });
   }
 
-  const checkRuns = ghJson("api", `repos/${repo}/commits/${head}/check-runs?per_page=100`).check_runs;
+  const checkRuns = ghJson("api", `repos/${repo}/commits/${head.sha}/check-runs?per_page=100`).check_runs;
   const ci = [
     ...checkRuns.map((c) => ({ name: c.name, done: c.status === "completed", ok: ["success", "neutral", "skipped"].includes(c.conclusion) })),
     ...statuses.filter((s) => s.context !== DEVIN_STATUS).map((s) => ({ name: s.context, done: s.state !== "pending", ok: s.state === "success" })),
@@ -146,12 +148,24 @@ console.log(`PR #${pr.number} ${pr.url}`);
 console.log(`HEAD ${pr.headRefOid.slice(0, 9)}  状态 ${pr.state}`);
 if (pr.state !== "OPEN") process.exit(0);
 
+// 等待期间可能推送新提交，每轮重新取 HEAD；变了就按新提交重算审查基线
+function currentHead() {
+  const sha = ghJson("pr", "view", String(pr.number), "--json", "headRefOid").headRefOid;
+  const date = ghJson("api", `repos/${repo}/commits/${sha}`).commit.committer.date;
+  return { sha, date };
+}
+
 const deadline = Date.now() + timeoutSec * 1000;
-const headDate = ghJson("api", `repos/${repo}/commits/${pr.headRefOid}`).commit.committer.date;
-let snapshot = collect(repo, pr, pr.headRefOid, headDate);
+let head = currentHead();
+let snapshot = collect(repo, pr, head);
 while ((snapshot.reviewers.some((r) => r.pending) || snapshot.ci.some((c) => !c.done)) && Date.now() + POLL_SEC * 1000 < deadline) {
   await sleep(POLL_SEC * 1000);
-  snapshot = collect(repo, pr, pr.headRefOid, headDate);
+  const now = currentHead();
+  if (now.sha !== head.sha) {
+    head = now;
+    console.log(`检测到新提交 ${head.sha.slice(0, 9)}，按新 HEAD 重新计算审查与 CI 状态`);
+  }
+  snapshot = collect(repo, pr, head);
 }
 
 const { items, reviewers, ci } = snapshot;
@@ -165,7 +179,7 @@ for (const c of ci) console.log(`- ${c.name}：${!c.done ? "运行中" : c.ok ? 
 
 const file = statePath(repo, pr.number);
 // 第一次调用时，HEAD 提交之前的意见视为上一轮已处理
-const seen = new Set(existsSync(file) && !reset ? JSON.parse(readFileSync(file, "utf8")) : items.filter((i) => i.at < headDate).map((i) => i.id));
+const seen = new Set(existsSync(file) && !reset ? JSON.parse(readFileSync(file, "utf8")) : items.filter((i) => i.at < head.date).map((i) => i.id));
 const fresh = items.filter((i) => !seen.has(i.id) && isFeedback(i, prAuthor));
 
 console.log(`\n## 新意见（${fresh.length} 条未读）`);
