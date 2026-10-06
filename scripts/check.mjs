@@ -10,6 +10,7 @@
 //   3. 每个技能在 README.md 中有对应小节（含指向该 SKILL.md 的链接）
 //   4. skills/forks/ 下的技能，其 README 小节必须注明「来源」
 //   5. scripts/ 下的 .mjs/.py 工具在 README 中有链接
+//   6. 带 disable-model-invocation: true 的技能，README 小节写明「仅限用户主动调用」（单向：反过来不强制）
 
 import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
@@ -71,6 +72,11 @@ for (const dir of walk(skillsDir)) {
     fail(`${rel}：README.md 没有指向 ${rel}/SKILL.md 的链接`);
   } else if (rel.startsWith("skills/forks/") && !/来源[:：]/.test(section)) {
     fail(`${rel}：分叉技能的 README 小节缺少「来源」标注`);
+  }
+
+  const userInvokedOnly = /^disable-model-invocation:\s*true\s*$/m.test(fm?.[1] ?? "");
+  if (userInvokedOnly && section && !/仅限用户主动调用/.test(section)) {
+    fail(`${rel}：带 disable-model-invocation 的技能，README 小节要写明「仅限用户主动调用」`);
   }
 }
 

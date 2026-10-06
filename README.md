@@ -35,7 +35,7 @@
 
 ### plain-plan
 
-生成用户向、简洁的实现计划：少术语、无代码库类名，用人话说明会做成什么样，便于不写代码的人通读与拍板。文字计划结束后主动询问是否需要网页版；用户同意后再生成有教育性的图文网页讲解（非文字计划的照搬），必要时通过 html-preview 发布预览链接。
+生成用户向、简洁的实现计划：少术语、无代码库类名，用人话说明会做成什么样，便于不写代码的人通读与拍板。文字计划结束后主动询问是否需要网页版；用户同意后再生成有教育性的图文网页讲解（非文字计划的照搬），必要时通过 html-preview 发布预览链接。仅限用户主动调用。
 
 详见 [skills/godbobo/general/plain-plan/SKILL.md](skills/godbobo/general/plain-plan/SKILL.md)。
 
@@ -132,7 +132,7 @@ GLM 的 API Key 依次从环境变量（`BIGMODEL_API_KEY`、`ZHIPU_API_KEY`、`
 
 ### code-review-panel
 
-推送之前，派多个不同模型的只读子代理并行审查同一份改动（同一份 prompt 和 rubric），再由主代理按 Act on / Consider / Noted / Dismissed 四桶归并裁决，不自动改代码。
+推送非平凡改动之前，派多个不同模型家族的只读子代理并行审查同一份 diff（同一份 prompt 和 rubric），再由主代理按 Act on / Consider / Noted / Dismissed 四桶归并裁决，不自动改代码。小改动或低风险改动不值得派一组模型的成本，不触发。
 
 来源：[cursor/plugins — pstack/skills/interrogate](https://github.com/cursor/plugins/tree/main/pstack/skills/interrogate)（MIT），改名改造而来：审查者模型来源从 Cursor 的 `pstack-models.mdc` 配置换成 `t3-orchestrator` 的路由表（至少两个、优先不同家族），派发走 `delegate_task` 或 harness 自带只读子代理，换路沿用 t3-orchestrator 的规则；并新增与 `pr-review-loop` 的分工一节（本技能只管推送之前，PR 阶段的云端 bot 意见走 pr-review-loop）。
 
@@ -140,7 +140,7 @@ GLM 的 API Key 依次从环境变量（`BIGMODEL_API_KEY`、`ZHIPU_API_KEY`、`
 
 ### create-verification-skill
 
-生成一个项目本地的验证技能：通过访谈仓库（而非用户）弄清应用的表面、启动、驱动方式与可采集证据，产出带 Launch/Doctor/Drive/Evidence/Cleanup 五段规格的 SKILL.md 和一份 feature map（每个用户可见功能一个文件，固定四个 H2）。生成后必须按自己的说明完整跑一遍才交付——没跑过的叫草稿。
+生成一个项目本地的验证技能：通过访谈仓库（而非用户）弄清应用的表面、启动、驱动方式与可采集证据，产出带 Launch/Doctor/Drive/Evidence/Cleanup 五段规格的 SKILL.md 和一份 feature map（每个用户可见功能一个文件，固定四个 H2）。生成后必须按自己的说明完整跑一遍才交付——没跑过的叫草稿。仅限用户主动调用。
 
 来源：[cursor/plugins — pstack/skills/create-verification-skill](https://github.com/cursor/plugins/tree/main/pstack/skills/create-verification-skill)（MIT）。已改造：生成物落点从硬编码 `.cursor/skills/` 改为跟随目标仓库自己的 agent 技能目录约定（本机 `.agents/skills/`）。
 
@@ -180,7 +180,7 @@ GLM 的 API Key 依次从环境变量（`BIGMODEL_API_KEY`、`ZHIPU_API_KEY`、`
 
 ### maintain-verification-skill
 
-create-verification-skill 生成的验证技能的维护回路：每个 feature 文件派一个只读子代理从源码核查，再由主代理一次长会话把每个功能实际驱动一遍，全程持三条不变量（驱动前先 doctor、已采证据不被清理吃掉、驱动不留残余）。结局只有 clean / changed / blocked 三种，changed 产出一个 PR 的已验证修正。
+create-verification-skill 生成的验证技能的维护回路：每个 feature 文件派一个只读子代理从源码核查，再由主代理一次长会话把每个功能实际驱动一遍，全程持三条不变量（驱动前先 doctor、已采证据不被清理吃掉、驱动不留残余）。结局只有 clean / changed / blocked 三种，changed 产出一个 PR 的已验证修正。仅限用户主动调用。
 
 来源：[cursor/plugins — pstack/skills/maintain-verification-skill](https://github.com/cursor/plugins/tree/main/pstack/skills/maintain-verification-skill)（MIT）。已改造：定位路径从 `.cursor/skills/verify-*/` 改为跟随目标仓库的技能目录约定。
 
@@ -210,7 +210,7 @@ create-verification-skill 生成的验证技能的维护回路：每个 feature 
 
 ### check
 
-仓库一致性检查：AGENTS.md 与 CLAUDE.md 正文一致、每个 SKILL.md 有合法 frontmatter（name 与目录名一致）且 README 有对应小节、分叉技能注明来源、`scripts/` 工具已登记。改动技能或 README 后运行。
+仓库一致性检查：AGENTS.md 与 CLAUDE.md 正文一致、每个 SKILL.md 有合法 frontmatter（name 与目录名一致）且 README 有对应小节、分叉技能注明来源、`scripts/` 工具已登记、带 `disable-model-invocation` 的技能在 README 写明「仅限用户主动调用」。改动技能或 README 后运行。
 
 ```bash
 node scripts/check.mjs

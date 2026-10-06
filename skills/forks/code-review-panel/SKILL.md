@@ -1,7 +1,6 @@
 ---
 name: code-review-panel
-description: "Before pushing, spawn read-only subagents on multiple different model families to adversarially review the same change in parallel, then merge the findings yourself. Use for \"multi-model review\", \"adversarial review\", \"challenge this\", or local pre-push review. Once a PR exists, cloud bot feedback is handled by `pr-review-loop`, not this skill."
-disable-model-invocation: true
+description: "Before pushing a non-trivial change, spawn read-only subagents on several different model families to adversarially review the same diff in parallel, then merge the findings yourself. Use for \"multi-model review\", \"adversarial review\", \"challenge this\", or a pre-push review of a large or risky diff — not for small or low-risk changes, which don't justify the cost of a panel. Once a PR exists, cloud bot feedback is handled by `pr-review-loop`, not this skill."
 ---
 
 # Code Review Panel
