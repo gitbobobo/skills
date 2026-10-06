@@ -142,7 +142,7 @@ GLM 的 API Key 依次从环境变量（`BIGMODEL_API_KEY`、`ZHIPU_API_KEY`、`
 
 生成一个项目本地的验证技能：通过访谈仓库（而非用户）弄清应用的表面、启动、驱动方式与可采集证据，产出带 Launch/Doctor/Drive/Evidence/Cleanup 五段规格的 SKILL.md 和一份 feature map（每个用户可见功能一个文件，固定四个 H2）。生成后必须按自己的说明完整跑一遍才交付——没跑过的叫草稿。仅限用户主动调用。
 
-来源：[cursor/plugins — pstack/skills/create-verification-skill](https://github.com/cursor/plugins/tree/main/pstack/skills/create-verification-skill)（MIT）。已改造：生成物落点从硬编码 `.cursor/skills/` 改为跟随目标仓库自己的 agent 技能目录约定（本机 `.agents/skills/`）。
+来源：[cursor/plugins — pstack/skills/create-verification-skill](https://github.com/cursor/plugins/tree/main/pstack/skills/create-verification-skill)（MIT）。已改造：生成物落点从硬编码 `.cursor/skills/` 改为跟随目标仓库自己的 agent 技能目录约定（本机 `.agents/skills/`）。fast_ship 实战检验后补强：启动命令要求记录的 PID 拥有端口（绕过 `go run`/`make dev` 包装层）、dev 命令不可隔离时自建隔离变体、截图等渲染完成而非仅等导航、Drive 段落建议技能自带薄驱动 CLI。
 
 详见 [skills/forks/create-verification-skill/SKILL.md](skills/forks/create-verification-skill/SKILL.md)。
 
