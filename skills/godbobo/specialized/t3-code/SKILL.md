@@ -20,6 +20,7 @@ T3 Code 的本地状态在 `~/.t3/` 下。会话、命令、消息等运行数�
 - `payload_json` 按 type 不同：`command_execution` 含 `input`/`output`/`exitCode`/`startedAt`/`completedAt`；`assistant_message`/`reasoning` 含正文文本。
 - 留存限制：约 87% 的 `command_execution` 只在 `output` 里存「Exited with code N」一行，`exitCode` 字段经常缺省，完整 stdout/stderr 不落库——判成败主要靠 output 文本里的退出码。
 - 委派任务的子代理是独立线程（命名形如 `thread:delegated-task:*`），查子代理活动按 `thread_id` 过滤即可。
+- Windows 上没有 sqlite3 CLI，用 Python 自带的 sqlite3 模块查库；查询稍长就写临时 .py 文件再跑，cmd 里内联 `python -c` 的引号容易翻车（exec 是 cmd，`&&` 连接而不是 `;`）。
 
 ## 常用查询
 
@@ -60,6 +61,8 @@ sqlite3 $DB "SELECT type, COUNT(*) FROM orchestration_v2_projection_turn_items G
 
 - 少数 ACP 代理收了 MCP 注入但不暴露工具——先用上面的 `acp-mcp-call` 兜底验证一次再下结论。
 - delegated 子代理偶发静默丢失，主代理要做好降级自审。
+- `subagents`/`runs` 投影偶发停在 `running`：子线程实际已完工，`task_status` 却一直返回 running。别只信状态轮询，用 `t3_thread_read` 读 `childThreadId` 尾部判断真实进度。
+- `mcp__t3-code__*` 偶发报 "Failed to connect to MCP server 't3-code'"，重试即恢复；不行再走 ACP 兜底。
 - `mcp_list_tools` 每次会话都重查完整目录，token 开销不小。
 - `command_execution` 输出留存不全（见上节），分析失败命令时 stderr 多半拿不到，只能看退出码。
 
