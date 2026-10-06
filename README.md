@@ -146,6 +146,16 @@ GLM 的 API Key 依次从环境变量（`BIGMODEL_API_KEY`、`ZHIPU_API_KEY`、`
 
 详见 [skills/forks/handoff/SKILL.md](skills/forks/handoff/SKILL.md)。
 
+### retro
+
+复盘一次编码会话，向 agent 的工作环境提改进建议：只提议不落地，用户采纳后才改。读指定会话的原始记录（默认当前会话，可查本机会话日志），按七类问题找候选并按严重度排序——导航指引、自动化检查（机械性错误优先落成 lint/pre-commit/CI 等确定性检查，而不是写规则；仓库缺少守卫本身也算发现）、编码标准（判断力层面的规则进 `CODING_STANDARDS.md` 供评审环节读）、臃肿的 AGENTS.md 精简外移、工具调用成本、steering 文件中的无效指令、信息获取缺口。仅限用户主动调用。
+
+依赖同仓库的 writing-for-agents（已一并导入；单独安装本技能时需一并安装它）。`CODING_STANDARDS.md` 规则需要有复审流程读取才能生效，否则需人工接手。
+
+来源：[mattpocock/skills — skills/engineering/retro](https://github.com/mattpocock/skills/tree/main/skills/engineering/retro)
+
+详见 [skills/forks/retro/SKILL.md](skills/forks/retro/SKILL.md)。
+
 ### thermo-nuclear-code-quality-review
 
 极严格的代码可维护性评审：不止挑局部清理点，主动找「code judo」式重构，让整段分支、辅助层、条件判断直接消失。硬性红线包括文件被推过 1k 行、在无关流程里插特判分支、薄封装与多余 cast、逻辑放错层等。另用 Fowler 的 12 条 smell 作为带名字的启发式（非自动 blocker）。行为正确不足以通过评审。仅限用户手动调用。
@@ -153,6 +163,14 @@ GLM 的 API Key 依次从环境变量（`BIGMODEL_API_KEY`、`ZHIPU_API_KEY`、`
 来源：[cursor/plugins — cursor-team-kit/skills/thermo-nuclear-code-quality-review](https://github.com/cursor/plugins/tree/main/cursor-team-kit/skills/thermo-nuclear-code-quality-review)。Fowler smell 词表改编自 [mattpocock/skills — code-review](https://github.com/mattpocock/skills/tree/main/skills/engineering/code-review)。
 
 详见 [skills/forks/thermo-nuclear-code-quality-review/SKILL.md](skills/forks/thermo-nuclear-code-quality-review/SKILL.md)。
+
+### writing-for-agents
+
+给 agent 写文档的通用参考，适用于技能、`AGENTS.md`/`CLAUDE.md` 以及被指针引用的 docs：context pointer 的措辞（leading word 前置、一个分支一个触发词）、context load 与 cognitive load 两种开销、信息层级（文内步骤 / 文内参考 / 披露式参考）、完成标准的清晰度与强度、按序列或调用方式拆分、leading words 与删减原则。写技能时另读同目录 `SKILL-MECHANICS.md`（frontmatter、模型调用 vs 用户调用、router 技能）。
+
+来源：[mattpocock/skills — skills/productivity/writing-for-agents](https://github.com/mattpocock/skills/tree/main/skills/productivity/writing-for-agents)
+
+详见 [skills/forks/writing-for-agents/SKILL.md](skills/forks/writing-for-agents/SKILL.md)。
 
 ## 工具脚本
 
