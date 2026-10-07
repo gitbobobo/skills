@@ -1420,7 +1420,7 @@ Issue CRUD、过滤、同步、清单、发货钩子与图片附件
 
 **成功响应**
 
-**200** Issue 分页列表（列表项不含 collab 字段）
+**200** Issue 分页列表（列表项不含 collab / pull_requests 字段；带 pull_request_summary 聚合计数）
 
 `data`：
 
@@ -1539,6 +1539,29 @@ Issue CRUD、过滤、同步、清单、发货钩子与图片附件
 | `items[].collab.summary.author.avatar_url` | string | 是 | 仅 user 作者可能有值，否则空串 |
 | `items[].collab.summary.created_at` | string（date-time） | 是 |  |
 | `items[].collab.summary.updated_at` | string（date-time） | 是 |  |
+| `items[].pull_requests` | object[] | 否 | omitempty；仅 Issue 详情响应携带（读取失败或无关联时缺省）；列表项不出现 |
+| `items[].pull_requests[].id` | string（uuid） | 是 |  |
+| `items[].pull_requests[].issue_id` | string | 是 |  |
+| `items[].pull_requests[].provider` | string | 是 | 当前恒为 github；字段预留 gitlab |
+| `items[].pull_requests[].repo_full_name` | string | 是 | owner/repo；允许与项目配置的仓库不同（跨仓库 attach） |
+| `items[].pull_requests[].number` | integer | 是 |  |
+| `items[].pull_requests[].html_url` | string | 是 |  |
+| `items[].pull_requests[].title` | string | 是 |  |
+| `items[].pull_requests[].state` | string（enum: open \| closed \| merged） | 是 | merged = GitHub 上 closed 且 merged_at 非空 |
+| `items[].pull_requests[].is_draft` | boolean | 是 |  |
+| `items[].pull_requests[].author_login` | string | 是 |  |
+| `items[].pull_requests[].head_ref` | string | 是 |  |
+| `items[].pull_requests[].base_ref` | string | 是 |  |
+| `items[].pull_requests[].merged_at` | string（date-time，可空） | 是 | state=merged 时有值 |
+| `items[].pull_requests[].closed_at` | string（date-time，可空） | 是 |  |
+| `items[].pull_requests[].link_origin` | string（enum: manual \| synced） | 是 | manual=用户显式 attach；synced=远端同步投影产生（清理逻辑只作用于 synced） |
+| `items[].pull_requests[].synced_at` | string（date-time） | 是 | 最近一次从 GitHub 刷新成功的时间 |
+| `items[].pull_requests[].created_at` | string（date-time） | 是 |  |
+| `items[].pull_requests[].updated_at` | string（date-time） | 是 |  |
+| `items[].pull_request_summary` | object | 否 | omitempty；仅 Issue 列表项携带的 PR 聚合计数；详情项不出现。Issue 关联 PR 的聚合计数；closed 计数 = total - open - merged |
+| `items[].pull_request_summary.total` | integer | 是 |  |
+| `items[].pull_request_summary.open` | integer | 是 | state=open 计数 |
+| `items[].pull_request_summary.merged` | integer | 是 | state=merged 计数 |
 | `total` | integer（int64） | 是 | 符合条件的总条数 |
 | `page` | integer | 是 |  |
 | `page_size` | integer | 是 |  |
@@ -1694,6 +1717,29 @@ Issue CRUD、过滤、同步、清单、发货钩子与图片附件
 | `collab.summary.author.avatar_url` | string | 是 | 仅 user 作者可能有值，否则空串 |
 | `collab.summary.created_at` | string（date-time） | 是 |  |
 | `collab.summary.updated_at` | string（date-time） | 是 |  |
+| `pull_requests` | object[] | 否 | omitempty；仅 Issue 详情响应携带（读取失败或无关联时缺省）；列表项不出现 |
+| `pull_requests[].id` | string（uuid） | 是 |  |
+| `pull_requests[].issue_id` | string | 是 |  |
+| `pull_requests[].provider` | string | 是 | 当前恒为 github；字段预留 gitlab |
+| `pull_requests[].repo_full_name` | string | 是 | owner/repo；允许与项目配置的仓库不同（跨仓库 attach） |
+| `pull_requests[].number` | integer | 是 |  |
+| `pull_requests[].html_url` | string | 是 |  |
+| `pull_requests[].title` | string | 是 |  |
+| `pull_requests[].state` | string（enum: open \| closed \| merged） | 是 | merged = GitHub 上 closed 且 merged_at 非空 |
+| `pull_requests[].is_draft` | boolean | 是 |  |
+| `pull_requests[].author_login` | string | 是 |  |
+| `pull_requests[].head_ref` | string | 是 |  |
+| `pull_requests[].base_ref` | string | 是 |  |
+| `pull_requests[].merged_at` | string（date-time，可空） | 是 | state=merged 时有值 |
+| `pull_requests[].closed_at` | string（date-time，可空） | 是 |  |
+| `pull_requests[].link_origin` | string（enum: manual \| synced） | 是 | manual=用户显式 attach；synced=远端同步投影产生（清理逻辑只作用于 synced） |
+| `pull_requests[].synced_at` | string（date-time） | 是 | 最近一次从 GitHub 刷新成功的时间 |
+| `pull_requests[].created_at` | string（date-time） | 是 |  |
+| `pull_requests[].updated_at` | string（date-time） | 是 |  |
+| `pull_request_summary` | object | 否 | omitempty；仅 Issue 列表项携带的 PR 聚合计数；详情项不出现。Issue 关联 PR 的聚合计数；closed 计数 = total - open - merged |
+| `pull_request_summary.total` | integer | 是 |  |
+| `pull_request_summary.open` | integer | 是 | state=open 计数 |
+| `pull_request_summary.merged` | integer | 是 | state=merged 计数 |
 
 **错误**
 
@@ -1972,7 +2018,7 @@ Issue CRUD、过滤、同步、清单、发货钩子与图片附件
 
 获取 Issue 详情
 
-与列表项结构相同，另带可选 `collab` 字段（与 GET /collab 的 data 同形；仅详情填充，列表不返回）。
+与列表项结构相同，另带可选 `collab` 字段（与 GET /collab 的 data 同形；仅详情填充，列表不返回）与 `pull_requests` 数组（关联 PR 全量；读取失败或无关联时缺省）。
 
 **鉴权**：JWT+API Key
 
@@ -2100,6 +2146,29 @@ Issue CRUD、过滤、同步、清单、发货钩子与图片附件
 | `collab.summary.author.avatar_url` | string | 是 | 仅 user 作者可能有值，否则空串 |
 | `collab.summary.created_at` | string（date-time） | 是 |  |
 | `collab.summary.updated_at` | string（date-time） | 是 |  |
+| `pull_requests` | object[] | 否 | omitempty；仅 Issue 详情响应携带（读取失败或无关联时缺省）；列表项不出现 |
+| `pull_requests[].id` | string（uuid） | 是 |  |
+| `pull_requests[].issue_id` | string | 是 |  |
+| `pull_requests[].provider` | string | 是 | 当前恒为 github；字段预留 gitlab |
+| `pull_requests[].repo_full_name` | string | 是 | owner/repo；允许与项目配置的仓库不同（跨仓库 attach） |
+| `pull_requests[].number` | integer | 是 |  |
+| `pull_requests[].html_url` | string | 是 |  |
+| `pull_requests[].title` | string | 是 |  |
+| `pull_requests[].state` | string（enum: open \| closed \| merged） | 是 | merged = GitHub 上 closed 且 merged_at 非空 |
+| `pull_requests[].is_draft` | boolean | 是 |  |
+| `pull_requests[].author_login` | string | 是 |  |
+| `pull_requests[].head_ref` | string | 是 |  |
+| `pull_requests[].base_ref` | string | 是 |  |
+| `pull_requests[].merged_at` | string（date-time，可空） | 是 | state=merged 时有值 |
+| `pull_requests[].closed_at` | string（date-time，可空） | 是 |  |
+| `pull_requests[].link_origin` | string（enum: manual \| synced） | 是 | manual=用户显式 attach；synced=远端同步投影产生（清理逻辑只作用于 synced） |
+| `pull_requests[].synced_at` | string（date-time） | 是 | 最近一次从 GitHub 刷新成功的时间 |
+| `pull_requests[].created_at` | string（date-time） | 是 |  |
+| `pull_requests[].updated_at` | string（date-time） | 是 |  |
+| `pull_request_summary` | object | 否 | omitempty；仅 Issue 列表项携带的 PR 聚合计数；详情项不出现。Issue 关联 PR 的聚合计数；closed 计数 = total - open - merged |
+| `pull_request_summary.total` | integer | 是 |  |
+| `pull_request_summary.open` | integer | 是 | state=open 计数 |
+| `pull_request_summary.merged` | integer | 是 | state=merged 计数 |
 
 **错误**
 
@@ -2261,6 +2330,29 @@ github 来源 Issue 的更改写回 GitHub 远端，internal 仅写本地；`sta
 | `collab.summary.author.avatar_url` | string | 是 | 仅 user 作者可能有值，否则空串 |
 | `collab.summary.created_at` | string（date-time） | 是 |  |
 | `collab.summary.updated_at` | string（date-time） | 是 |  |
+| `pull_requests` | object[] | 否 | omitempty；仅 Issue 详情响应携带（读取失败或无关联时缺省）；列表项不出现 |
+| `pull_requests[].id` | string（uuid） | 是 |  |
+| `pull_requests[].issue_id` | string | 是 |  |
+| `pull_requests[].provider` | string | 是 | 当前恒为 github；字段预留 gitlab |
+| `pull_requests[].repo_full_name` | string | 是 | owner/repo；允许与项目配置的仓库不同（跨仓库 attach） |
+| `pull_requests[].number` | integer | 是 |  |
+| `pull_requests[].html_url` | string | 是 |  |
+| `pull_requests[].title` | string | 是 |  |
+| `pull_requests[].state` | string（enum: open \| closed \| merged） | 是 | merged = GitHub 上 closed 且 merged_at 非空 |
+| `pull_requests[].is_draft` | boolean | 是 |  |
+| `pull_requests[].author_login` | string | 是 |  |
+| `pull_requests[].head_ref` | string | 是 |  |
+| `pull_requests[].base_ref` | string | 是 |  |
+| `pull_requests[].merged_at` | string（date-time，可空） | 是 | state=merged 时有值 |
+| `pull_requests[].closed_at` | string（date-time，可空） | 是 |  |
+| `pull_requests[].link_origin` | string（enum: manual \| synced） | 是 | manual=用户显式 attach；synced=远端同步投影产生（清理逻辑只作用于 synced） |
+| `pull_requests[].synced_at` | string（date-time） | 是 | 最近一次从 GitHub 刷新成功的时间 |
+| `pull_requests[].created_at` | string（date-time） | 是 |  |
+| `pull_requests[].updated_at` | string（date-time） | 是 |  |
+| `pull_request_summary` | object | 否 | omitempty；仅 Issue 列表项携带的 PR 聚合计数；详情项不出现。Issue 关联 PR 的聚合计数；closed 计数 = total - open - merged |
+| `pull_request_summary.total` | integer | 是 |  |
+| `pull_request_summary.open` | integer | 是 | state=open 计数 |
+| `pull_request_summary.merged` | integer | 是 | state=merged 计数 |
 
 **错误**
 
@@ -2857,6 +2949,155 @@ AI 生成 checklist 建议（需已配置 AI 设置；JWT 与 API Key 均可）
 | 500 | 服务器内部错误（50000） |
 | 502 | AI 服务调用失败（50201） |
 
+### POST `/api/issues/{iid}/pull-requests`
+
+<!-- operationId: attachIssuePullRequest -->
+
+关联一个 GitHub PR 到 Issue（幂等）
+
+请求体只传 PR URL（`https://github.com/<owner>/<repo>/pull/<number>`），服务端解析 owner/repo/number 后立即从 GitHub 拉取 title/state/is_draft/author/head/base/merged_at 等字段入库；拉取失败返回错误，不落记录。
+允许跨仓库：URL 可以是任意 GitHub 仓库的 PR，不要求等于项目配置的仓库，不做跨仓库鉴权。项目未配 GitHub token 时以未认证方式拉取，仅支持公共仓库。
+重复 attach 同一 PR（唯一键 issue_id+provider+repo_full_name+number）幂等返回既有记录并顺带刷新状态。attach 产生的行 `link_origin=manual`；PR 状态与 Issue workflow_status 不联动。
+
+**鉴权**：JWT+API Key
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `iid` | string | 是 | Issue ID（UUID，非 INT-123/GH-123 短编号） |
+
+**请求体**
+
+`application/json`，必填。
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `url` | string | 是 | GitHub PR 链接，形如 https://github.com/<owner>/<repo>/pull/<number>（允许 http、www 前缀与尾部 /files、query、fragment 等）；其他字段由服务端从 GitHub 拉取 |
+
+**成功响应**
+
+**200** 关联记录（重复 attach 返回既有行并刷新状态）
+
+`data`：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string（uuid） | 是 |  |
+| `issue_id` | string | 是 |  |
+| `provider` | string | 是 | 当前恒为 github；字段预留 gitlab |
+| `repo_full_name` | string | 是 | owner/repo；允许与项目配置的仓库不同（跨仓库 attach） |
+| `number` | integer | 是 |  |
+| `html_url` | string | 是 |  |
+| `title` | string | 是 |  |
+| `state` | string（enum: open \| closed \| merged） | 是 | merged = GitHub 上 closed 且 merged_at 非空 |
+| `is_draft` | boolean | 是 |  |
+| `author_login` | string | 是 |  |
+| `head_ref` | string | 是 |  |
+| `base_ref` | string | 是 |  |
+| `merged_at` | string（date-time，可空） | 是 | state=merged 时有值 |
+| `closed_at` | string（date-time，可空） | 是 |  |
+| `link_origin` | string（enum: manual \| synced） | 是 | manual=用户显式 attach；synced=远端同步投影产生（清理逻辑只作用于 synced） |
+| `synced_at` | string（date-time） | 是 | 最近一次从 GitHub 刷新成功的时间 |
+| `created_at` | string（date-time） | 是 |  |
+| `updated_at` | string（date-time） | 是 |  |
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 400 | 非 GitHub 或无法解析的 PR URL（40001） |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 404 | 资源不存在（40400-40499） |
+| 500 | 服务器内部错误（50000） |
+| 502 | GitHub API 调用失败（50200；含 PR 不存在或无权访问） |
+
+### POST `/api/issues/{iid}/pull-requests/sync`
+
+<!-- operationId: syncIssuePullRequests -->
+
+刷新该 Issue 下全部已关联 PR 的状态
+
+逐条重新拉取 GitHub PR 信息并更新 state/merged_at/closed_at 等字段。只更新既有行，不新增、不删除；每条关联是独立失败域——单行拉取或保存失败记入 failures 不中断其余行（失败行保留旧数据），整体恒返回 200。仅 Issue/项目不存在返回 404，读取关联列表失败返回 500。
+
+**鉴权**：JWT+API Key
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `iid` | string | 是 | Issue ID（UUID，非 INT-123/GH-123 短编号） |
+
+**成功响应**
+
+**200** 刷新结果：items 为刷新成功的关联行，failures 为逐行失败明细
+
+`data`：
+
+syncIssuePullRequests 的响应形状，与批量 internal-meta 的 {items, failures} 约定一致
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `items` | object[] | 是 | 本轮刷新成功的关联行（无关联或无成功时为空数组） |
+| `items[].id` | string（uuid） | 是 |  |
+| `items[].issue_id` | string | 是 |  |
+| `items[].provider` | string | 是 | 当前恒为 github；字段预留 gitlab |
+| `items[].repo_full_name` | string | 是 | owner/repo；允许与项目配置的仓库不同（跨仓库 attach） |
+| `items[].number` | integer | 是 |  |
+| `items[].html_url` | string | 是 |  |
+| `items[].title` | string | 是 |  |
+| `items[].state` | string（enum: open \| closed \| merged） | 是 | merged = GitHub 上 closed 且 merged_at 非空 |
+| `items[].is_draft` | boolean | 是 |  |
+| `items[].author_login` | string | 是 |  |
+| `items[].head_ref` | string | 是 |  |
+| `items[].base_ref` | string | 是 |  |
+| `items[].merged_at` | string（date-time，可空） | 是 | state=merged 时有值 |
+| `items[].closed_at` | string（date-time，可空） | 是 |  |
+| `items[].link_origin` | string（enum: manual \| synced） | 是 | manual=用户显式 attach；synced=远端同步投影产生（清理逻辑只作用于 synced） |
+| `items[].synced_at` | string（date-time） | 是 | 最近一次从 GitHub 刷新成功的时间 |
+| `items[].created_at` | string（date-time） | 是 |  |
+| `items[].updated_at` | string（date-time） | 是 |  |
+| `failures` | object[] | 是 | 逐行失败明细 |
+| `failures[].id` | string | 是 | 关联行 id（issue_pull_requests.id，detach 时用此 id） |
+| `failures[].error` | string | 是 | 失败原因，前缀带 repo_full_name#number 便于定位 |
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 404 | 资源不存在（40400-40499） |
+| 500 | 服务器内部错误（50000） |
+
+### DELETE `/api/issues/{iid}/pull-requests/{id}`
+
+<!-- operationId: detachIssuePullRequest -->
+
+解除 Issue 与一个 PR 的关联（按关联行 id）
+
+**鉴权**：JWT+API Key
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `iid` | string | 是 | Issue ID（UUID，非 INT-123/GH-123 短编号） |
+| `id` | string | 是 | PR 关联行 ID（UUID） |
+
+**成功响应**
+
+**200** 操作成功（data 为 null）
+
+`data` 为 null。
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 404 | Issue 不存在（40405）或 PR 关联不存在（40412） |
+| 500 | 服务器内部错误（50000） |
+
 ## collab
 
 Issue 人机协作区（consensus / summary）
@@ -3100,7 +3341,7 @@ Agent 推荐任务队列
 
 <!-- operationId: listIssueRecommendations -->
 
-推荐任务列表（一次全量，无分页；按 priority 降序再按 updated_at 降序）
+推荐任务列表（一次全量，无分页；active 在前 deferred 在后，组内按 priority 降序）
 
 **鉴权**：JWT+API Key
 
@@ -3132,6 +3373,9 @@ Agent 推荐任务队列
 | `items[].reason` | string | 是 |  |
 | `items[].priority` | string（enum: high \| medium \| low） | 是 |  |
 | `items[].created_by` | string | 是 | 提交者 API Key 名称 |
+| `items[].status` | string（enum: active \| deferred） | 是 | deferred 表示被用户延后；延后项对 Agent 不可再推荐（PUT 返回 40911） |
+| `items[].deferred_at` | string（date-time，可空） | 是 | 延后时间；status=active 时为 null |
+| `items[].defer_note` | string（可空） | 是 | 延后备注；无备注时为 null |
 | `items[].created_at` | string（date-time） | 是 |  |
 | `items[].updated_at` | string（date-time） | 是 |  |
 | `items[].dependencies` | object[] | 是 |  |
@@ -3157,7 +3401,7 @@ Agent 推荐任务队列
 
 写入/覆盖推荐（仅 API Key；JWT 返回 40303）
 
-覆盖 upsert：同一 Issue 重复 PUT 整体替换 reason/priority/dependencies/created_by，保留原 created_at。目标须 state=open 且 workflow_status 为未设置或 todo，否则 40910。dependencies 整组替换，≤20 个 Issue UUID，不含自身；依赖须属当前用户的项目，不存在或越权统一 40405。
+覆盖 upsert：同一 Issue 重复 PUT 整体替换 reason/priority/dependencies/created_by，保留原 created_at。目标须 state=open 且 workflow_status 为未设置或 todo，否则 40910。dependencies 整组替换，≤20 个 Issue UUID，不含自身；依赖须属当前用户的项目，不存在或越权统一 40405。已被用户延后的推荐不可再写入（40911）。
 
 **鉴权**：JWT+API Key
 
@@ -3198,6 +3442,9 @@ Agent 推荐任务队列
 | `reason` | string | 是 |  |
 | `priority` | string（enum: high \| medium \| low） | 是 |  |
 | `created_by` | string | 是 | 提交者 API Key 名称 |
+| `status` | string（enum: active \| deferred） | 是 | deferred 表示被用户延后；延后项对 Agent 不可再推荐（PUT 返回 40911） |
+| `deferred_at` | string（date-time，可空） | 是 | 延后时间；status=active 时为 null |
+| `defer_note` | string（可空） | 是 | 延后备注；无备注时为 null |
 | `created_at` | string（date-time） | 是 |  |
 | `updated_at` | string（date-time） | 是 |  |
 | `dependencies` | object[] | 是 |  |
@@ -3217,14 +3464,14 @@ Agent 推荐任务队列
 | 401 | 未提供或提供无效凭证（40100-40199） |
 | 403 | JWT 调用仅限 API Key 的端点（40303） |
 | 404 | 目标或依赖 Issue 不存在（40405）、项目不存在（40401） |
-| 409 | Issue 当前状态不可被推荐（40910） |
+| 409 | Issue 当前状态不可被推荐（40910）或推荐已被延后（40911） |
 | 500 | 服务器内部错误（50000） |
 
 ### DELETE `/api/issues/{iid}/recommendation`
 
 <!-- operationId: deleteIssueRecommendation -->
 
-移除推荐（JWT 与 API Key 均可）
+移除推荐（JWT 与 API Key 均可；删除=遗忘可再推荐，延后项仅 JWT 可删）
 
 **鉴权**：JWT+API Key
 
@@ -3246,6 +3493,137 @@ Agent 推荐任务队列
 | --- | --- |
 | 401 | 未提供或提供无效凭证（40100-40199） |
 | 404 | 推荐不存在（40411）或项目不存在（40401） |
+| 409 | API Key 尝试删除延后态推荐（40911）；延后项须 JWT 删除 |
+| 500 | 服务器内部错误（50000） |
+
+### PUT `/api/issues/{iid}/recommendation/defer`
+
+<!-- operationId: deferIssueRecommendation -->
+
+延后推荐（仅 JWT）
+
+冻结整条推荐（reason/priority/dependencies/created_by 原样保留），从推荐列表的 active 组消失且 Agent 不可再推荐（PUT recommendation 返回 40911）。仅作用于已存在的推荐行；重复调用覆盖 note 并刷新 deferred_at。
+
+**鉴权**：仅 JWT
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `iid` | string | 是 | Issue ID（UUID，非 INT-123/GH-123 短编号） |
+
+**请求体**
+
+`application/json`，可选。
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `note` | string（长度 ≤500） | 否 | 延后备注，trim 后 ≤500 rune；缺省或空串表示无备注 |
+
+**成功响应**
+
+**200** 延后后的推荐
+
+`data`：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `issue` | object | 是 |  |
+| `issue.id` | string | 是 |  |
+| `issue.project_id` | string | 是 |  |
+| `issue.project_name` | string | 是 |  |
+| `issue.source` | string（enum: github \| internal） | 是 |  |
+| `issue.sequence_number` | integer | 是 |  |
+| `issue.reference` | string | 是 |  |
+| `issue.title` | string | 是 |  |
+| `issue.state` | string（enum: open \| closed） | 是 |  |
+| `issue.workflow_status` | string（enum: "" \| todo \| in_progress \| done） | 是 | 空串表示未设置（重置语义） |
+| `reason` | string | 是 |  |
+| `priority` | string（enum: high \| medium \| low） | 是 |  |
+| `created_by` | string | 是 | 提交者 API Key 名称 |
+| `status` | string（enum: active \| deferred） | 是 | deferred 表示被用户延后；延后项对 Agent 不可再推荐（PUT 返回 40911） |
+| `deferred_at` | string（date-time，可空） | 是 | 延后时间；status=active 时为 null |
+| `defer_note` | string（可空） | 是 | 延后备注；无备注时为 null |
+| `created_at` | string（date-time） | 是 |  |
+| `updated_at` | string（date-time） | 是 |  |
+| `dependencies` | object[] | 是 |  |
+| `dependencies[].issue_id` | string | 是 |  |
+| `dependencies[].title` | string | 是 |  |
+| `dependencies[].state` | string（enum: open \| closed） | 是 |  |
+| `dependencies[].workflow_status` | string（enum: "" \| todo \| in_progress \| done） | 是 | 空串表示未设置（重置语义） |
+| `dependencies[].project_id` | string | 是 |  |
+| `dependencies[].sequence_number` | integer | 是 |  |
+| `dependencies[].reference` | string | 是 |  |
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 400 | note 超长（40001） |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 403 | API Key 调用仅限 JWT 的端点（40301） |
+| 404 | 推荐不存在（40411）或项目不存在（40401） |
+| 500 | 服务器内部错误（50000） |
+
+### DELETE `/api/issues/{iid}/recommendation/defer`
+
+<!-- operationId: restoreIssueRecommendation -->
+
+恢复已延后的推荐（仅 JWT）
+
+清空 deferred_at/defer_note 并把推荐移回 active 组，updated_at 刷新；未延后时调用为幂等成功。Issue 非 open 时返回 40910。
+
+**鉴权**：仅 JWT
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `iid` | string | 是 | Issue ID（UUID，非 INT-123/GH-123 短编号） |
+
+**成功响应**
+
+**200** 恢复后的推荐
+
+`data`：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `issue` | object | 是 |  |
+| `issue.id` | string | 是 |  |
+| `issue.project_id` | string | 是 |  |
+| `issue.project_name` | string | 是 |  |
+| `issue.source` | string（enum: github \| internal） | 是 |  |
+| `issue.sequence_number` | integer | 是 |  |
+| `issue.reference` | string | 是 |  |
+| `issue.title` | string | 是 |  |
+| `issue.state` | string（enum: open \| closed） | 是 |  |
+| `issue.workflow_status` | string（enum: "" \| todo \| in_progress \| done） | 是 | 空串表示未设置（重置语义） |
+| `reason` | string | 是 |  |
+| `priority` | string（enum: high \| medium \| low） | 是 |  |
+| `created_by` | string | 是 | 提交者 API Key 名称 |
+| `status` | string（enum: active \| deferred） | 是 | deferred 表示被用户延后；延后项对 Agent 不可再推荐（PUT 返回 40911） |
+| `deferred_at` | string（date-time，可空） | 是 | 延后时间；status=active 时为 null |
+| `defer_note` | string（可空） | 是 | 延后备注；无备注时为 null |
+| `created_at` | string（date-time） | 是 |  |
+| `updated_at` | string（date-time） | 是 |  |
+| `dependencies` | object[] | 是 |  |
+| `dependencies[].issue_id` | string | 是 |  |
+| `dependencies[].title` | string | 是 |  |
+| `dependencies[].state` | string（enum: open \| closed） | 是 |  |
+| `dependencies[].workflow_status` | string（enum: "" \| todo \| in_progress \| done） | 是 | 空串表示未设置（重置语义） |
+| `dependencies[].project_id` | string | 是 |  |
+| `dependencies[].sequence_number` | integer | 是 |  |
+| `dependencies[].reference` | string | 是 |  |
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 403 | API Key 调用仅限 JWT 的端点（40301） |
+| 404 | 推荐不存在（40411）或项目不存在（40401） |
+| 409 | Issue 当前状态不可被推荐（40910，如已关闭） |
 | 500 | 服务器内部错误（50000） |
 
 ## artifacts
