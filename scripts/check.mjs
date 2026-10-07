@@ -5,7 +5,7 @@
 // 退出码：0 全部通过；1 存在不一致项。
 //
 // 检查项：
-//   1. AGENTS.md 与 CLAUDE.md 正文一致（首行标题各自命名，忽略；两文件是同一份指令）
+//   1. AGENTS.md 与 CLAUDE.md 正文一致（首行标题各自命名，忽略）；或 CLAUDE.md 仅含 `@AGENTS.md` 引用
 //   2. 每个 skills/**/SKILL.md 有 frontmatter，name 与目录名一致，description 非空
 //   3. 每个技能在 README.md 中有对应小节（含指向该 SKILL.md 的链接）
 //   4. skills/forks/ 下的技能，其 README 小节必须注明「来源」
@@ -28,12 +28,13 @@ if (!readme) fail("README.md 缺失或为空");
 // README 按 ### 切小节，便于做「该小节内」的断言
 const sections = readme.split(/^### /m).slice(1);
 
-// 1. AGENTS.md / CLAUDE.md 一致
+// 1. AGENTS.md / CLAUDE.md 一致，或 CLAUDE.md 用 @ 引用指回 AGENTS.md
 const stripH1 = (t) => t?.replace(/^#[^\n]*\n/, "");
+const isRef = (t) => /^@AGENTS\.md\s*$/.test(stripH1(t)?.trim() ?? "");
 const agents = existsSync(join(ROOT, "AGENTS.md")) ? readFileSync(join(ROOT, "AGENTS.md"), "utf8") : null;
 const claude = existsSync(join(ROOT, "CLAUDE.md")) ? readFileSync(join(ROOT, "CLAUDE.md"), "utf8") : null;
 if (agents === null || claude === null) fail("AGENTS.md 或 CLAUDE.md 缺失");
-else if (stripH1(agents) !== stripH1(claude)) fail("AGENTS.md 与 CLAUDE.md 正文不一致（首行标题各自命名，不计）");
+else if (stripH1(agents) !== stripH1(claude) && !isRef(claude)) fail("AGENTS.md 与 CLAUDE.md 正文不一致（首行标题各自命名，不计）");
 
 // 2-4. 技能检查
 function* walk(dir, depth = 0) {
