@@ -13,7 +13,7 @@ description: PR 推送并请求复审后，自动等待审查 bot 与 CI、处�
    node ~/.agents/skills/pr-review-loop/scripts/pr-review-wait.mjs
    ```
 
-   脚本会等所有审查者和 CI 在最新提交上回应完（单次最多约 9 分钟），然后打印未读的新意见。命令超时至少设为 600 秒。不要自己写 sleep 轮询。
+   脚本会等所有审查者和 CI 在最新提交上回应完（单次最多约 4.5 分钟，压在常见 harness exec 上限内），然后打印未读的新意见。前台直接运行即可；若 harness 仍会掐断长命令，用 `run-watch start pr-wait -- node <脚本>` 挂后台、`run-watch status pr-wait` 取结果。不要自己写 sleep 轮询。
 
 2. 看退出码：
    - `2`：还有审查者或 CI 没回应。有新意见就先处理（第 3 步），没有就直接再运行一次。
