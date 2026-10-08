@@ -24,8 +24,10 @@ description: T3 Code 多 harness 编排：主代理按任务难度和各 harness
    - `claudeAgent_kimi`（没有订阅）；
    - `claudeAgent_minimax`、MiniMax 系列；
    - `opencode` 上 `opencode-go/` 以外的模型。
-4. `claudeAgent` 只用 `glm-5.3-flash[1m]`，不选它模型列表里的 `claude-*`（请求实际会发到智谱）。
-5. 用户点名了模型或 harness 时，照用户说的做，不受第 2、3 条限制，但第 1 条仍然有效。
+4. **自动调度只选路由表「候选」列里的实例/模型组合**；「同模型的备用入口」「用户点名时的入口」只是已选模型的换路入口，不构成新候选。`orchestrator_capabilities` 里有、路由表没写的模型不得自动选用。
+5. `claudeAgent` 只用 `glm-5.3-flash[1m]`，不选它模型列表里的 `claude-*`（请求实际会发到智谱）。
+6. `acpRegistry_factory_droid` 的任务，`options` 一律带 `{"autonomy_level": "auto-high"}`；用户指定其他自治级别时照用户说的。
+7. 用户点名了模型或 harness 时，照用户说的做，不受第 2、3、4 条限制，但第 1、6 条仍然有效。
 
 ## 开工前
 
@@ -36,7 +38,7 @@ description: T3 Code 多 harness 编排：主代理按任务难度和各 harness
 ## 选模型
 
 1. 先判断任务类型：低难度（小改动、机械修改、批量）、常规实现、难题、UI、审查、调研、安全。拿不准时按高一档处理。
-2. 低难度任务优先用额度充足的便宜模型：`glm-5.3-flash[1m]`、`opencode-go/deepseek-v4.1-flash`、`gpt-6-luna`。
+2. 低难度任务优先用额度充足的便宜模型：`glm-5.3-flash[1m]`、`opencode-go/claude-haiku-5-5`、`opencode-go/deepseek-v4.1-flash`、`gpt-6-luna`。
 3. 在路由表对应行里按顺序选第一个可用的候选。以下情况跳过该候选：
    - 违反「硬性规则」；
    - 实例不在 `orchestrator_capabilities` 里，或者 `canRunChildTask` 为 false；

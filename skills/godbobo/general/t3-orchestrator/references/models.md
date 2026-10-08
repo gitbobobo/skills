@@ -14,7 +14,7 @@
 | Devin | `acpRegistry_devin`（脚本里 `devin` 行的周额度是同一账号） | 脚本可读（周） | swe-2 免费期内不占额度（官方写 10-10 或 10-15 截止）；周额度 100% 时 swe-2 仍可用，其他模型不行 |
 | 智谱 GLM Coding Plan | `claudeAgent` | 脚本直接查询（5h、MCP 月） | 只用 `glm-5.3-flash[1m]`；额度充足；闲时（含周末）半价 |
 | opencode go | `opencode` 上的 `opencode-go/*` | 脚本可读（5h、周、月） | 只用 `opencode-go/` 前缀的模型 |
-| Factory | `acpRegistry_factory_droid` | 脚本直接查询，需要 `FACTORY_API_KEY` | 模型最全，适合作为同模型的备用入口。需 droid ≥0.234.0（修复 acp-daemon `--mcp-servers`，[Factory-AI/factory#9](https://github.com/Factory-AI/factory/issues/9)）。选项名是 `reasoning_effort`（snake_case）和 `autonomy_level`（默认 `normal`），不是 `reasoningEffort` |
+| Factory | `acpRegistry_factory_droid` | 脚本直接查询，需要 `FACTORY_API_KEY` | 模型最全，适合作为同模型的备用入口。需 droid ≥0.234.0（修复 acp-daemon `--mcp-servers`，[Factory-AI/factory#9](https://github.com/Factory-AI/factory/issues/9)）。选项名是 `reasoning_effort`（snake_case）和 `autonomy_level`（调度一律传 `auto-high`），不是 `reasoningEffort` |
 | 不使用 | `claudeAgent_kimi`（没有订阅）、`claudeAgent_minimax`（能力太差） | — | 用户点名也要先提醒 |
 
 ## 模型画像
@@ -28,6 +28,8 @@
 | SWE-2 | 自动 | 接近前沿，便宜 | FrontierCode max 50.0%（$1.18） | 端到端测试覆盖；被质疑时会重新推导；探索聚焦 | 多小时级终端长任务弱于 Opus |
 | Grok 4.7 | 自动 | 前沿，长任务 | FrontierCode high 47.6%（$6.65）；CursorBench xhigh 46.3% | 审查（用户实测适合）、长时程任务、自我验证、文档类知识工作 | 慢（小任务均 177s，Opus 34s），输出 token 约 4.5 倍；UI 口碑一般；500k 上下文双倍价 |
 | Grok 4.6 | 自动 | 前沿偏下 | FrontierCode high 48.0%（$2.88） | 同池里比 4.7 更省 | 长终端任务弱 |
+| Sonnet 5.5 | 自动 | 准前沿，性价比向 | FrontierCode xhigh 52.1%（max 46.2%，Anthropic 自报 max 跑法依赖 code-review 技能被扣 scope 分）；CursorBench xhigh 53.1%（$2.81）、high 47.8%（$1.20） | 常规实现、难题兜底 | max 档不升反降 |
+| Haiku 5.5 | 自动，低难度优先 | 便宜档最强 | FrontierCode max 46.4%；CursorBench xhigh 44.3%（$0.56）、high 42.3%（$0.32） | 低难度、批量，分数远超同档 | droid 上没有；步数偏多 |
 | GLM 5.3 Flash | 自动，低难度优先 | 便宜，额度充足 | CursorBench max 36.8%，$0.39 | 低难度、批量；原生多模态，能看截图 | 能力有上限 |
 | DeepSeek V4.1 Flash | 自动，低难度优先 | 便宜，额度充足 | 厂商数据为主，未上第三方榜 | 低难度、批量 | 上一代在 FrontierCode 有违规联网记录 |
 | GPT-6 Luna | 自动，低难度优先 | 极便宜，额度充足 | FrontierCode max 42.4%，$0.10 | 低难度、批量 | 工具坏了时有 28.7% 不告诉用户，必须严格验收 |
@@ -41,13 +43,13 @@
 
 ## 路由表
 
-每行按顺序尝试，前一个不可用、额度告急或失败后再试下一个。所有候选都不开快速模式。
+每行按顺序尝试，前一个不可用、额度告急或失败后再试下一个。所有候选都不开快速模式；`acpRegistry_factory_droid` 候选一律带 `{"autonomy_level": "auto-high"}`，表中不逐个写出。
 
 | 任务 | 候选（实例 / 模型 / 选项） |
 |---|---|
-| 低难度（小改动、机械修改、批量） | `claudeAgent` / `glm-5.3-flash[1m]` → `opencode` / `opencode-go/deepseek-v4.1-flash` → `codex` / `gpt-6-luna` / `{"reasoningEffort": "high"}` → `acpRegistry_devin` / `swe-2-high` |
-| 常规实现、修 bug | `acpRegistry_devin` / `swe-2-high`（免费期内优先） → `codex` / `gpt-6.1-sol` / `{"reasoningEffort": "medium"}` → `acpRegistry_devin` / `gpt-6-1-sol-medium` → `acpRegistry_factory_droid` / `gpt-6.1-sol` → `cursor` / `grok-4.6` / `{"fastMode": false}` |
-| 难题、架构、疑难 bug | `cursor` / `claude-opus-5-5` / `{"effort": "high", "fastMode": false}` → `acpRegistry_factory_droid` / `claude-opus-5-5` / `{"reasoning_effort": "high"}` → `acpRegistry_devin` / `claude-opus-5-5-medium` → `codex` / `gpt-6.1-sol` / `{"reasoningEffort": "xhigh"}` |
+| 低难度（小改动、机械修改、批量） | `claudeAgent` / `glm-5.3-flash[1m]` → `opencode` / `opencode-go/claude-haiku-5-5` → `opencode` / `opencode-go/deepseek-v4.1-flash` → `codex` / `gpt-6-luna` / `{"reasoningEffort": "high"}` → `acpRegistry_devin` / `swe-2-high` |
+| 常规实现、修 bug | `acpRegistry_devin` / `swe-2-high`（免费期内优先） → `codex` / `gpt-6.1-sol` / `{"reasoningEffort": "medium"}` → `acpRegistry_factory_droid` / `claude-sonnet-5-5` → `acpRegistry_devin` / `gpt-6-1-sol-medium` → `acpRegistry_factory_droid` / `gpt-6.1-sol` → `cursor` / `grok-4.6` / `{"fastMode": false}` |
+| 难题、架构、疑难 bug | `cursor` / `claude-opus-5-5` / `{"effort": "high", "fastMode": false}` → `acpRegistry_factory_droid` / `claude-opus-5-5` / `{"reasoning_effort": "high"}` → `acpRegistry_devin` / `claude-opus-5-5-medium` → `acpRegistry_factory_droid` / `claude-sonnet-5-5` / `{"reasoning_effort": "xhigh"}` → `codex` / `gpt-6.1-sol` / `{"reasoningEffort": "xhigh"}` |
 | UI、前端视觉 | `cursor` / `claude-opus-5-5` / `{"effort": "high", "fastMode": false}` → `acpRegistry_factory_droid` / `claude-opus-5-5` → `codex` / `gpt-6.1-sol` / `{"reasoningEffort": "high"}`；只需按截图做小调整时用 `claudeAgent` / `glm-5.3-flash[1m]` |
 | 代码审查（含最终审查） | `codex` / `gpt-6.1-sol` / `{"reasoningEffort": "high"}` → `cursor` / `grok-4.7` / `{"fastMode": false, "contextWindow": "256k"}` → `acpRegistry_devin` / `gpt-6-1-sol-medium` → `acpRegistry_factory_droid` / `gpt-6.1-sol` 或 `grok-4.7`。实现者是 GPT 系列时先用 Grok 4.7 |
 | 调研、写文档 | `cursor` / `grok-4.6` 或 `grok-4.7` / `{"fastMode": false, "contextWindow": "256k"}` → `codex` / `gpt-6.1-sol` → `acpRegistry_factory_droid` / `claude-opus-5-5` |
@@ -58,10 +60,12 @@
 | 模型 | 入口 |
 |---|---|
 | Opus 5.5 | `cursor` `claude-opus-5-5` · `acpRegistry_factory_droid` `claude-opus-5-5` · `acpRegistry_devin` `claude-opus-5-5-medium` |
+| Sonnet 5.5 | `acpRegistry_factory_droid` `claude-sonnet-5-5` · `acpRegistry_devin` `claude-sonnet-5-5-medium` · `cursor` `claude-sonnet-5-5` |
 | GPT-6.1 Sol | `codex` `gpt-6.1-sol` · `acpRegistry_devin` `gpt-6-1-sol-medium` · `acpRegistry_factory_droid` `gpt-6.1-sol` |
 | GPT-6 Luna | `codex` `gpt-6-luna` · `acpRegistry_devin` `gpt-6-luna-medium` · `opencode` `opencode-go/gpt-6-luna` · `acpRegistry_factory_droid` `gpt-6-luna` |
 | GLM 5.3 Flash | `claudeAgent` `glm-5.3-flash[1m]` · `opencode` `opencode-go/glm-5.3-flash` · `acpRegistry_factory_droid` `glm-5.3-flash` · `acpRegistry_devin` `glm-5-3-flash-max` · `cursor` `glm-5p3-flash` |
 | DeepSeek V4.1 Flash | `opencode` `opencode-go/deepseek-v4.1-flash` · `acpRegistry_factory_droid` `deepseek-v4.1-flash` · `acpRegistry_devin` `deepseek-v4-1-flash-high` |
+| Haiku 5.5 | `opencode` `opencode-go/claude-haiku-5-5` · `acpRegistry_devin` `claude-haiku-5-5-medium` · `cursor` `claude-haiku-5-5`（droid 没有） |
 | Grok 4.7 / 4.6 | `cursor` `grok-4.7` / `grok-4.6` · `acpRegistry_devin` `grok-4-7-medium` / `grok-4-6-medium` · `acpRegistry_factory_droid` `grok-4.7` / `grok-4.6` · `opencode` `opencode-go/grok-4.7` / `opencode-go/grok-4.6` |
 | SWE-2 | 只有 `acpRegistry_devin` `swe-2-high`。Devin Fusion（`fusion-<主模型>-sidekick-swe-2-medium`）适合大量机械工作，判断本身就是交付物时不要用 |
 
