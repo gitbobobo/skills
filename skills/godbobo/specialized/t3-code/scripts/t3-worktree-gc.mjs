@@ -35,8 +35,9 @@
 //      成文件（按 HEAD+objects/refs/config 同前缀特征识别）——其内部
 //      状态都无法评估。assume-unchanged/skip-worktree
 //      标记文件（ls-files -v 小写或 S）同样阻断——其本地修改对 status 隐身；
-//   g. HEAD 可从某个 refs/remotes/origin/* 到达（merge-base --is-ancestor 任一为真；
-//      本地孤立提交不能丢）；
+//   g. HEAD 可从某个 refs/remotes/origin/* 到达（merge-base --is-ancestor 任一为真）。
+//      判定前先对该仓库跑一次 fetch --prune：远端跟踪引用只是本地缓存，
+//      远端删过分支后本地 ref 不除会让「已推送」误判；远端不可达整组 skip；
 //   h. 没有进程以它为 cwd（POSIX 用 lsof -d cwd -Fn；lsof 缺席时 Linux 退 /proc
 //      读 cwd 链接。非 Windows 上检查不可用也是阻断原因——宁可错杀不可错放；
 //      Windows 不做此检查，靠删除失败兜底）。
@@ -416,10 +417,23 @@ function snapshotReasons(dir, wtReal, snap, occ, notes) {
   return reasons;
 }
 
+// 远端跟踪引用只是本地缓存：远端分支被删/强推后本地 ref 仍在，「已推送」
+// 会误判。每个公共 git 目录跑一次 fetch --prune 刷新后再判（worktree 共享
+// refs，按 gitCommon 去重）；取不到远端视为无法验证，该仓库整组 skip。
+const fetchCache = new Map(); // gitCommon → boolean
+function refreshRemote(gitCommon) {
+  if (!fetchCache.has(gitCommon))
+    fetchCache.set(
+      gitCommon,
+      shErr("git", ["--git-dir", gitCommon, "fetch", "origin", "--prune"], { timeout: 120000 }).ok
+    );
+  return fetchCache.get(gitCommon);
+}
+
 // f/g. git 侧判定：未提交变更、忽略文件里的珍贵内容、HEAD 已推送、
 // assume-unchanged/skip-worktree 标记。扫描与删除前复查共用：间隔期间
 // 后台进程可能新写 .env 或本地提交。notes 只在扫描阶段收集 ignored 列名。
-function gitStateReasons(dir, notes) {
+function gitStateReasons(dir, notes, gitCommon) {
   const reasons = [];
   // -uall 强制逐文件展开并覆盖 status.showUntrackedFiles=no 配置——
   // 配置为 no 时普通 untracked 文件完全不报，会把脏树误判干净
@@ -490,12 +504,18 @@ function gitStateReasons(dir, notes) {
   else if (subs.split("\n").filter(Boolean).length)
     reasons.push(`含 git 子模块（其内部本地状态不可评估）：${subs.split("\n").filter(Boolean).length} 个`);
 
-  const refs = (sh("git", ["-C", dir, "for-each-ref", "--format=%(refname)", "refs/remotes/origin"]) ?? "")
-    .split("\n")
-    .filter(Boolean);
-  if (refs.length === 0) reasons.push("无 refs/remotes/origin/* 远端引用");
-  else if (!refs.some((ref) => shErr("git", ["-C", dir, "merge-base", "--is-ancestor", "HEAD", ref]).ok))
-    reasons.push("HEAD 不在任何 origin 分支上（本地提交未推送）");
+  if (sh("git", ["--git-dir", gitCommon, "remote", "get-url", "origin"]) === null)
+    reasons.push("无 origin 远端配置");
+  else if (!refreshRemote(gitCommon))
+    reasons.push("远端不可达，无法验证推送状态（fetch origin --prune 失败）");
+  else {
+    const refs = (sh("git", ["-C", dir, "for-each-ref", "--format=%(refname)", "refs/remotes/origin"]) ?? "")
+      .split("\n")
+      .filter(Boolean);
+    if (refs.length === 0) reasons.push("无 refs/remotes/origin/* 远端引用");
+    else if (!refs.some((ref) => shErr("git", ["-C", dir, "merge-base", "--is-ancestor", "HEAD", ref]).ok))
+      reasons.push("HEAD 不在任何 origin 分支上（本地提交未推送）");
+  }
   return reasons;
 }
 
@@ -547,7 +567,7 @@ for (const dir of candidates(scanRoot)) {
   reasons.push(...snapshotReasons(dir, wtReal, dbSnap, occSnap, notes));
 
   // f/g. git 侧判定（未提交变更、珍贵忽略文件、HEAD 已推送）
-  reasons.push(...gitStateReasons(dir, notes));
+  reasons.push(...gitStateReasons(dir, notes, gitCommon));
 
   if (reasons.length) {
     report("skip", rel, [...reasons, ...notes].join("；"), branch);
@@ -565,7 +585,7 @@ for (const dir of candidates(scanRoot)) {
   // git 状态同样重查——扫描与执行之间后台进程可能新写 ignored 凭据或本地提交
   const reReasons = [
     ...snapshotReasons(dir, wtReal, snapshotDb(), computeOccupants(), []),
-    ...gitStateReasons(dir, []),
+    ...gitStateReasons(dir, [], gitCommon),
   ];
   if (reReasons.length) {
     report("skip", rel, `删除前复查发现阻断：${reReasons.join("；")}`, branch);
