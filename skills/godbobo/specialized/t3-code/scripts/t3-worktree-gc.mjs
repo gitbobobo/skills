@@ -26,10 +26,11 @@
 //      允许回收，报告标 unbound；
 //   d. 绑定线程没有 queued/preparing/starting/running/waiting 状态的 run；
 //   e. 数据库文件不存在或打不开：此根下所有工作树全部 skip，「数据库缺席，不做删除」；
-//   f. git status --porcelain 为空，且 --ignored 展开里没有命中「珍贵模式」的
-//      条目（珍贵模式 = 凭据类文件类型：.env、密钥/证书/keystore、properties、
-//      kubeconfig、凭据命名、本地数据库等，见 PRECIOUS_PATTERNS；node_modules、
-//      构建产物不命中，照常可删，条目名列进报告、超 8 个截断）；
+//   f. git status --porcelain 为空；ignored 逐文件展开（ls-files -o -i -z）
+//      里没有命中「珍贵模式」的条目（status 把 ignored 目录折叠成一行，
+//      目录内的凭据只能靠逐文件检出；命中前先过 BENIGN_DIR_SEGMENTS
+//      良性目录段滤掉编译产物防误报。报告列名用 status 的 !! 折叠视图，
+//      超 8 个截断）；
 //   g. HEAD 可从某个 refs/remotes/origin/* 到达（merge-base --is-ancestor 任一为真；
 //      本地孤立提交不能丢）；
 //   h. 没有进程以它为 cwd（POSIX 用 lsof -d cwd -Fn；lsof 缺席时 Linux 退 /proc
@@ -90,6 +91,7 @@ function shErr(cmd, argv, opts = {}) {
     const out = execFileSync(cmd, argv, {
       encoding: "utf8",
       timeout: opts.timeout ?? 15000,
+      maxBuffer: opts.maxBuffer ?? 16 * 1024 * 1024, // 默认 1MB 太小，status/ref 列表在巨型仓库会超限
       stdio: ["ignore", "pipe", "pipe"],
       cwd: opts.cwd,
     });
@@ -153,6 +155,30 @@ const PRECIOUS_RE = PRECIOUS_PATTERNS.map(
 );
 const isPrecious = (p) =>
   p.split("/").some((seg) => seg && PRECIOUS_RE.some((re) => re.test(seg)));
+
+// 良性目录段：路径任一段命中即跳过珍贵匹配——build/target 等产物目录里的
+// 编译输出（如 **/Credentials.class）会误中 *credential* 之类模式。
+const BENIGN_DIR_SEGMENTS = [
+  "node_modules",
+  "dist",
+  "build",
+  "target",
+  "out",
+  "coverage",
+  ".gradle",
+  ".cxx",
+  ".next",
+  ".turbo",
+  ".cache",
+  "artifacts",
+  "tmp",
+  "temp",
+  "vendor",
+  ".idea",
+  ".vscode",
+];
+const BENIGN_SET = new Set(BENIGN_DIR_SEGMENTS.map((s) => s.toLowerCase()));
+const hasBenignSegment = (p) => p.split("/").some((seg) => seg && BENIGN_SET.has(seg.toLowerCase()));
 
 const norm = (p) => resolve(p).replace(/[\\/]+$/, "");
 const tryReal = (p) => {
@@ -425,7 +451,8 @@ for (const dir of candidates(scanRoot)) {
   reasons.push(...snapshotReasons(dir, wtReal, dbSnap, occSnap, notes));
 
   // f. 未提交变更 + 忽略文件里的珍贵内容
-  // --porcelain 不含 ignored 条目；--ignored 展开的 !! 行过珍贵模式检查
+  // status --ignored 给目录级折叠视图（报告列名用）；珍贵判定必须走
+  // ls-files 逐文件展开——折叠后目录内的凭据（local/.env 之类）不可见
   const st = sh("git", ["-C", dir, "status", "--porcelain", "--ignored"]);
   if (st === null) reasons.push("git status 执行失败");
   else {
@@ -436,11 +463,21 @@ for (const dir of candidates(scanRoot)) {
       else dirty.push(l);
     }
     if (dirty.length) reasons.push(`${dirty.length} 个未提交文件`);
-    const precious = ignored.filter(isPrecious);
-    if (precious.length) reasons.push(`含珍贵忽略文件：${precious.join("、")}`);
-    else if (ignored.length) {
-      // 列条目名供 dry-run 审查，超 8 个截断
-      notes.push(`忽略文件 ${ignored.length} 项（${ignored.slice(0, 8).join("、")}${ignored.length > 8 ? "、…" : ""}）`);
+
+    // ls-files 逐文件展开可能产出 10MB+（数万 ignored 文件），缓冲给足、超时放宽
+    const ls = sh("git", ["-C", dir, "ls-files", "-o", "-i", "--exclude-standard", "-z"], { maxBuffer: 256 * 1024 * 1024, timeout: 60000 });
+    if (ls === null) reasons.push("git ls-files 执行失败");
+    else {
+      const precious = ls
+        .split("\0")
+        .filter(Boolean)
+        .filter((p) => !hasBenignSegment(p))
+        .filter(isPrecious);
+      if (precious.length) reasons.push(`含珍贵忽略文件：${precious.join("、")}`);
+      else if (ignored.length) {
+        // 列条目名供 dry-run 审查，超 8 个截断
+        notes.push(`忽略文件 ${ignored.length} 项（${ignored.slice(0, 8).join("、")}${ignored.length > 8 ? "、…" : ""}）`);
+      }
     }
   }
 
