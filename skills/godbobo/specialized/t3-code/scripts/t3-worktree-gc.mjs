@@ -429,19 +429,22 @@ function snapshotReasons(dir, wtReal, snap, occ, notes) {
 const fetchCache = new Map(); // gitCommon → boolean
 function refreshRemote(gitCommon, fresh = false) {
   if (fresh) fetchCache.delete(gitCommon); // 删除前复查不复用扫描期的旧快照
-  if (!fetchCache.has(gitCommon))
+  if (!fetchCache.has(gitCommon)) {
+    // 禁交互凭据提示：缺 HTTPS/SSH 凭据时 git 会经 /dev/tty 弹提示卡到超时；
+    // 让它们直接失败走「远端不可达」分支。
+    const env = { GIT_TERMINAL_PROMPT: "0" };
+    // SSH 命令已配（GIT_SSH_COMMAND/GIT_SSH 环境变量或 core.sshCommand 配置，
+    // env 优先级最高会整个顶掉用户配置）就尊重它；三者皆无才注入 BatchMode。
+    const hasSshCmd =
+      process.env.GIT_SSH_COMMAND ||
+      process.env.GIT_SSH ||
+      sh("git", ["--git-dir", gitCommon, "config", "--get", "core.sshCommand"]);
+    if (!hasSshCmd) env.GIT_SSH_COMMAND = "ssh -o BatchMode=yes";
     fetchCache.set(
       gitCommon,
-      // 禁交互凭据提示：缺 HTTPS/SSH 凭据时 git 会经 /dev/tty 弹提示卡到超时；
-      // 让它们直接失败走「远端不可达」分支。不覆盖用户已配的 GIT_SSH_COMMAND。
-      shErr("git", ["--git-dir", gitCommon, "fetch", "origin", "--prune"], {
-        timeout: 120000,
-        env: {
-          GIT_TERMINAL_PROMPT: "0",
-          ...(process.env.GIT_SSH_COMMAND ? {} : { GIT_SSH_COMMAND: "ssh -o BatchMode=yes" }),
-        },
-      }).ok
+      shErr("git", ["--git-dir", gitCommon, "fetch", "origin", "--prune"], { timeout: 120000, env }).ok
     );
+  }
   return fetchCache.get(gitCommon);
 }
 
