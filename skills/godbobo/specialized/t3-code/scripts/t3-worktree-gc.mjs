@@ -101,6 +101,7 @@ function shErr(cmd, argv, opts = {}) {
       maxBuffer: opts.maxBuffer ?? 16 * 1024 * 1024, // 默认 1MB 太小，status/ref 列表在巨型仓库会超限
       stdio: ["ignore", "pipe", "pipe"],
       cwd: opts.cwd,
+      env: opts.env ? { ...process.env, ...opts.env } : process.env,
     });
     return { ok: true, out: out.trim(), err: "" };
   } catch (e) {
@@ -431,7 +432,15 @@ function refreshRemote(gitCommon, fresh = false) {
   if (!fetchCache.has(gitCommon))
     fetchCache.set(
       gitCommon,
-      shErr("git", ["--git-dir", gitCommon, "fetch", "origin", "--prune"], { timeout: 120000 }).ok
+      // 禁交互凭据提示：缺 HTTPS/SSH 凭据时 git 会经 /dev/tty 弹提示卡到超时；
+      // 让它们直接失败走「远端不可达」分支。不覆盖用户已配的 GIT_SSH_COMMAND。
+      shErr("git", ["--git-dir", gitCommon, "fetch", "origin", "--prune"], {
+        timeout: 120000,
+        env: {
+          GIT_TERMINAL_PROMPT: "0",
+          ...(process.env.GIT_SSH_COMMAND ? {} : { GIT_SSH_COMMAND: "ssh -o BatchMode=yes" }),
+        },
+      }).ok
     );
   return fetchCache.get(gitCommon);
 }

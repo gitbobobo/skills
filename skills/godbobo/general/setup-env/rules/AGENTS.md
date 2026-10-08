@@ -22,8 +22,8 @@
 ## 工作树与收尾
 
 - 永不删除自己所在的工作树，也不删除仍被 T3 线程绑定的工作树。shell 的 cwd 与线程绑定是两回事：删掉绑定目录后该线程的终端永久失效（spawn 在命令运行前失败，`cd` 救不回来）。
-- 自己工作树的回收交给后续会话：收尾只清理其他已结束的工作树，统一跑 `node ~/.agents/skills/t3-code/scripts/t3-worktree-gc.mjs --apply`（内部已核对线程绑定、脏检查、本地提交、进程占用）。
-- 收尾顺序：更新 Fast Ship 状态 → 核验 PR 状态并 sync → 写接续记录 → 处理本地分支 → 运行 t3-worktree-gc --apply → 输出最终回复。
+- 自己工作树的回收交给后续会话：收尾只清理其他已结束的工作树，统一跑 `node ~/.agents/skills/t3-code/scripts/t3-worktree-gc.mjs --apply`（内部已核对线程绑定、脏检查、本地提交、进程占用）。该脚本属于 t3-code 专用技能：非 T3 机器或未安装（`~/.agents/skills/t3-code/` 不存在）时跳过此步并在回复中说明，不要因报错改用手工删除兜底。
+- 收尾顺序：更新 Fast Ship 状态 → 核验 PR 状态并 sync → 写接续记录 → 处理本地分支 → 运行 t3-worktree-gc --apply（脚本不存在则跳过）→ 输出最终回复。
 
 ## macOS 环境
 
