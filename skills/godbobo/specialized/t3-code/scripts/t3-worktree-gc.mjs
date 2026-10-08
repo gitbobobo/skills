@@ -168,6 +168,8 @@ const isPrecious = (p) =>
 
 // 良性目录段：路径任一段命中即跳过珍贵匹配——build/target 等产物目录里的
 // 编译输出（如 **/Credentials.class）会误中 *credential* 之类模式。
+// 已知取舍：被丢进产物目录的凭据（tmp/secrets.env 之类）会被滤过——
+// 不加这层过滤的话 node_modules 里的类凭据文件名会让所有 JS 工作树不可删。
 const BENIGN_DIR_SEGMENTS = [
   "node_modules",
   "dist",
@@ -456,6 +458,13 @@ function gitStateReasons(dir, notes) {
     if (flagged.length)
       reasons.push(`含 assume-unchanged/skip-worktree 标记文件 ${flagged.length} 个（${flagged.slice(0, 8).join("、")}${flagged.length > 8 ? "、…" : ""}）`);
   }
+
+  // git 子模块：内部 ignored/未推送状态对所有外层检查不可见，且
+  // worktree remove 对含子模块的工作树本就要求双重 --force——一律阻断
+  const subs = sh("git", ["-C", dir, "submodule", "status"]);
+  if (subs === null) reasons.push("git submodule status 执行失败");
+  else if (subs.split("\n").filter(Boolean).length)
+    reasons.push(`含 git 子模块（其内部本地状态不可评估）：${subs.split("\n").filter(Boolean).length} 个`);
 
   const refs = (sh("git", ["-C", dir, "for-each-ref", "--format=%(refname)", "refs/remotes/origin"]) ?? "")
     .split("\n")

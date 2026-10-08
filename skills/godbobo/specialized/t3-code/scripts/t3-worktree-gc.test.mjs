@@ -145,6 +145,16 @@ before(() => {
   D.nested = addWt("wt-nested"); // ignored 目录本身是 git 仓库：ls-files 停在边界 → skip
   git(["init", "-q", "-b", "main", join(D.nested, "nested")]);
   writeFileSync(join(D.nested, "nested", ".env"), "TOKEN=x\n");
+  D.submod = addWt("wt-submod"); // 含 git 子模块：内部本地状态不可评估 → skip
+  const subSrc = join(tmp, "subsrc");
+  git(["init", "-b", "main", subSrc]);
+  writeFileSync(join(subSrc, "s.txt"), "x\n");
+  git(["-C", subSrc, "add", "."]);
+  git(["-C", subSrc, "commit", "-m", "sub init"]);
+  git(["-C", D.submod, "-c", "protocol.file.allow=always", "submodule", "add", subSrc, "vendor/sub"]);
+  git(["-C", D.submod, "commit", "-m", "add submodule"]);
+  git(["-C", D.submod, "push", "origin", "HEAD:br-wt-submod"]);
+  git(["-C", D.submod, "fetch", "origin"]); // refs/remotes/origin/br-wt-submod 就位
   mkdirSync(join(group, "plain-dir")); // 非 git 目录 → not-a-worktree
   git(["clone", mainRepo, join(group, "wt-clone")]); // 独立 clone → skip
   // gitfile 失效残留：.git 文件指向不存在的 admin 路径 → not-a-worktree
@@ -183,7 +193,7 @@ before(() => {
   insThread(db, { id: "thread:delegated-task:test%3Ad1", title: "委派线程未结算", wt: D.delegated });
   insThread(db, { id: "t-activerun", title: "有活跃run", wt: D.activerun, settled: true });
   insRun(db, { id: "r1", thread: "t-activerun", status: "running" });
-  for (const [k, wt] of Object.entries({ self: D.self, dirty: D.dirty, unpushed: D.unpushed, occupied: D.occupied, toplevel: D.toplevel, bare: D.bare, precious: D.precious, keystore: D.keystore, artifacts: D.artifacts, hiddendir: D.hiddendir, classfiles: D.classfiles, clouddir: D.clouddir, indexflags: D.indexflags, nested: D.nested }))
+  for (const [k, wt] of Object.entries({ self: D.self, dirty: D.dirty, unpushed: D.unpushed, occupied: D.occupied, toplevel: D.toplevel, bare: D.bare, precious: D.precious, keystore: D.keystore, artifacts: D.artifacts, hiddendir: D.hiddendir, classfiles: D.classfiles, clouddir: D.clouddir, indexflags: D.indexflags, nested: D.nested, submod: D.submod }))
     insThread(db, { id: `t-${k}`, wt, settled: true });
   // 同一工作树的两种路径拼写：realpath 别名下的未终结线程必须命中（别名合并回归）
   insThread(db, { id: "t-alias-1", wt: D.alias, settled: true });
@@ -231,6 +241,8 @@ test("dry-run：逐目录判定，不删任何东西", () => {
   assert.match(flagsLine, /f\.txt/);
   // 嵌套仓库内 .env 对 status/ls-files 都不可见，按不可枚举目录阻断
   assert.match(lineFor(out, "wt-nested"), /^skip\s.*嵌套仓库\/不可枚举目录：nested\//);
+  // 子模块内部状态不可评估 → skip（其余条件均已满足）
+  assert.match(lineFor(out, "wt-submod"), /^skip\s.*含 git 子模块.*1 个/);
   const cloudLine = lineFor(out, "wt-clouddir"); // 标准云凭据位置全部被珍贵模式拦住
   assert.match(cloudLine, /^skip\s.*含珍贵忽略文件/);
   assert.match(cloudLine, /\.kube\/config/);
@@ -254,7 +266,7 @@ test("dry-run：逐目录判定，不删任何东西", () => {
 test("数据库缺席：根下所有工作树全部 skip", () => {
   const empty = mkdtempSync(join(tmpdir(), "t3gc-nodb-"));
   const out = runGc(["--root", wtRoot], { env: { T3CODE_HOME: empty } });
-  for (const name of ["wt-clean", "wt-unbound", "wt-self", "wt-toplevel", "wt-bare", "wt-unsettled", "wt-dirty", "wt-unpushed", "wt-occupied", "wt-alias", "wt-precious", "wt-keystore", "wt-artifacts", "wt-hiddendir", "wt-classfiles", "wt-clouddir", "wt-indexflags", "wt-nested"])
+  for (const name of ["wt-clean", "wt-unbound", "wt-self", "wt-toplevel", "wt-bare", "wt-unsettled", "wt-dirty", "wt-unpushed", "wt-occupied", "wt-alias", "wt-precious", "wt-keystore", "wt-artifacts", "wt-hiddendir", "wt-classfiles", "wt-clouddir", "wt-indexflags", "wt-nested", "wt-submod"])
     assert.match(lineFor(out, name), /^skip\s.*数据库缺席/, name);
   assert.equal(out.split("\n").filter((l) => l.startsWith("delete ")).length, 0, "DB 缺席时不得出现可删项");
   rmSync(empty, { recursive: true, force: true });
@@ -294,7 +306,7 @@ test("--apply：只删可删工作树并清理本地分支", () => {
   // git worktree 注册同步移除
   const list = git(["-C", mainRepo, "worktree", "list", "--porcelain"]);
   for (const d of [D.clean, D.unbound, D.self, D.toplevel, D.artifacts, D.classfiles]) assert.ok(!list.includes(d), `${d} 不应再注册`);
-  const kept = [D.unsettled, D.delegated, D.activerun, D.dirty, D.unpushed, D.alias, D.precious, D.keystore, D.hiddendir, D.clouddir, D.indexflags, D.nested];
+  const kept = [D.unsettled, D.delegated, D.activerun, D.dirty, D.unpushed, D.alias, D.precious, D.keystore, D.hiddendir, D.clouddir, D.indexflags, D.nested, D.submod];
   if (!isWindows) kept.push(D.occupied); // Windows 不查占用，该树会被删
   for (const d of kept) assert.ok(list.includes(d), `${d} 应仍在注册表`);
   // skip 的工作树全部保留
