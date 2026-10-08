@@ -26,11 +26,12 @@
 //      允许回收，报告标 unbound；
 //   d. 绑定线程没有 queued/preparing/starting/running/waiting 状态的 run；
 //   e. 数据库文件不存在或打不开：此根下所有工作树全部 skip，「数据库缺席，不做删除」；
-//   f. git status --porcelain 为空；ignored 逐文件展开（ls-files -o -i -z）
-//      里没有命中「珍贵模式」的条目（status 把 ignored 目录折叠成一行，
-//      目录内的凭据只能靠逐文件检出；命中前先过 BENIGN_DIR_SEGMENTS
-//      良性目录段滤掉编译产物防误报。报告列名用 status 的 !! 折叠视图，
-//      超 8 个截断）；
+//   f. git status --porcelain -uall 为空（-uall 抗 status.showUntrackedFiles
+//      配置）；ignored 逐文件展开（ls-files -o -i -z）里没有命中「珍贵模式」
+//      的条目（status 把 ignored 目录折叠成一行，目录内凭据只能靠逐文件
+//      检出；命中前先过 BENIGN_DIR_SEGMENTS 良性目录段滤掉编译产物防误报，
+//      报告列名收敛到顶层条目、超 8 个截断）。assume-unchanged/skip-worktree
+//      标记文件（ls-files -v 小写或 S）同样阻断——其本地修改对 status 隐身；
 //   g. HEAD 可从某个 refs/remotes/origin/* 到达（merge-base --is-ancestor 任一为真；
 //      本地孤立提交不能丢）；
 //   h. 没有进程以它为 cwd（POSIX 用 lsof -d cwd -Fn；lsof 缺席时 Linux 退 /proc
@@ -410,39 +411,44 @@ function snapshotReasons(dir, wtReal, snap, occ, notes) {
   return reasons;
 }
 
-// f/g. git 侧判定：未提交变更、忽略文件里的珍贵内容、HEAD 已推送。
-// 扫描与删除前复查共用：间隔期间后台进程可能新写 .env 或本地提交。
-// notes 只在扫描阶段收集 ignored 折叠列名；复查传 [] 只要原因。
+// f/g. git 侧判定：未提交变更、忽略文件里的珍贵内容、HEAD 已推送、
+// assume-unchanged/skip-worktree 标记。扫描与删除前复查共用：间隔期间
+// 后台进程可能新写 .env 或本地提交。notes 只在扫描阶段收集 ignored 列名。
 function gitStateReasons(dir, notes) {
   const reasons = [];
-  // status --ignored 给目录级折叠视图（报告列名用）；珍贵判定必须走
-  // ls-files 逐文件展开——折叠后目录内的凭据（local/.env 之类）不可见
-  const st = sh("git", ["-C", dir, "status", "--porcelain", "--ignored"]);
+  // -uall 强制逐文件展开并覆盖 status.showUntrackedFiles=no 配置——
+  // 配置为 no 时普通 untracked 文件完全不报，会把脏树误判干净
+  const st = sh("git", ["-C", dir, "status", "--porcelain", "-uall"]);
   if (st === null) reasons.push("git status 执行失败");
   else {
-    const dirty = [];
-    const ignored = [];
-    for (const l of st.split("\n").filter(Boolean)) {
-      if (l.startsWith("!!")) ignored.push(l.slice(2).trim());
-      else dirty.push(l);
-    }
+    const dirty = st.split("\n").filter(Boolean);
     if (dirty.length) reasons.push(`${dirty.length} 个未提交文件`);
+  }
 
-    // ls-files 逐文件展开可能产出 10MB+（数万 ignored 文件），缓冲给足、超时放宽
-    const ls = sh("git", ["-C", dir, "ls-files", "-o", "-i", "--exclude-standard", "-z"], { maxBuffer: 256 * 1024 * 1024, timeout: 60000 });
-    if (ls === null) reasons.push("git ls-files 执行失败");
-    else {
-      const precious = ls
-        .split("\0")
-        .filter(Boolean)
-        .filter((p) => !hasBenignSegment(p))
-        .filter(isPrecious);
-      if (precious.length) reasons.push(`含珍贵忽略文件：${precious.join("、")}`);
-      else if (ignored.length) {
-        // 列条目名供 dry-run 审查，超 8 个截断
-        notes.push(`忽略文件 ${ignored.length} 项（${ignored.slice(0, 8).join("、")}${ignored.length > 8 ? "、…" : ""}）`);
-      }
+  // ignored 逐文件展开（ls-files 不受折叠/status 配置影响）：先过良性
+  // 目录段滤掉编译产物防误报，剩余逐文件匹配珍贵模式。输出可能 10MB+
+  //（数万 ignored 文件），缓冲给足、超时放宽
+  const ls = sh("git", ["-C", dir, "ls-files", "-o", "-i", "--exclude-standard", "-z"], { maxBuffer: 256 * 1024 * 1024, timeout: 60000 });
+  if (ls === null) reasons.push("git ls-files 执行失败");
+  else {
+    const ignored = ls.split("\0").filter(Boolean);
+    const precious = ignored.filter((p) => !hasBenignSegment(p)).filter(isPrecious);
+    if (precious.length) reasons.push(`含珍贵忽略文件：${precious.join("、")}`);
+    else if (ignored.length) {
+      // 展示收敛到顶层条目（多段路径取首段加 /），超 8 个截断
+      const tops = [...new Set(ignored.map((p) => (p.includes("/") ? `${p.split("/")[0]}/` : p)))];
+      notes.push(`忽略文件 ${ignored.length} 个（${tops.slice(0, 8).join("、")}${tops.length > 8 ? "、…" : ""}）`);
     }
+  }
+
+  // assume-unchanged/skip-worktree 标记的本地修改对 status 隐身：
+  // ls-files -v 标签小写（assume-unchanged）或 S（skip-worktree）一律阻断
+  const lv = sh("git", ["-C", dir, "ls-files", "-v", "-z"]);
+  if (lv === null) reasons.push("git ls-files -v 执行失败");
+  else {
+    const flagged = lv.split("\0").filter((l) => /^[a-zS] /.test(l)).map((l) => l.slice(2));
+    if (flagged.length)
+      reasons.push(`含 assume-unchanged/skip-worktree 标记文件 ${flagged.length} 个（${flagged.slice(0, 8).join("、")}${flagged.length > 8 ? "、…" : ""}）`);
   }
 
   const refs = (sh("git", ["-C", dir, "for-each-ref", "--format=%(refname)", "refs/remotes/origin"]) ?? "")

@@ -86,6 +86,9 @@ before(() => {
   git(["-C", mainRepo, "remote", "add", "origin", origin]);
   git(["-C", mainRepo, "push", "-u", "origin", "main"]);
   git(["-C", mainRepo, "fetch", "origin"]);
+  // 回归：status.showUntrackedFiles=no 配置下 untracked 文件不报 ??——
+  // gc 必须靠 -uall 覆盖该配置，wt-dirty 检出即证明
+  git(["-C", mainRepo, "config", "status.showUntrackedFiles", "no"]);
 
   const addWt = (name) => {
     const dir = join(group, name);
@@ -134,6 +137,11 @@ before(() => {
   writeFileSync(join(D.clouddir, ".docker", "config.json"), "x\n");
   writeFileSync(join(D.clouddir, "terraform.tfstate"), "x\n");
   writeFileSync(join(D.clouddir, "local.settings.json"), "x\n");
+  D.indexflags = addWt("wt-indexflags"); // 标记位隐藏本地修改：status 看不见，ls-files -v 检出
+  writeFileSync(join(D.indexflags, "f.txt"), "edited\n");
+  git(["-C", D.indexflags, "update-index", "--assume-unchanged", "f.txt"]);
+  writeFileSync(join(D.indexflags, ".gitignore"), "edited\n");
+  git(["-C", D.indexflags, "update-index", "--skip-worktree", ".gitignore"]);
   mkdirSync(join(group, "plain-dir")); // 非 git 目录 → not-a-worktree
   git(["clone", mainRepo, join(group, "wt-clone")]); // 独立 clone → skip
   // gitfile 失效残留：.git 文件指向不存在的 admin 路径 → not-a-worktree
@@ -172,7 +180,7 @@ before(() => {
   insThread(db, { id: "thread:delegated-task:test%3Ad1", title: "委派线程未结算", wt: D.delegated });
   insThread(db, { id: "t-activerun", title: "有活跃run", wt: D.activerun, settled: true });
   insRun(db, { id: "r1", thread: "t-activerun", status: "running" });
-  for (const [k, wt] of Object.entries({ self: D.self, dirty: D.dirty, unpushed: D.unpushed, occupied: D.occupied, toplevel: D.toplevel, bare: D.bare, precious: D.precious, keystore: D.keystore, artifacts: D.artifacts, hiddendir: D.hiddendir, classfiles: D.classfiles, clouddir: D.clouddir }))
+  for (const [k, wt] of Object.entries({ self: D.self, dirty: D.dirty, unpushed: D.unpushed, occupied: D.occupied, toplevel: D.toplevel, bare: D.bare, precious: D.precious, keystore: D.keystore, artifacts: D.artifacts, hiddendir: D.hiddendir, classfiles: D.classfiles, clouddir: D.clouddir, indexflags: D.indexflags }))
     insThread(db, { id: `t-${k}`, wt, settled: true });
   // 同一工作树的两种路径拼写：realpath 别名下的未终结线程必须命中（别名合并回归）
   insThread(db, { id: "t-alias-1", wt: D.alias, settled: true });
@@ -207,13 +215,17 @@ test("dry-run：逐目录判定，不删任何东西", () => {
   assert.match(keystoreLine, /local\.properties/);
   assert.match(keystoreLine, /release\.keystore/);
   const artifactsLine = lineFor(out, "wt-artifacts");
-  assert.match(artifactsLine, /^delete\s.*忽略文件 9 项（/); // 产物不珍贵，列名进报告
+  assert.match(artifactsLine, /^delete\s.*忽略文件 9 个（/); // 产物不珍贵，列名进报告
   assert.match(artifactsLine, /、…/); // 超 8 项截断出省略号
   const hiddendirLine = lineFor(out, "wt-hiddendir");
   assert.match(hiddendirLine, /^skip\s.*含珍贵忽略文件/);
   assert.match(hiddendirLine, /local\/\.env/); // 折叠进 local/ 的凭据被逐文件检出
   assert.match(hiddendirLine, /signing\/app\.keystore/);
-  assert.match(lineFor(out, "wt-classfiles"), /^delete\s.*忽略文件 1 项（build\/）/); // Credentials.class 经 build/ 段过滤
+  assert.match(lineFor(out, "wt-classfiles"), /^delete\s.*忽略文件 1 个（build\/）/); // Credentials.class 经 build/ 段过滤
+  const flagsLine = lineFor(out, "wt-indexflags"); // assume-unchanged/skip-worktree 标记 → skip
+  assert.match(flagsLine, /^skip\s.*assume-unchanged\/skip-worktree 标记文件 2 个/);
+  assert.match(flagsLine, /\.gitignore/);
+  assert.match(flagsLine, /f\.txt/);
   const cloudLine = lineFor(out, "wt-clouddir"); // 标准云凭据位置全部被珍贵模式拦住
   assert.match(cloudLine, /^skip\s.*含珍贵忽略文件/);
   assert.match(cloudLine, /\.kube\/config/);
@@ -237,7 +249,7 @@ test("dry-run：逐目录判定，不删任何东西", () => {
 test("数据库缺席：根下所有工作树全部 skip", () => {
   const empty = mkdtempSync(join(tmpdir(), "t3gc-nodb-"));
   const out = runGc(["--root", wtRoot], { env: { T3CODE_HOME: empty } });
-  for (const name of ["wt-clean", "wt-unbound", "wt-self", "wt-toplevel", "wt-bare", "wt-unsettled", "wt-dirty", "wt-unpushed", "wt-occupied", "wt-alias", "wt-precious", "wt-keystore", "wt-artifacts", "wt-hiddendir", "wt-classfiles", "wt-clouddir"])
+  for (const name of ["wt-clean", "wt-unbound", "wt-self", "wt-toplevel", "wt-bare", "wt-unsettled", "wt-dirty", "wt-unpushed", "wt-occupied", "wt-alias", "wt-precious", "wt-keystore", "wt-artifacts", "wt-hiddendir", "wt-classfiles", "wt-clouddir", "wt-indexflags"])
     assert.match(lineFor(out, name), /^skip\s.*数据库缺席/, name);
   assert.equal(out.split("\n").filter((l) => l.startsWith("delete ")).length, 0, "DB 缺席时不得出现可删项");
   rmSync(empty, { recursive: true, force: true });
@@ -277,7 +289,7 @@ test("--apply：只删可删工作树并清理本地分支", () => {
   // git worktree 注册同步移除
   const list = git(["-C", mainRepo, "worktree", "list", "--porcelain"]);
   for (const d of [D.clean, D.unbound, D.self, D.toplevel, D.artifacts, D.classfiles]) assert.ok(!list.includes(d), `${d} 不应再注册`);
-  const kept = [D.unsettled, D.delegated, D.activerun, D.dirty, D.unpushed, D.alias, D.precious, D.keystore, D.hiddendir, D.clouddir];
+  const kept = [D.unsettled, D.delegated, D.activerun, D.dirty, D.unpushed, D.alias, D.precious, D.keystore, D.hiddendir, D.clouddir, D.indexflags];
   if (!isWindows) kept.push(D.occupied); // Windows 不查占用，该树会被删
   for (const d of kept) assert.ok(list.includes(d), `${d} 应仍在注册表`);
   // skip 的工作树全部保留
