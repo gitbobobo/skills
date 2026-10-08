@@ -125,7 +125,7 @@ node ~/.agents/skills/t3-code/scripts/t3-worktree-gc.test.mjs       # 跑夹具�
 
 ### fast-ship
 
-通过 Fast Ship REST API 创建、更新与查询 Issue：项目管理、打标、工作流状态推进、Issue 关联 PR 的 attach/sync/detach、人机协作区（共识/总结）读写、推荐任务读写、发货后钩子只读与项目日志上传。API Key 认证，配置持久化在 `~/.config/fast-ship/config.yaml`；所有请求走 `scripts/fast-ship-api.mjs`，Key 不出现在命令行，请求体、参数与错误码以 `references/api.md` 为准。专用技能，配合同名服务使用。
+通过 Fast Ship REST API 创建、更新与查询 Issue：项目管理（含项目级独立 PR 访问 Token）、打标、工作流状态推进、Issue 关联 PR 的 attach/sync/detach、人机协作区（共识/总结）读写、推荐任务读写、项目截图库（按界面聚合、版本全量保留）、发货后钩子只读与项目日志上传。API Key 认证，配置持久化在 `~/.config/fast-ship/config.yaml`；所有请求走 `scripts/fast-ship-api.mjs`，Key 不出现在命令行，请求体、参数与错误码以 `references/api.md` 为准。专用技能，配合同名服务使用。
 
 来源：[gitbobobo/fast_ship — skills/fast-ship](https://github.com/gitbobobo/fast_ship/tree/main/skills/fast-ship)
 
