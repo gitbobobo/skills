@@ -30,9 +30,10 @@
 //      配置）；ignored 逐文件展开（ls-files -o -i -z）里没有命中「珍贵模式」
 //      的条目（status 把 ignored 目录折叠成一行，目录内凭据只能靠逐文件
 //      检出；命中前先过 BENIGN_DIR_SEGMENTS 良性目录段滤掉编译产物防误报，
-//      报告列名收敛到顶层条目、超 8 个截断）。ls-files 下探不进去的目录
-//      （嵌套 git 仓库，尾斜杠条目）同样阻断——其内部状态无法评估。
-//      assume-unchanged/skip-worktree
+//      报告列名收敛到顶层条目、超 8 个截断）。嵌套 git 仓库同样阻断：
+//      普通嵌套仓库在 ls-files 里是尾斜杠边界条目，bare 仓库会被展开
+//      成文件（按 HEAD+objects/refs/config 同前缀特征识别）——其内部
+//      状态都无法评估。assume-unchanged/skip-worktree
 //      标记文件（ls-files -v 小写或 S）同样阻断——其本地修改对 status 隐身；
 //   g. HEAD 可从某个 refs/remotes/origin/* 到达（merge-base --is-ancestor 任一为真；
 //      本地孤立提交不能丢）；
@@ -437,9 +438,32 @@ function gitStateReasons(dir, notes) {
   else {
     const ignored = ls.split("\0").filter(Boolean);
     // 尾斜杠 = ls-files 拒绝下探的目录（嵌套 git 仓库/不可读目录）：内部
-    // 凭据与未推送提交对它不可见，不细分场景一律阻断（置于良性过滤之前）
-    const nested = ignored.filter((p) => p.endsWith("/"));
-    if (nested.length) reasons.push(`含嵌套仓库/不可枚举目录：${nested.join("、")}`);
+    // 凭据与未推送提交对它不可见，不细分场景一律阻断。
+    // bare 嵌套仓库没有 .git 边界会被展开成文件：同一前缀下 HEAD +
+    // objects/|refs/|config 共存即按仓库判定（空 bare 有 HEAD+config，
+    // 有提交的有 HEAD+objects/refs）；前缀命中良性目录段才放行（包内
+    // git 夹具不算用户仓库）。
+    const nested = new Set(ignored.filter((p) => p.endsWith("/")));
+    const bareMarks = new Map(); // 目录前缀 → 出现过的仓库特征
+    const markBare = (prefix, k) => {
+      if (!prefix) return;
+      const s = bareMarks.get(prefix) ?? new Set();
+      s.add(k);
+      bareMarks.set(prefix, s);
+    };
+    for (const p of ignored) {
+      if (p.endsWith("/")) continue;
+      const oi = p.indexOf("/objects/");
+      if (oi > 0) markBare(p.slice(0, oi), "objs");
+      const ri = p.indexOf("/refs/");
+      if (ri > 0) markBare(p.slice(0, ri), "refs");
+      if (p.endsWith("/HEAD")) markBare(p.slice(0, -5), "head");
+      if (p.endsWith("/config")) markBare(p.slice(0, -7), "config");
+    }
+    for (const [d, s] of bareMarks)
+      if (!hasBenignSegment(d) && s.has("head") && (s.has("objs") || s.has("refs") || s.has("config")))
+        nested.add(`${d}/`);
+    if (nested.size) reasons.push(`含嵌套仓库/不可枚举目录：${[...nested].join("、")}`);
     const precious = ignored.filter((p) => !hasBenignSegment(p)).filter(isPrecious);
     if (precious.length) reasons.push(`含珍贵忽略文件：${precious.join("、")}`);
     else if (ignored.length) {
