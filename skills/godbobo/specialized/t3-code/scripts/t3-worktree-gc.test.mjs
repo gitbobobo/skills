@@ -9,7 +9,7 @@
 // 全程不碰真实 ~/.t3：注入 T3CODE_HOME 与 --root。
 
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { platform, tmpdir } from "node:os";
@@ -79,6 +79,8 @@ before(() => {
   git(["init", "--bare", origin]);
   git(["init", "-b", "main", mainRepo]);
   writeFileSync(join(mainRepo, "f.txt"), "x\n");
+  // 根 .gitignore 进初始提交：夹具 ignored 文件不用额外提交，也不显脏
+  writeFileSync(join(mainRepo, ".gitignore"), ".env\n*.db\n*.properties\n*.keystore\n*.log\nnode_modules/\ndist/\n");
   git(["-C", mainRepo, "add", "."]);
   git(["-C", mainRepo, "commit", "-m", "init"]);
   git(["-C", mainRepo, "remote", "add", "origin", origin]);
@@ -105,6 +107,18 @@ before(() => {
   git(["-C", D.unpushed, "commit", "-m", "wip"]);
   D.occupied = addWt("wt-occupied"); // 进程占用 → skip
   D.alias = addWt("wt-alias"); // 双路径拼写绑定，未终结别名线程须让它 skip
+  D.precious = addWt("wt-precious"); // ignored 珍贵文件 → skip 并列出命中
+  writeFileSync(join(D.precious, ".env"), "TOKEN=x\n");
+  writeFileSync(join(D.precious, ".local.db"), "x\n");
+  D.keystore = addWt("wt-keystore"); // local.properties/release.keystore 式凭据文件 → skip
+  writeFileSync(join(D.keystore, "local.properties"), "release.storePassword=x\n");
+  writeFileSync(join(D.keystore, "release.keystore"), "x\n");
+  D.artifacts = addWt("wt-artifacts"); // 只有 ignored 产物 → 可删（列名截断进报告）
+  mkdirSync(join(D.artifacts, "node_modules"));
+  writeFileSync(join(D.artifacts, "node_modules", "x.js"), "x\n");
+  mkdirSync(join(D.artifacts, "dist"));
+  writeFileSync(join(D.artifacts, "dist", "bundle.js"), "x\n");
+  for (let i = 1; i <= 7; i++) writeFileSync(join(D.artifacts, `f${i}.log`), "x\n"); // 凑够 >8 项触发截断
   mkdirSync(join(group, "plain-dir")); // 非 git 目录 → not-a-worktree
   git(["clone", mainRepo, join(group, "wt-clone")]); // 独立 clone → skip
   // gitfile 失效残留：.git 文件指向不存在的 admin 路径 → not-a-worktree
@@ -143,7 +157,7 @@ before(() => {
   insThread(db, { id: "thread:delegated-task:test%3Ad1", title: "委派线程未结算", wt: D.delegated });
   insThread(db, { id: "t-activerun", title: "有活跃run", wt: D.activerun, settled: true });
   insRun(db, { id: "r1", thread: "t-activerun", status: "running" });
-  for (const [k, wt] of Object.entries({ self: D.self, dirty: D.dirty, unpushed: D.unpushed, occupied: D.occupied, toplevel: D.toplevel, bare: D.bare }))
+  for (const [k, wt] of Object.entries({ self: D.self, dirty: D.dirty, unpushed: D.unpushed, occupied: D.occupied, toplevel: D.toplevel, bare: D.bare, precious: D.precious, keystore: D.keystore, artifacts: D.artifacts }))
     insThread(db, { id: `t-${k}`, wt, settled: true });
   // 同一工作树的两种路径拼写：realpath 别名下的未终结线程必须命中（别名合并回归）
   insThread(db, { id: "t-alias-1", wt: D.alias, settled: true });
@@ -169,6 +183,17 @@ test("dry-run：逐目录判定，不删任何东西", () => {
   assert.match(lineFor(out, "wt-toplevel"), /^delete\s/); // 无分组层布局也能识别
   assert.match(lineFor(out, "wt-self"), /^delete\s/); // 正常 cwd 下 self 树也可删
   assert.match(lineFor(out, "wt-bare"), /^delete\s/); // bare 主仓库的工作树也是链接工作树
+  const preciousLine = lineFor(out, "wt-precious");
+  assert.match(preciousLine, /^skip\s.*含珍贵忽略文件/);
+  assert.match(preciousLine, /\.env/);
+  assert.match(preciousLine, /\.local\.db/);
+  const keystoreLine = lineFor(out, "wt-keystore");
+  assert.match(keystoreLine, /^skip\s.*含珍贵忽略文件/);
+  assert.match(keystoreLine, /local\.properties/);
+  assert.match(keystoreLine, /release\.keystore/);
+  const artifactsLine = lineFor(out, "wt-artifacts");
+  assert.match(artifactsLine, /^delete\s.*忽略文件 9 项（/); // 产物不珍贵，列名进报告
+  assert.match(artifactsLine, /、…/); // 超 8 项截断出省略号
   assert.match(lineFor(out, "wt-unsettled"), /^skip\s.*主线程 1 个未终结.*主线程未结算/);
   assert.match(lineFor(out, "wt-delegated"), /^skip\s.*委派线程 1 个未终结.*委派线程未结算/);
   assert.match(lineFor(out, "wt-activerun"), /^skip\s.*run.*有活跃run/);
@@ -186,7 +211,7 @@ test("dry-run：逐目录判定，不删任何东西", () => {
 test("数据库缺席：根下所有工作树全部 skip", () => {
   const empty = mkdtempSync(join(tmpdir(), "t3gc-nodb-"));
   const out = runGc(["--root", wtRoot], { env: { T3CODE_HOME: empty } });
-  for (const name of ["wt-clean", "wt-unbound", "wt-self", "wt-toplevel", "wt-bare", "wt-unsettled", "wt-dirty", "wt-unpushed", "wt-occupied", "wt-alias"])
+  for (const name of ["wt-clean", "wt-unbound", "wt-self", "wt-toplevel", "wt-bare", "wt-unsettled", "wt-dirty", "wt-unpushed", "wt-occupied", "wt-alias", "wt-precious", "wt-keystore", "wt-artifacts"])
     assert.match(lineFor(out, name), /^skip\s.*数据库缺席/, name);
   assert.equal(out.split("\n").filter((l) => l.startsWith("delete ")).length, 0, "DB 缺席时不得出现可删项");
   rmSync(empty, { recursive: true, force: true });
@@ -197,9 +222,21 @@ test("self：调用者 cwd 在工作树内时该树被跳过", { skip: isWindows
   assert.match(lineFor(out, "wt-self"), /^skip\s.*(self|位于此工作树内)/);
 });
 
+test("--root 缺值：报错退出而非静默回退 ~/.t3", () => {
+  for (const argv of [["--root"], ["--apply", "--root"], ["--root", "--apply"]]) {
+    const r = spawnSync(process.execPath, [SCRIPT, ...argv], {
+      encoding: "utf8",
+      cwd: tmp,
+      env: { ...process.env, T3CODE_HOME: t3home },
+    });
+    assert.equal(r.status, 2, argv.join(" "));
+    assert.match(r.stderr, /--root 需要目录参数/);
+  }
+});
+
 test("--apply：只删可删工作树并清理本地分支", () => {
   const out = runGc(["--apply"]);
-  const deletable = ["wt-clean", "wt-unbound", "wt-self", "wt-toplevel"];
+  const deletable = ["wt-clean", "wt-unbound", "wt-self", "wt-toplevel", "wt-artifacts"];
   if (isWindows) deletable.push("wt-occupied"); // Windows 不做占用检查，会被删
   for (const name of deletable) {
     assert.match(lineFor(out, name), /^deleted\s/, name);
@@ -213,8 +250,8 @@ test("--apply：只删可删工作树并清理本地分支", () => {
   assert.ok(!git(["--git-dir", bareRepo, "worktree", "list", "--porcelain"]).includes(D.bare));
   // git worktree 注册同步移除
   const list = git(["-C", mainRepo, "worktree", "list", "--porcelain"]);
-  for (const d of [D.clean, D.unbound, D.self, D.toplevel]) assert.ok(!list.includes(d), `${d} 不应再注册`);
-  const kept = [D.unsettled, D.delegated, D.activerun, D.dirty, D.unpushed, D.alias];
+  for (const d of [D.clean, D.unbound, D.self, D.toplevel, D.artifacts]) assert.ok(!list.includes(d), `${d} 不应再注册`);
+  const kept = [D.unsettled, D.delegated, D.activerun, D.dirty, D.unpushed, D.alias, D.precious, D.keystore];
   if (!isWindows) kept.push(D.occupied); // Windows 不查占用，该树会被删
   for (const d of kept) assert.ok(list.includes(d), `${d} 应仍在注册表`);
   // skip 的工作树全部保留

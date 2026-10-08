@@ -26,7 +26,10 @@
 //      允许回收，报告标 unbound；
 //   d. 绑定线程没有 queued/preparing/starting/running/waiting 状态的 run；
 //   e. 数据库文件不存在或打不开：此根下所有工作树全部 skip，「数据库缺席，不做删除」；
-//   f. git status --porcelain 为空；
+//   f. git status --porcelain 为空，且 --ignored 展开里没有命中「珍贵模式」的
+//      条目（珍贵模式 = 凭据类文件类型：.env、密钥/证书/keystore、properties、
+//      kubeconfig、凭据命名、本地数据库等，见 PRECIOUS_PATTERNS；node_modules、
+//      构建产物不命中，照常可删，条目名列进报告、超 8 个截断）；
 //   g. HEAD 可从某个 refs/remotes/origin/* 到达（merge-base --is-ancestor 任一为真；
 //      本地孤立提交不能丢）；
 //   h. 没有进程以它为 cwd（POSIX 用 lsof -d cwd -Fn；lsof 缺席时 Linux 退 /proc
@@ -61,8 +64,15 @@ let apply = false;
 let rootOverride = null;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--apply") apply = true;
-  else if (args[i] === "--root") rootOverride = args[++i];
-  else {
+  else if (args[i] === "--root") {
+    const v = args[++i];
+    // 缺值或以 -- 开头：拒绝静默回退真实 ~/.t3（--apply --root 会误删真实工作树）
+    if (v === undefined || v.startsWith("--")) {
+      console.error(`--root 需要目录参数\n用法：node t3-worktree-gc.mjs [--apply] [--root <dir>]`);
+      process.exit(2);
+    }
+    rootOverride = v;
+  } else {
     console.error(`未知参数：${args[i]}\n用法：node t3-worktree-gc.mjs [--apply] [--root <dir>]`);
     process.exit(2);
   }
@@ -92,6 +102,57 @@ const sh = (cmd, argv, opts = {}) => {
   const r = shErr(cmd, argv, opts);
   return r.ok ? r.out : null;
 };
+
+// 忽略文件里的「珍贵模式」：凭据类文件类型，命中任何路径段即阻断删除
+//（大小写不敏感）。node_modules / 构建产物这类 ignored 不命中，照常可删、
+// 条目名截断列进报告。
+const PRECIOUS_PATTERNS = [
+  // 环境变量与常藏凭据的配置
+  ".env*",
+  "*.properties",
+  "*.tfvars",
+  "secrets.*",
+  "*.token",
+  // 密钥 / 证书 / 钥匙串
+  "*.pem",
+  "*.key",
+  "*.crt",
+  "*.cer",
+  "*.p12",
+  "*.pfx",
+  "*.jks",
+  "*.keystore",
+  "*.keytab",
+  "*.ppk",
+  "*.mobileprovision",
+  "*.ovpn",
+  "id_*",
+  // 凭据命名、口令库与各平台账号目录/文件
+  "*credential*",
+  "*secret*",
+  ".htpasswd",
+  ".netrc",
+  "_netrc",
+  ".git-credentials",
+  ".ssh",
+  ".gnupg",
+  ".aws",
+  ".pypirc",
+  ".npmrc",
+  ".gitconfig",
+  ".dockercfg",
+  "kubeconfig*",
+  "*.serviceaccount*",
+  // 本地数据库
+  "*.sqlite*",
+  "*.db",
+];
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const PRECIOUS_RE = PRECIOUS_PATTERNS.map(
+  (p) => new RegExp(`^${p.split("*").map(escapeRe).join(".*")}$`, "i")
+);
+const isPrecious = (p) =>
+  p.split("/").some((seg) => seg && PRECIOUS_RE.some((re) => re.test(seg)));
 
 const norm = (p) => resolve(p).replace(/[\\/]+$/, "");
 const tryReal = (p) => {
@@ -363,10 +424,25 @@ for (const dir of candidates(scanRoot)) {
   // c/d/h. 依赖快照的判定（线程绑定、活跃 run、进程占用）
   reasons.push(...snapshotReasons(dir, wtReal, dbSnap, occSnap, notes));
 
-  // f. 未提交变更
-  const st = sh("git", ["-C", dir, "status", "--porcelain"]);
+  // f. 未提交变更 + 忽略文件里的珍贵内容
+  // --porcelain 不含 ignored 条目；--ignored 展开的 !! 行过珍贵模式检查
+  const st = sh("git", ["-C", dir, "status", "--porcelain", "--ignored"]);
   if (st === null) reasons.push("git status 执行失败");
-  else if (st) reasons.push(`${st.split("\n").length} 个未提交文件`);
+  else {
+    const dirty = [];
+    const ignored = [];
+    for (const l of st.split("\n").filter(Boolean)) {
+      if (l.startsWith("!!")) ignored.push(l.slice(2).trim());
+      else dirty.push(l);
+    }
+    if (dirty.length) reasons.push(`${dirty.length} 个未提交文件`);
+    const precious = ignored.filter(isPrecious);
+    if (precious.length) reasons.push(`含珍贵忽略文件：${precious.join("、")}`);
+    else if (ignored.length) {
+      // 列条目名供 dry-run 审查，超 8 个截断
+      notes.push(`忽略文件 ${ignored.length} 项（${ignored.slice(0, 8).join("、")}${ignored.length > 8 ? "、…" : ""}）`);
+    }
+  }
 
   // g. HEAD 须可从某个 refs/remotes/origin/* 到达
   const refs = (sh("git", ["-C", dir, "for-each-ref", "--format=%(refname)", "refs/remotes/origin"]) ?? "")

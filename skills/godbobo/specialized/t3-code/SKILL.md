@@ -72,7 +72,7 @@ node <技能目录>/scripts/t3-worktree-gc.mjs --root <dir>  # 单独指定扫�
 - 调用者 cwd 不在该工作树内（self 永不删）；
 - 是 git 链接工作树（独立 clone skip；非 git/gitfile 失效标 not-a-worktree 只报告）；
 - 绑定的线程全部已终结（settled / archived / deleted 任一；零绑定标 unbound 可删），且没有进行中的 run；
-- 工作树干净（`git status --porcelain` 为空）；
+- 工作树干净，且 ignored 展开里没有命中「珍贵模式」的条目——珍贵模式 = 凭据类文件类型（`.env`、密钥/证书/keystore、`*.properties`、kubeconfig、凭据命名、本地数据库等，全集见脚本里 `PRECIOUS_PATTERNS`）；命中列出文件，其余 ignored 条目名列进报告、超 8 个截断；
 - HEAD 能从某个 `refs/remotes/origin/*` 到达（本地孤立提交不丢）；
 - 没有进程以它为 cwd（POSIX 用 lsof，缺席时 Linux 退 /proc；Windows 不查，靠删除失败兜底）。
 
