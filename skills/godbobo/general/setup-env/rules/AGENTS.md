@@ -19,10 +19,16 @@
 - issue/PR comments 接口不支持 `direction=desc` 排序；取最新评论用 `?per_page=100` 后在结果尾部筛选。
 - 发短评论优先 `gh pr comment <n> --body '...'` / `gh issue comment`，不手写 `gh api` 评论端点。
 
+## 工作树与收尾
+
+- 永不删除自己所在的工作树，也不删除仍被 T3 线程绑定的工作树。shell 的 cwd 与线程绑定是两回事：删掉绑定目录后该线程的终端永久失效（spawn 在命令运行前失败，`cd` 救不回来）。
+- 自己工作树的回收交给后续会话：收尾只清理其他已结束的工作树，统一跑 `node ~/.agents/skills/t3-code/scripts/t3-worktree-gc.mjs --apply`（内部已核对线程绑定、脏检查、本地提交、进程占用）。该脚本属于 t3-code 专用技能：非 T3 机器或脚本文件不存在（`test -f ~/.agents/skills/t3-code/scripts/t3-worktree-gc.mjs`）时跳过此步并在回复中说明，不要因报错改用手工删除兜底。
+- 收尾顺序：更新 Fast Ship 状态 → 核验 PR 状态并 sync → 写接续记录 → 处理本地分支 → 运行 t3-worktree-gc --apply（脚本不存在则跳过）→ 输出最终回复。
+
 ## macOS 环境
 
 - 没有 `setsid`、`timeout`；命令超时会连同整个进程组被杀。需要脱离会话存活的进程用 `nohup cmd >log 2>&1 & disown` 或工具自带的 detached 选项。
-- exec 报 "terminal failed to create" / 目录不存在：会话 cwd（典型是被删除的 git worktree）失效，先在命令里 `cd` 到存在的目录再重试。
+- exec 报 "terminal failed to create" / 目录不存在：会话 cwd（典型是被删除的 git worktree）失效后不可恢复——终端在命令运行前就失败，`cd` 救不回来。不要重试；结束本轮并向用户说明哪些收尾步骤没做（Fast Ship 状态、PR sync、分支清理、工作树回收），等用户在有效目录里开新会话接手。
 
 ## Windows 环境
 
@@ -34,4 +40,4 @@
 - 路径必须是写死的完整绝对路径，不要用变量拼接。变量一旦为空，目标就会退化成当前目录或根目录。
 - 禁止用 `cmd /c rmdir /s`、`rd /s`、`del /s`、`rm -rf` 删除 Windows 上的目录，从 WSL 访问的 `/mnt/<盘符>/` 路径同样适用。不要在 PowerShell 里嵌套 cmd，也不要用 `\"` 转义引号，PowerShell 的转义符是反引号。
 - 删除失败（文件被占用、权限不足、路径过长）就停下，列出没删掉的内容交给用户处理。不要换更强硬的命令重试，也不要为了解锁去结束不是你启动的进程。
-- 只删除属于当前任务的工作树。删除前用 `git worktree list` 和 `git -C '<工作树路径>' status -sb` 确认它检出的是当前任务的分支。发现其他代理或会话正在这个工作树里写文件，就停下来问用户，不要删除。
+- 只删「其他已结束且确认无活动代理」的工作树。删除前用 `git worktree list` 核对注册与检出分支，并确认没有 T3 线程仍绑定该目录（T3 机器上优先跑 `t3-worktree-gc.mjs`，内部已做全套核对）。发现占用或其他代理/会话正在写文件，就停下来问用户，不要删除。
