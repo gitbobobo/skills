@@ -67,7 +67,7 @@ node ~/.agents/skills/recall/scripts/recall.mjs [INT-58] [--threads 5]
 
 ### setup-env
 
-统一设置本机各 agent harness 的全局代理规则：把技能内置的 `rules/AGENTS.md`（唯一真源）链接到 devin、codex、claude、opencode、factory droid 的全局规则路径，cursor 则写入 `~/.cursor/rules/global.mdc`（包 `alwaysApply` frontmatter 的派生文件），让所有 CLI 代理在任何项目里加载同一套约定（命令输出截断保留退出码、长任务日志轮询、非 ASCII 请求体走文件、gh api 陷阱、macOS 进程组与失效 cwd、Windows 删除目录与工作树约束等）。附带环境体检：报告各 harness CLI 安装情况与规则文件状态，已有非空文件先备份再替换，幂等可重跑。另把 `run-watch`（后台长任务封装：start 起任务写日志+状态文件，status 轮询返回退出码）链接到 `~/.local/bin`。仅限用户主动调用。
+统一设置本机各 agent harness 的全局代理规则：把技能内置的 `rules/AGENTS.md`（唯一真源）链接到 devin、codex、claude、opencode、factory droid 的全局规则路径，cursor 则写入 `~/.cursor/rules/global.mdc`（包 `alwaysApply` frontmatter 的派生文件），让所有 CLI 代理在任何项目里加载同一套约定（命令输出截断保留退出码、长任务日志轮询、非 ASCII 请求体走文件、gh api 陷阱、工作树收尾：永不删除自己所在或被 T3 线程绑定的工作树、按固定顺序收尾并跑 t3-worktree-gc 回收、macOS 进程组与失效 cwd 不可恢复、Windows 删除目录与工作树约束等）。附带环境体检：报告各 harness CLI 安装情况与规则文件状态，已有非空文件先备份再替换，幂等可重跑。另把 `run-watch`（后台长任务封装：start 起任务写日志+状态文件，status 轮询返回退出码）链接到 `~/.local/bin`。仅限用户主动调用。
 
 ```bash
 node ~/.agents/skills/setup-env/scripts/setup-env.mjs --check   # 只体检
@@ -103,6 +103,15 @@ GLM 的 API Key 依次从环境变量（`BIGMODEL_API_KEY`、`ZHIPU_API_KEY`、`
 ### t3-code
 
 本机 T3 Code 运行状态的内部参考：`~/.t3/userdata/statev2.sqlite` 的表布局（v2 投影表为权威、v1 已停写）、`turn_items` 各类型 payload 结构与输出留存限制、常用会话分析查询，以及编排工具的机制事实（ACP 兜底语法、schedule_task 格式）与已观察到的平台坑。分析 T3 会话、复盘、排查编排问题时加载；派活的策略与操作流程是 t3-orchestrator 的职责。专用技能。
+
+- `scripts/t3-worktree-gc.mjs`：回收 `~/.t3/worktrees/` 下「其他已终结线程」留下的工作树——核对 T3 线程绑定（settled/archived/deleted）、活跃 run、工作树脏、HEAD 已推送、进程占用后才允许 `git worktree remove`，成功后 `git branch -d` 兜底删本地分支。默认 dry-run，`--apply` 才真删；`--root` 与 `T3CODE_HOME` 可换扫描根与数据库
+- `scripts/t3-worktree-gc.test.mjs`：自包含夹具测试，临时目录造 git 仓库、假 origin 与最小 statev2.sqlite，覆盖每条 skip 原因，不碰真实 `~/.t3`
+
+```bash
+node ~/.agents/skills/t3-code/scripts/t3-worktree-gc.mjs            # dry-run
+node ~/.agents/skills/t3-code/scripts/t3-worktree-gc.mjs --apply    # 真正删除
+node ~/.agents/skills/t3-code/scripts/t3-worktree-gc.test.mjs       # 跑夹具测试
+```
 
 详见 [skills/godbobo/specialized/t3-code/SKILL.md](skills/godbobo/specialized/t3-code/SKILL.md)。
 

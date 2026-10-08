@@ -1,6 +1,6 @@
 ---
 name: t3-code
-description: 本机 T3 Code 运行状态的内部知识：状态数据库布局、会话记录查询方法、delegate_task 编排与 ACP 通道要点。分析 T3 会话、做复盘、排查编排或额度问题时使用。
+description: 本机 T3 Code 运行状态的内部知识：状态数据库布局、会话记录查询方法、delegate_task 编排与 ACP 通道要点。分析 T3 会话、做复盘、排查编排或额度问题时使用；收尾回收孤儿工作树跑 scripts/t3-worktree-gc.mjs。
 ---
 
 # t3-code 本机知识
@@ -56,6 +56,31 @@ sqlite3 $DB "SELECT type, COUNT(*) FROM orchestration_v2_projection_turn_items G
 - ACP 通道兜底：T3 MCP 工具缺席且环境有 `T3_ACP_MCP_NODE` 时，走终端
   `ELECTRON_RUN_AS_NODE=1 "$T3_ACP_MCP_NODE" ${T3_ACP_MCP_ENTRYPOINT:+"$T3_ACP_MCP_ENTRYPOINT"} acp-mcp-call <tool> '<json>'`。
 - `schedule_task` 的 `schedule` 传结构化对象（`{"type":"interval","everyMs":N}` / `{"type":"fixed_time","timeOfDay":"HH:MM","weekdays":[...]}`），不是 JSON 字符串。
+
+## 工作树回收（t3-worktree-gc）
+
+T3 线程绑定的工作树（`~/.t3/worktrees/<项目分组>/<名>`）在线程结束后不会自动清理。收尾时用 `scripts/t3-worktree-gc.mjs` 只回收「其他已终结线程」的工作树——自己所在的树留给后续会话，绑定中的树永远不碰（删掉绑定目录会让该线程终端永久失效）。
+
+```bash
+node <技能目录>/scripts/t3-worktree-gc.mjs               # dry-run：逐目录打印结论
+node <技能目录>/scripts/t3-worktree-gc.mjs --apply       # 真正执行 git worktree remove
+node <技能目录>/scripts/t3-worktree-gc.mjs --root <dir>  # 单独指定扫描根
+```
+
+全部满足才删，任一不满足则 skip 并注明原因：
+
+- 调用者 cwd 不在该工作树内（self 永不删）；
+- 是 git 链接工作树（独立 clone skip；非 git/gitfile 失效标 not-a-worktree 只报告）；
+- 绑定的线程全部已终结（settled / archived / deleted 任一；零绑定标 unbound 可删），且没有进行中的 run；
+- 工作树干净（`git status --porcelain` 为空）；
+- HEAD 能从某个 `refs/remotes/origin/*` 到达（本地孤立提交不丢）；
+- 没有进程以它为 cwd（POSIX 用 lsof，缺席时 Linux 退 /proc；Windows 不查，靠删除失败兜底）。
+
+数据库 `userdata/statev2.sqlite` 只读打开（node:sqlite 优先，退回 sqlite3 CLI）；缺席或打不开时此根下全部 skip，不做删除。`--apply` 下 `git worktree remove` 成功后用 `git branch -d` 兜底删本地分支（失败保留并注明）；任一步失败标 failed 继续下一个，绝不结束进程、不换更强硬的命令重试。
+
+测试：`node <技能目录>/scripts/t3-worktree-gc.test.mjs`——在临时目录造夹具（git 仓库 + 假 origin + 最小 statev2.sqlite），覆盖每条 skip 原因；不碰真实 `~/.t3`。
+
+外部依赖：T3 目前不能解除线程与工作树的绑定、也没有「退回 root」的接口（`t3_worktree_handoff` 只能转入新工作树）；绑定中的工作树只能等线程终结后由 gc 回收，解绑能力依赖 T3 产品改动。
 
 ## 已观察到的坑
 
