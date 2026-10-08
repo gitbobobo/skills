@@ -38,7 +38,8 @@
 //      Windows 不做此检查，靠删除失败兜底）。
 //
 // 线程绑定/活跃 run/进程占用都可能在扫描期间变化：扫描阶段各取一份快照，
-// --apply 真正删除前会对该目录重拍这三份快照复查一遍（收窄 TOCTOU 窗口）。
+// --apply 真正删除前会对该目录重拍快照并重查 git 状态（dirty/珍贵忽略/HEAD
+// 推送状态都可能被并发进程改写），复查一遍收窄 TOCTOU 窗口。
 // 残余窗口——线程恰在复查后复活或新绑定该目录——只能靠 T3 提供解绑/互斥
 // 接口才能彻底消除。
 //
@@ -67,8 +68,9 @@ for (let i = 0; i < args.length; i++) {
   if (args[i] === "--apply") apply = true;
   else if (args[i] === "--root") {
     const v = args[++i];
-    // 缺值或以 -- 开头：拒绝静默回退真实 ~/.t3（--apply --root 会误删真实工作树）
-    if (v === undefined || v.startsWith("--")) {
+    // 缺值/空白/以 -- 开头：拒绝静默回退——resolve("") 会落到调用者 cwd，
+    // --apply --root "$空变量" 会把 cwd 下的目录当工作树根扫描
+    if (v === undefined || !v.trim() || v.startsWith("--")) {
       console.error(`--root 需要目录参数\n用法：node t3-worktree-gc.mjs [--apply] [--root <dir>]`);
       process.exit(2);
     }
@@ -143,8 +145,13 @@ const PRECIOUS_PATTERNS = [
   ".npmrc",
   ".gitconfig",
   ".dockercfg",
+  ".kube",
+  ".docker",
+  ".azure",
+  "local.settings.json",
   "kubeconfig*",
   "*.serviceaccount*",
+  "*.tfstate*",
   // 本地数据库
   "*.sqlite*",
   "*.db",
@@ -403,6 +410,50 @@ function snapshotReasons(dir, wtReal, snap, occ, notes) {
   return reasons;
 }
 
+// f/g. git 侧判定：未提交变更、忽略文件里的珍贵内容、HEAD 已推送。
+// 扫描与删除前复查共用：间隔期间后台进程可能新写 .env 或本地提交。
+// notes 只在扫描阶段收集 ignored 折叠列名；复查传 [] 只要原因。
+function gitStateReasons(dir, notes) {
+  const reasons = [];
+  // status --ignored 给目录级折叠视图（报告列名用）；珍贵判定必须走
+  // ls-files 逐文件展开——折叠后目录内的凭据（local/.env 之类）不可见
+  const st = sh("git", ["-C", dir, "status", "--porcelain", "--ignored"]);
+  if (st === null) reasons.push("git status 执行失败");
+  else {
+    const dirty = [];
+    const ignored = [];
+    for (const l of st.split("\n").filter(Boolean)) {
+      if (l.startsWith("!!")) ignored.push(l.slice(2).trim());
+      else dirty.push(l);
+    }
+    if (dirty.length) reasons.push(`${dirty.length} 个未提交文件`);
+
+    // ls-files 逐文件展开可能产出 10MB+（数万 ignored 文件），缓冲给足、超时放宽
+    const ls = sh("git", ["-C", dir, "ls-files", "-o", "-i", "--exclude-standard", "-z"], { maxBuffer: 256 * 1024 * 1024, timeout: 60000 });
+    if (ls === null) reasons.push("git ls-files 执行失败");
+    else {
+      const precious = ls
+        .split("\0")
+        .filter(Boolean)
+        .filter((p) => !hasBenignSegment(p))
+        .filter(isPrecious);
+      if (precious.length) reasons.push(`含珍贵忽略文件：${precious.join("、")}`);
+      else if (ignored.length) {
+        // 列条目名供 dry-run 审查，超 8 个截断
+        notes.push(`忽略文件 ${ignored.length} 项（${ignored.slice(0, 8).join("、")}${ignored.length > 8 ? "、…" : ""}）`);
+      }
+    }
+  }
+
+  const refs = (sh("git", ["-C", dir, "for-each-ref", "--format=%(refname)", "refs/remotes/origin"]) ?? "")
+    .split("\n")
+    .filter(Boolean);
+  if (refs.length === 0) reasons.push("无 refs/remotes/origin/* 远端引用");
+  else if (!refs.some((ref) => shErr("git", ["-C", dir, "merge-base", "--is-ancestor", "HEAD", ref]).ok))
+    reasons.push("HEAD 不在任何 origin 分支上（本地提交未推送）");
+  return reasons;
+}
+
 // ---------- 主流程 ----------
 const rows = []; // { verdict, rel, branch, detail }
 const counts = { delete: 0, deleted: 0, skip: 0, "not-a-worktree": 0, failed: 0 };
@@ -450,44 +501,8 @@ for (const dir of candidates(scanRoot)) {
   // c/d/h. 依赖快照的判定（线程绑定、活跃 run、进程占用）
   reasons.push(...snapshotReasons(dir, wtReal, dbSnap, occSnap, notes));
 
-  // f. 未提交变更 + 忽略文件里的珍贵内容
-  // status --ignored 给目录级折叠视图（报告列名用）；珍贵判定必须走
-  // ls-files 逐文件展开——折叠后目录内的凭据（local/.env 之类）不可见
-  const st = sh("git", ["-C", dir, "status", "--porcelain", "--ignored"]);
-  if (st === null) reasons.push("git status 执行失败");
-  else {
-    const dirty = [];
-    const ignored = [];
-    for (const l of st.split("\n").filter(Boolean)) {
-      if (l.startsWith("!!")) ignored.push(l.slice(2).trim());
-      else dirty.push(l);
-    }
-    if (dirty.length) reasons.push(`${dirty.length} 个未提交文件`);
-
-    // ls-files 逐文件展开可能产出 10MB+（数万 ignored 文件），缓冲给足、超时放宽
-    const ls = sh("git", ["-C", dir, "ls-files", "-o", "-i", "--exclude-standard", "-z"], { maxBuffer: 256 * 1024 * 1024, timeout: 60000 });
-    if (ls === null) reasons.push("git ls-files 执行失败");
-    else {
-      const precious = ls
-        .split("\0")
-        .filter(Boolean)
-        .filter((p) => !hasBenignSegment(p))
-        .filter(isPrecious);
-      if (precious.length) reasons.push(`含珍贵忽略文件：${precious.join("、")}`);
-      else if (ignored.length) {
-        // 列条目名供 dry-run 审查，超 8 个截断
-        notes.push(`忽略文件 ${ignored.length} 项（${ignored.slice(0, 8).join("、")}${ignored.length > 8 ? "、…" : ""}）`);
-      }
-    }
-  }
-
-  // g. HEAD 须可从某个 refs/remotes/origin/* 到达
-  const refs = (sh("git", ["-C", dir, "for-each-ref", "--format=%(refname)", "refs/remotes/origin"]) ?? "")
-    .split("\n")
-    .filter(Boolean);
-  if (refs.length === 0) reasons.push("无 refs/remotes/origin/* 远端引用");
-  else if (!refs.some((ref) => shErr("git", ["-C", dir, "merge-base", "--is-ancestor", "HEAD", ref]).ok))
-    reasons.push("HEAD 不在任何 origin 分支上（本地提交未推送）");
+  // f/g. git 侧判定（未提交变更、珍贵忽略文件、HEAD 已推送）
+  reasons.push(...gitStateReasons(dir, notes));
 
   if (reasons.length) {
     report("skip", rel, [...reasons, ...notes].join("；"), branch);
@@ -501,8 +516,12 @@ for (const dir of candidates(scanRoot)) {
     continue;
   }
 
-  // 删除前重拍快照复查（收窄 TOCTOU）：线程绑定/活跃 run/进程占用可能已变
-  const reReasons = snapshotReasons(dir, wtReal, snapshotDb(), computeOccupants(), []);
+  // 删除前重拍复查（收窄 TOCTOU）：线程绑定/活跃 run/进程占用可能已变；
+  // git 状态同样重查——扫描与执行之间后台进程可能新写 ignored 凭据或本地提交
+  const reReasons = [
+    ...snapshotReasons(dir, wtReal, snapshotDb(), computeOccupants(), []),
+    ...gitStateReasons(dir, []),
+  ];
   if (reReasons.length) {
     report("skip", rel, `删除前复查发现阻断：${reReasons.join("；")}`, branch);
     continue;

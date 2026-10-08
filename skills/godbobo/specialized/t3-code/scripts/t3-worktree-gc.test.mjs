@@ -80,7 +80,7 @@ before(() => {
   git(["init", "-b", "main", mainRepo]);
   writeFileSync(join(mainRepo, "f.txt"), "x\n");
   // 根 .gitignore 进初始提交：夹具 ignored 文件不用额外提交，也不显脏
-  writeFileSync(join(mainRepo, ".gitignore"), ".env\n*.db\n*.properties\n*.keystore\n*.log\nnode_modules/\ndist/\nbuild/\nlocal/\nsigning/\n");
+  writeFileSync(join(mainRepo, ".gitignore"), ".env\n*.db\n*.properties\n*.keystore\n*.log\nnode_modules/\ndist/\nbuild/\nlocal/\nsigning/\n.kube/\n.docker/\n*.tfstate*\nlocal.settings.json\n");
   git(["-C", mainRepo, "add", "."]);
   git(["-C", mainRepo, "commit", "-m", "init"]);
   git(["-C", mainRepo, "remote", "add", "origin", origin]);
@@ -127,6 +127,13 @@ before(() => {
   D.classfiles = addWt("wt-classfiles"); // build/ 下的 *Credentials*.class：良性目录段过滤，不误拦
   mkdirSync(join(D.classfiles, "build", "intermediates"), { recursive: true });
   writeFileSync(join(D.classfiles, "build", "intermediates", "UpstreamBootstrapCredentials.class"), "x\n");
+  D.clouddir = addWt("wt-clouddir"); // 标准云凭据位置：.kube/.docker/tfstate/azure → skip
+  mkdirSync(join(D.clouddir, ".kube"));
+  writeFileSync(join(D.clouddir, ".kube", "config"), "x\n");
+  mkdirSync(join(D.clouddir, ".docker"));
+  writeFileSync(join(D.clouddir, ".docker", "config.json"), "x\n");
+  writeFileSync(join(D.clouddir, "terraform.tfstate"), "x\n");
+  writeFileSync(join(D.clouddir, "local.settings.json"), "x\n");
   mkdirSync(join(group, "plain-dir")); // 非 git 目录 → not-a-worktree
   git(["clone", mainRepo, join(group, "wt-clone")]); // 独立 clone → skip
   // gitfile 失效残留：.git 文件指向不存在的 admin 路径 → not-a-worktree
@@ -165,7 +172,7 @@ before(() => {
   insThread(db, { id: "thread:delegated-task:test%3Ad1", title: "委派线程未结算", wt: D.delegated });
   insThread(db, { id: "t-activerun", title: "有活跃run", wt: D.activerun, settled: true });
   insRun(db, { id: "r1", thread: "t-activerun", status: "running" });
-  for (const [k, wt] of Object.entries({ self: D.self, dirty: D.dirty, unpushed: D.unpushed, occupied: D.occupied, toplevel: D.toplevel, bare: D.bare, precious: D.precious, keystore: D.keystore, artifacts: D.artifacts, hiddendir: D.hiddendir, classfiles: D.classfiles }))
+  for (const [k, wt] of Object.entries({ self: D.self, dirty: D.dirty, unpushed: D.unpushed, occupied: D.occupied, toplevel: D.toplevel, bare: D.bare, precious: D.precious, keystore: D.keystore, artifacts: D.artifacts, hiddendir: D.hiddendir, classfiles: D.classfiles, clouddir: D.clouddir }))
     insThread(db, { id: `t-${k}`, wt, settled: true });
   // 同一工作树的两种路径拼写：realpath 别名下的未终结线程必须命中（别名合并回归）
   insThread(db, { id: "t-alias-1", wt: D.alias, settled: true });
@@ -207,6 +214,12 @@ test("dry-run：逐目录判定，不删任何东西", () => {
   assert.match(hiddendirLine, /local\/\.env/); // 折叠进 local/ 的凭据被逐文件检出
   assert.match(hiddendirLine, /signing\/app\.keystore/);
   assert.match(lineFor(out, "wt-classfiles"), /^delete\s.*忽略文件 1 项（build\/）/); // Credentials.class 经 build/ 段过滤
+  const cloudLine = lineFor(out, "wt-clouddir"); // 标准云凭据位置全部被珍贵模式拦住
+  assert.match(cloudLine, /^skip\s.*含珍贵忽略文件/);
+  assert.match(cloudLine, /\.kube\/config/);
+  assert.match(cloudLine, /\.docker\/config\.json/);
+  assert.match(cloudLine, /terraform\.tfstate/);
+  assert.match(cloudLine, /local\.settings\.json/);
   assert.match(lineFor(out, "wt-unsettled"), /^skip\s.*主线程 1 个未终结.*主线程未结算/);
   assert.match(lineFor(out, "wt-delegated"), /^skip\s.*委派线程 1 个未终结.*委派线程未结算/);
   assert.match(lineFor(out, "wt-activerun"), /^skip\s.*run.*有活跃run/);
@@ -224,7 +237,7 @@ test("dry-run：逐目录判定，不删任何东西", () => {
 test("数据库缺席：根下所有工作树全部 skip", () => {
   const empty = mkdtempSync(join(tmpdir(), "t3gc-nodb-"));
   const out = runGc(["--root", wtRoot], { env: { T3CODE_HOME: empty } });
-  for (const name of ["wt-clean", "wt-unbound", "wt-self", "wt-toplevel", "wt-bare", "wt-unsettled", "wt-dirty", "wt-unpushed", "wt-occupied", "wt-alias", "wt-precious", "wt-keystore", "wt-artifacts", "wt-hiddendir", "wt-classfiles"])
+  for (const name of ["wt-clean", "wt-unbound", "wt-self", "wt-toplevel", "wt-bare", "wt-unsettled", "wt-dirty", "wt-unpushed", "wt-occupied", "wt-alias", "wt-precious", "wt-keystore", "wt-artifacts", "wt-hiddendir", "wt-classfiles", "wt-clouddir"])
     assert.match(lineFor(out, name), /^skip\s.*数据库缺席/, name);
   assert.equal(out.split("\n").filter((l) => l.startsWith("delete ")).length, 0, "DB 缺席时不得出现可删项");
   rmSync(empty, { recursive: true, force: true });
@@ -236,7 +249,7 @@ test("self：调用者 cwd 在工作树内时该树被跳过", { skip: isWindows
 });
 
 test("--root 缺值：报错退出而非静默回退 ~/.t3", () => {
-  for (const argv of [["--root"], ["--apply", "--root"], ["--root", "--apply"]]) {
+  for (const argv of [["--root"], ["--apply", "--root"], ["--root", "--apply"], ["--root", ""], ["--root", "   "]]) {
     const r = spawnSync(process.execPath, [SCRIPT, ...argv], {
       encoding: "utf8",
       cwd: tmp,
@@ -264,7 +277,7 @@ test("--apply：只删可删工作树并清理本地分支", () => {
   // git worktree 注册同步移除
   const list = git(["-C", mainRepo, "worktree", "list", "--porcelain"]);
   for (const d of [D.clean, D.unbound, D.self, D.toplevel, D.artifacts, D.classfiles]) assert.ok(!list.includes(d), `${d} 不应再注册`);
-  const kept = [D.unsettled, D.delegated, D.activerun, D.dirty, D.unpushed, D.alias, D.precious, D.keystore, D.hiddendir];
+  const kept = [D.unsettled, D.delegated, D.activerun, D.dirty, D.unpushed, D.alias, D.precious, D.keystore, D.hiddendir, D.clouddir];
   if (!isWindows) kept.push(D.occupied); // Windows 不查占用，该树会被删
   for (const d of kept) assert.ok(list.includes(d), `${d} 应仍在注册表`);
   // skip 的工作树全部保留
