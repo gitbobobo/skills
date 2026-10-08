@@ -71,10 +71,13 @@ node <技能目录>/scripts/t3-worktree-gc.mjs --root <dir>  # 单独指定扫�
 
 - 调用者 cwd 不在该工作树内（self 永不删）；
 - 是 git 链接工作树（独立 clone skip；非 git/gitfile 失效标 not-a-worktree 只报告）；
-- 绑定的线程全部已终结（settled / archived / deleted 任一；零绑定标 unbound 可删），且没有进行中的 run；
-- 工作树干净，且 ignored 展开里没有命中「珍贵模式」的条目——珍贵模式 = 凭据类文件类型（`.env`、密钥/证书/keystore、`*.properties`、kubeconfig、凭据命名、本地数据库等，全集见脚本里 `PRECIOUS_PATTERNS`）；命中列出文件，其余 ignored 条目名列进报告、超 8 个截断；
+- 绑定的线程全部已终结（settled / archived / deleted 任一；零绑定标 unbound 可删），且没有 queued/preparing/starting/running/waiting 状态的 run；
+- `git status --porcelain -uall` 为空（`-uall` 覆盖 `status.showUntrackedFiles` 配置）；ignored 逐文件展开里没有命中「珍贵模式」的条目——珍贵模式 = 凭据类文件类型（`.env`、密钥/证书/keystore、`*.properties`、kubeconfig、`.kube`/`.docker`/`.azure` 等云凭据目录、`*.tfstate*`/`local.settings.json`、凭据命名、本地数据库等，全集见脚本里 `PRECIOUS_PATTERNS`）；命中列出文件，其余 ignored 条目收敛到顶层名进报告、超 8 个截断；
+- 没有 ls-files 下探不了的目录（嵌套 git 仓库等尾斜杠条目）、没有 git 子模块（`submodule status` 为空）、没有 assume-unchanged/skip-worktree 标记文件（`ls-files -v` 小写或 `S` 标签）——这些路径的内部状态对所有检查不可见，一律不删；
 - HEAD 能从某个 `refs/remotes/origin/*` 到达（本地孤立提交不丢）；
 - 没有进程以它为 cwd（POSIX 用 lsof，缺席时 Linux 退 /proc；Windows 不查，靠删除失败兜底）。
+
+`--apply` 在 `git worktree remove` 前对该目录重拍线程绑定/活跃 run/进程占用快照并重查 git 侧全部条件，收窄扫描与执行之间的并发窗口。
 
 数据库 `userdata/statev2.sqlite` 只读打开（node:sqlite 优先，退回 sqlite3 CLI）；缺席或打不开时此根下全部 skip，不做删除。`--apply` 下 `git worktree remove` 成功后用 `git branch -d` 兜底删本地分支（失败保留并注明）；任一步失败标 failed 继续下一个，绝不结束进程、不换更强硬的命令重试。
 
