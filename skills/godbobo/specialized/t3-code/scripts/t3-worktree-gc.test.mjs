@@ -10,7 +10,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -144,6 +144,13 @@ before(() => {
   git(["-C", D.indexflags, "update-index", "--assume-unchanged", "f.txt"]);
   writeFileSync(join(D.indexflags, ".gitignore"), "edited\n");
   git(["-C", D.indexflags, "update-index", "--skip-worktree", ".gitignore"]);
+  D.fsmon = addWt("wt-fsmon"); // fsmonitor 钩子谎报「无变更」：-c core.fsmonitor=false 退化回真实 stat
+  const hook = join(tmp, "fsmon-hook.sh"); // v2 协议：回 token + 空变更列表
+  writeFileSync(hook, '#!/bin/sh\nprintf "%s\\0" "$2"\n');
+  chmodSync(hook, 0o755);
+  git(["-C", D.fsmon, "config", "core.fsmonitor", hook]);
+  git(["-C", D.fsmon, "status", "--porcelain"]); // 预热：建立 token、index 条目置 fsmonitor-valid
+  writeFileSync(join(D.fsmon, "f.txt"), "edited\n");
   D.nested = addWt("wt-nested"); // ignored 目录本身是 git 仓库：ls-files 停在边界 → skip
   git(["init", "-q", "-b", "main", join(D.nested, "nested")]);
   writeFileSync(join(D.nested, "nested", ".env"), "TOKEN=x\n");
@@ -252,6 +259,8 @@ test("dry-run：逐目录判定，不删任何东西", () => {
   assert.match(flagsLine, /^skip\s.*assume-unchanged\/skip-worktree 标记文件 2 个/);
   assert.match(flagsLine, /\.gitignore/);
   assert.match(flagsLine, /f\.txt/);
+  // fsmonitor 钩子谎报无变更也挡不住：-c core.fsmonitor=false 退化真实 stat
+  assert.match(lineFor(out, "wt-fsmon"), /^skip\s.*1 个未提交文件/);
   // 嵌套仓库内 .env 对 status/ls-files 都不可见，按不可枚举目录阻断
   assert.match(lineFor(out, "wt-nested"), /^skip\s.*嵌套仓库\/不可枚举目录：nested\//);
   // bare 嵌套仓库被 ls-files 展开成文件：按 HEAD+objects/config 特征阻断
@@ -284,7 +293,7 @@ test("dry-run：逐目录判定，不删任何东西", () => {
 test("数据库缺席：根下所有工作树全部 skip", () => {
   const empty = mkdtempSync(join(tmpdir(), "t3gc-nodb-"));
   const out = runGc(["--root", wtRoot], { env: { T3CODE_HOME: empty } });
-  for (const name of ["wt-clean", "wt-unbound", "wt-self", "wt-toplevel", "wt-bare", "wt-unsettled", "wt-dirty", "wt-unpushed", "wt-occupied", "wt-alias", "wt-precious", "wt-keystore", "wt-artifacts", "wt-hiddendir", "wt-classfiles", "wt-clouddir", "wt-indexflags", "wt-nested", "wt-baregit", "wt-staleref", "wt-submod"])
+  for (const name of ["wt-clean", "wt-unbound", "wt-self", "wt-toplevel", "wt-bare", "wt-unsettled", "wt-dirty", "wt-unpushed", "wt-occupied", "wt-alias", "wt-precious", "wt-keystore", "wt-artifacts", "wt-hiddendir", "wt-classfiles", "wt-clouddir", "wt-indexflags", "wt-fsmon", "wt-nested", "wt-baregit", "wt-staleref", "wt-submod"])
     assert.match(lineFor(out, name), /^skip\s.*数据库缺席/, name);
   assert.equal(out.split("\n").filter((l) => l.startsWith("delete ")).length, 0, "DB 缺席时不得出现可删项");
   rmSync(empty, { recursive: true, force: true });

@@ -451,9 +451,14 @@ function refreshRemote(gitCommon, fresh = false) {
 // refetch=true 时强制重跑 fetch，复查不用扫描期的远端快照。
 function gitStateReasons(dir, notes, gitCommon, refetch = false) {
   const reasons = [];
+  // FSMonitor 钩子/守护进程陈旧或误报时，被修改的 index 条目仍标
+  // fsmonitor-valid，status 漏报本地编辑（ls-files -v 也只是普通 H），
+  // 而 worktree remove 信同一份索引；untrackedCache 同理可藏未跟踪文件。
+  // 一切读工作树状态的 git 调用强制关两者，退化回真实 stat 扫描。
+  const NF = ["-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false"];
   // -uall 强制逐文件展开并覆盖 status.showUntrackedFiles=no 配置——
   // 配置为 no 时普通 untracked 文件完全不报，会把脏树误判干净
-  const st = sh("git", ["-C", dir, "status", "--porcelain", "-uall"]);
+  const st = sh("git", [...NF, "-C", dir, "status", "--porcelain", "-uall"]);
   if (st === null) reasons.push("git status 执行失败");
   else {
     const dirty = st.split("\n").filter(Boolean);
@@ -463,7 +468,7 @@ function gitStateReasons(dir, notes, gitCommon, refetch = false) {
   // ignored 逐文件展开（ls-files 不受折叠/status 配置影响）：先过良性
   // 目录段滤掉编译产物防误报，剩余逐文件匹配珍贵模式。输出可能 10MB+
   //（数万 ignored 文件），缓冲给足、超时放宽
-  const ls = sh("git", ["-C", dir, "ls-files", "-o", "-i", "--exclude-standard", "-z"], { maxBuffer: 256 * 1024 * 1024, timeout: 60000 });
+  const ls = sh("git", [...NF, "-C", dir, "ls-files", "-o", "-i", "--exclude-standard", "-z"], { maxBuffer: 256 * 1024 * 1024, timeout: 60000 });
   if (ls === null) reasons.push("git ls-files 执行失败");
   else {
     const ignored = ls.split("\0").filter(Boolean);
@@ -505,7 +510,7 @@ function gitStateReasons(dir, notes, gitCommon, refetch = false) {
 
   // assume-unchanged/skip-worktree 标记的本地修改对 status 隐身：
   // ls-files -v 标签小写（assume-unchanged）或 S（skip-worktree）一律阻断
-  const lv = sh("git", ["-C", dir, "ls-files", "-v", "-z"]);
+  const lv = sh("git", [...NF, "-C", dir, "ls-files", "-v", "-z"]);
   if (lv === null) reasons.push("git ls-files -v 执行失败");
   else {
     const flagged = lv.split("\0").filter((l) => /^[a-zS] /.test(l)).map((l) => l.slice(2));
@@ -515,7 +520,7 @@ function gitStateReasons(dir, notes, gitCommon, refetch = false) {
 
   // git 子模块：内部 ignored/未推送状态对所有外层检查不可见，且
   // worktree remove 对含子模块的工作树本就要求双重 --force——一律阻断
-  const subs = sh("git", ["-C", dir, "submodule", "status"]);
+  const subs = sh("git", [...NF, "-C", dir, "submodule", "status"]);
   if (subs === null) reasons.push("git submodule status 执行失败");
   else if (subs.split("\n").filter(Boolean).length)
     reasons.push(`含 git 子模块（其内部本地状态不可评估）：${subs.split("\n").filter(Boolean).length} 个`);

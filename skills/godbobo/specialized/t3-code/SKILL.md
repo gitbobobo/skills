@@ -72,7 +72,7 @@ node <技能目录>/scripts/t3-worktree-gc.mjs --root <dir>  # 单独指定扫�
 - 调用者 cwd 不在该工作树内（self 永不删）；
 - 是 git 链接工作树（独立 clone skip；非 git/gitfile 失效标 not-a-worktree 只报告）；
 - 绑定的线程全部已终结（settled / archived / deleted 任一；零绑定标 unbound 可删），且没有 queued/preparing/starting/running/waiting 状态的 run；
-- `git status --porcelain -uall` 为空（`-uall` 覆盖 `status.showUntrackedFiles` 配置）；ignored 逐文件展开里没有命中「珍贵模式」的条目——珍贵模式 = 凭据类文件类型（`.env`、密钥/证书/keystore、`*.properties`、kubeconfig、`.kube`/`.docker`/`.azure` 等云凭据目录、`.config/gh`/`gcloud`（项目本地 `GH_CONFIG_DIR` 等 CLI 凭据区）、`*.tfstate*`/`local.settings.json`、`hosts.yml`、`.git-crypt`、凭据命名、本地数据库等，全集见脚本里 `PRECIOUS_PATTERNS`/`PRECIOUS_SUBSTRINGS`）；命中列出文件，其余 ignored 条目收敛到顶层名进报告、超 8 个截断；
+- `git status --porcelain -uall` 为空（`-uall` 覆盖 `status.showUntrackedFiles` 配置；所有读工作树状态的调用带 `-c core.fsmonitor=false -c core.untrackedCache=false`，防 fsmonitor 钩子/未跟踪缓存误报把本地编辑藏掉）；ignored 逐文件展开里没有命中「珍贵模式」的条目——珍贵模式 = 凭据类文件类型（`.env`、密钥/证书/keystore、`*.properties`、kubeconfig、`.kube`/`.docker`/`.azure` 等云凭据目录、`.config/gh`/`gcloud`（项目本地 `GH_CONFIG_DIR` 等 CLI 凭据区）、`*.tfstate*`/`local.settings.json`、`hosts.yml`、`.git-crypt`、凭据命名、本地数据库等，全集见脚本里 `PRECIOUS_PATTERNS`/`PRECIOUS_SUBSTRINGS`）；命中列出文件，其余 ignored 条目收敛到顶层名进报告、超 8 个截断；
 - 没有 ls-files 下探不了的目录（嵌套 git 仓库等尾斜杠条目）、没有 git 子模块（`submodule status` 为空）、没有 assume-unchanged/skip-worktree 标记文件（`ls-files -v` 小写或 `S` 标签）——这些路径的内部状态对所有检查不可见，一律不删；
 - HEAD 能从某个 `refs/remotes/origin/*` 到达（判定前先对该仓库跑一次 `fetch origin --prune` 刷新本地跟踪引用——远端删过分支后残留的 tracking ref 不代表已推送；远端不可达即 skip；本地孤立提交不丢）。注意 dry-run 也会执行这一步：fetch 需要联网、会更新本地 `refs/remotes/origin/*`（已禁交互凭据提示，缺凭据直接判不可达不卡终端）；
 - 没有进程以它为 cwd（POSIX 用 lsof，缺席时 Linux 退 /proc；Windows 不查，靠删除失败兜底）。
