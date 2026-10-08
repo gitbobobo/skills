@@ -104,7 +104,7 @@ GLM 的 API Key 依次从环境变量（`BIGMODEL_API_KEY`、`ZHIPU_API_KEY`、`
 
 本机 T3 Code 运行状态的内部参考：`~/.t3/userdata/statev2.sqlite` 的表布局（v2 投影表为权威、v1 已停写）、`turn_items` 各类型 payload 结构与输出留存限制、常用会话分析查询，以及编排工具的机制事实（ACP 兜底语法、schedule_task 格式）与已观察到的平台坑。分析 T3 会话、复盘、排查编排问题时加载；派活的策略与操作流程是 t3-orchestrator 的职责。专用技能。
 
-- `scripts/t3-worktree-gc.mjs`：回收 `~/.t3/worktrees/` 下「其他已终结线程」留下的工作树——核对 T3 线程绑定（settled/archived/deleted）、活跃 run、工作树脏（`-uall` 抗 untracked 配置）、ignored 珍贵文件（凭据类逐文件检出；嵌套 git 仓库与子模块这类不可评估目录一律不动）、索引标记（assume-unchanged/skip-worktree）、HEAD 已推送（先 `fetch --prune` 刷新跟踪引用，远端不可达不删）、进程占用后才允许 `git worktree remove`，删除前再复查一遍全部条件；成功后 `git branch -d` 兜底删本地分支。默认 dry-run，`--apply` 才真删；`--root` 与 `T3CODE_HOME` 可换扫描根与数据库
+- `scripts/t3-worktree-gc.mjs`：回收 `~/.t3/worktrees/` 下「其他已终结线程」留下的工作树——核对 T3 线程绑定（settled/archived/deleted）、活跃 run、工作树脏（`-uall` 抗 untracked 配置）、ignored 珍贵文件（凭据类逐文件检出；嵌套 git 仓库与子模块这类不可评估目录一律不动）、索引标记（assume-unchanged/skip-worktree）、HEAD 已推送（先 `fetch --prune` 刷新跟踪引用，远端不可达不删）、进程占用后才允许 `git worktree remove`，删除前再复查一遍全部条件；成功后 `git branch -d` 兜底删本地分支；有删除失败时退出码非 0。默认 dry-run，`--apply` 才真删；`--root` 与 `T3CODE_HOME` 可换扫描根与数据库
 - `scripts/t3-worktree-gc.test.mjs`：自包含夹具测试，临时目录造 git 仓库、假 origin 与最小 statev2.sqlite，覆盖每条 skip 原因，不碰真实 `~/.t3`
 
 ```bash

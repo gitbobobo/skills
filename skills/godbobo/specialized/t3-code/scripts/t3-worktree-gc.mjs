@@ -150,6 +150,8 @@ const PRECIOUS_PATTERNS = [
   ".npmrc",
   ".gitconfig",
   ".dockercfg",
+  ".git-crypt",
+  "hosts.yml",
   ".kube",
   ".docker",
   ".azure",
@@ -165,8 +167,11 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const PRECIOUS_RE = PRECIOUS_PATTERNS.map(
   (p) => new RegExp(`^${p.split("*").map(escapeRe).join(".*")}$`, "i")
 );
+// 路径子串模式：多段组合的凭据位置（单段模式表达不了的）
+const PRECIOUS_SUBSTRINGS = [".config/gh/", ".config/gcloud/"];
 const isPrecious = (p) =>
-  p.split("/").some((seg) => seg && PRECIOUS_RE.some((re) => re.test(seg)));
+  p.split("/").some((seg) => seg && PRECIOUS_RE.some((re) => re.test(seg))) ||
+  PRECIOUS_SUBSTRINGS.some((s) => p.includes(s));
 
 // 良性目录段：路径任一段命中即跳过珍贵匹配——build/target 等产物目录里的
 // 编译输出（如 **/Credentials.class）会误中 *credential* 之类模式。
@@ -618,3 +623,5 @@ console.log(
   `汇总：共 ${total} 个目录 — 可删 ${counts.delete} / 已删 ${counts.deleted} / skip ${counts.skip} / not-a-worktree ${counts["not-a-worktree"]} / failed ${counts.failed}`
 );
 if (!apply && counts.delete > 0) console.log("（dry-run：加 --apply 执行删除）");
+// 有 requested 删除失败时退出码非 0——自动化按退出码判清理成败
+process.exit(counts.failed > 0 ? 1 : 0);

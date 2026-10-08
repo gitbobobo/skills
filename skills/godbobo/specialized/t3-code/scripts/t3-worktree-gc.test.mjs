@@ -80,7 +80,7 @@ before(() => {
   git(["init", "-b", "main", mainRepo]);
   writeFileSync(join(mainRepo, "f.txt"), "x\n");
   // 根 .gitignore 进初始提交：夹具 ignored 文件不用额外提交，也不显脏
-  writeFileSync(join(mainRepo, ".gitignore"), ".env\n*.db\n*.properties\n*.keystore\n*.log\nnode_modules/\ndist/\nbuild/\nlocal/\nsigning/\n.kube/\n.docker/\n*.tfstate*\nlocal.settings.json\nnested/\n");
+  writeFileSync(join(mainRepo, ".gitignore"), ".env\n*.db\n*.properties\n*.keystore\n*.log\nnode_modules/\ndist/\nbuild/\nlocal/\nsigning/\n.kube/\n.docker/\n*.tfstate*\nlocal.settings.json\nnested/\n.config/\n");
   git(["-C", mainRepo, "add", "."]);
   git(["-C", mainRepo, "commit", "-m", "init"]);
   git(["-C", mainRepo, "remote", "add", "origin", origin]);
@@ -137,6 +137,8 @@ before(() => {
   writeFileSync(join(D.clouddir, ".docker", "config.json"), "x\n");
   writeFileSync(join(D.clouddir, "terraform.tfstate"), "x\n");
   writeFileSync(join(D.clouddir, "local.settings.json"), "x\n");
+  mkdirSync(join(D.clouddir, ".config", "gh"), { recursive: true }); // GH_CONFIG_DIR 项目本地凭据
+  writeFileSync(join(D.clouddir, ".config", "gh", "hosts.yml"), "oauth_token: x\n");
   D.indexflags = addWt("wt-indexflags"); // 标记位隐藏本地修改：status 看不见，ls-files -v 检出
   writeFileSync(join(D.indexflags, "f.txt"), "edited\n");
   git(["-C", D.indexflags, "update-index", "--assume-unchanged", "f.txt"]);
@@ -264,6 +266,7 @@ test("dry-run：逐目录判定，不删任何东西", () => {
   assert.match(cloudLine, /\.docker\/config\.json/);
   assert.match(cloudLine, /terraform\.tfstate/);
   assert.match(cloudLine, /local\.settings\.json/);
+  assert.match(cloudLine, /\.config\/gh\/hosts\.yml/);
   assert.match(lineFor(out, "wt-unsettled"), /^skip\s.*主线程 1 个未终结.*主线程未结算/);
   assert.match(lineFor(out, "wt-delegated"), /^skip\s.*委派线程 1 个未终结.*委派线程未结算/);
   assert.match(lineFor(out, "wt-activerun"), /^skip\s.*run.*有活跃run/);
