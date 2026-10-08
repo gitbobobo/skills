@@ -421,7 +421,8 @@ function snapshotReasons(dir, wtReal, snap, occ, notes) {
 // 会误判。每个公共 git 目录跑一次 fetch --prune 刷新后再判（worktree 共享
 // refs，按 gitCommon 去重）；取不到远端视为无法验证，该仓库整组 skip。
 const fetchCache = new Map(); // gitCommon → boolean
-function refreshRemote(gitCommon) {
+function refreshRemote(gitCommon, fresh = false) {
+  if (fresh) fetchCache.delete(gitCommon); // 删除前复查不复用扫描期的旧快照
   if (!fetchCache.has(gitCommon))
     fetchCache.set(
       gitCommon,
@@ -432,8 +433,9 @@ function refreshRemote(gitCommon) {
 
 // f/g. git 侧判定：未提交变更、忽略文件里的珍贵内容、HEAD 已推送、
 // assume-unchanged/skip-worktree 标记。扫描与删除前复查共用：间隔期间
-// 后台进程可能新写 .env 或本地提交。notes 只在扫描阶段收集 ignored 列名。
-function gitStateReasons(dir, notes, gitCommon) {
+// 后台进程可能新写 .env 或本地提交。notes 只在扫描阶段收集 ignored 列名；
+// refetch=true 时强制重跑 fetch，复查不用扫描期的远端快照。
+function gitStateReasons(dir, notes, gitCommon, refetch = false) {
   const reasons = [];
   // -uall 强制逐文件展开并覆盖 status.showUntrackedFiles=no 配置——
   // 配置为 no 时普通 untracked 文件完全不报，会把脏树误判干净
@@ -506,7 +508,7 @@ function gitStateReasons(dir, notes, gitCommon) {
 
   if (sh("git", ["--git-dir", gitCommon, "remote", "get-url", "origin"]) === null)
     reasons.push("无 origin 远端配置");
-  else if (!refreshRemote(gitCommon))
+  else if (!refreshRemote(gitCommon, refetch))
     reasons.push("远端不可达，无法验证推送状态（fetch origin --prune 失败）");
   else {
     const refs = (sh("git", ["-C", dir, "for-each-ref", "--format=%(refname)", "refs/remotes/origin"]) ?? "")
@@ -585,7 +587,7 @@ for (const dir of candidates(scanRoot)) {
   // git 状态同样重查——扫描与执行之间后台进程可能新写 ignored 凭据或本地提交
   const reReasons = [
     ...snapshotReasons(dir, wtReal, snapshotDb(), computeOccupants(), []),
-    ...gitStateReasons(dir, [], gitCommon),
+    ...gitStateReasons(dir, [], gitCommon, true),
   ];
   if (reReasons.length) {
     report("skip", rel, `删除前复查发现阻断：${reReasons.join("；")}`, branch);
