@@ -90,7 +90,7 @@ T3 Code 多 harness 编排，仅限用户主动调用（在 T3 Code 线程里发
 硬性规则：永远不用快速模式；GPT-6 Astra、Fable 5.1、Kimi K3 只在用户点名时使用；不主动调用 GLM 5.3 非 flash 版、Composer 2.5、Kimi Code、MiniMax，以及 opencode 上 `opencode-go/` 以外的模型。
 
 - `references/models.md`：额度池、模型画像、任务路由表、同模型的备用入口，标有调研日期；末尾的「更新来源与标准」说明去哪里查新数据、按什么标准改，模型更新时只改这个文件
-- `scripts/t3-quota.mjs`：读取 `~/.t3/caches` 中的 provider 额度快照，并直接查询 GLM（智谱/z.ai）和 Factory Droid 的额度（查询方法参考 [steipete/CodexBar](https://github.com/steipete/CodexBar)），不输出任何密钥
+- `scripts/t3-quota.mjs`：用本机凭证直查各 harness 额度，覆盖 Codex（ChatGPT OAuth）、Cursor（Cursor.app 登录态：总额/API/Grok 周）、Devin（CLI credentials：日/周）、opencode go、GLM（智谱/z.ai）和 Factory Droid（查询方法参考 [steipete/CodexBar](https://github.com/steipete/CodexBar)），不依赖 T3 缓存，不输出任何密钥
 
 ```bash
 node ~/.agents/skills/t3-orchestrator/scripts/t3-quota.mjs

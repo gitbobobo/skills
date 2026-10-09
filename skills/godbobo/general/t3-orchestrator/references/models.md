@@ -8,9 +8,9 @@
 
 | 池 | 实例 | 额度怎么看 | 说明 |
 |---|---|---|---|
-| Cursor 模型池 | `cursor` 上的 grok-4.x | 不可读，只能看失败 | 包含用量明显多，主力池 |
-| Cursor 其他池 | `cursor` 上的 Opus、GPT、Gemini 等 | 不可读 | 按 API 价扣费，只在 UI、难题（含安全）时用 |
-| Codex Pro | `codex` | 脚本可读（周） | 更高推理档多耗额度；Astra 约是 Sol 的 3 倍，只限点名 |
+| Cursor 模型池 | `cursor` 上的 grok-4.x | 脚本可读（Grok 周窗口） | 包含用量明显多，主力池 |
+| Cursor 其他池 | `cursor` 上的 Opus、GPT、Gemini 等 | 脚本可读（API 月窗口） | 按 API 价扣费，只在 UI、难题（含安全）时用 |
+| Codex Pro | `codex` | 脚本可读（5h、周） | 更高推理档多耗额度；Astra 约是 Sol 的 3 倍，只限点名 |
 | Devin | `acpRegistry_devin`（脚本里 `devin` 行的周额度是同一账号） | 脚本可读（周） | swe-2 免费期内不占额度（官方写 10-10 或 10-15 截止）；周额度 100% 时 swe-2 仍可用，其他模型不行 |
 | 智谱 GLM Coding Plan | `claudeAgent` | 脚本直接查询（5h、MCP 月） | 只用 `glm-5.3-flash[1m]`；额度充足；闲时（含周末）半价 |
 | opencode go | `opencode` 上的 `opencode-go/*` | 脚本可读（5h、周、月） | 只用 `opencode-go/` 前缀的模型 |
