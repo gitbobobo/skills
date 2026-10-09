@@ -18,6 +18,14 @@ You are reviewing whether the code achieves this intent well. Do NOT question th
 
 {DIFF_OR_FILES}
 
+## Existing Evidence and Review Scope
+
+{RAW_EVIDENCE_PATHS_AND_SOURCE_STATE}
+{FINAL_VERIFICATION_OWNER}
+{PRIOR_FINDINGS_RESPONSES_UNRESOLVED_OBJECTIONS_AND_CHANGED_SCOPE_OR_FIRST_ROUND}
+
+Read code and existing evidence only. Ask the final verification owner to arrange any necessary heavy checks. In a follow-up round, focus on fixes, changed scope, and related regressions; expand when new risk warrants it. Preserve unresolved objections.
+
 ## Review Rubric
 
 {RUBRIC_CONTENTS}

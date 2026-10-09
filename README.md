@@ -23,7 +23,7 @@
 
 ### git-commit
 
-规范的本地提交工作流。确保每次提交都可审计、相关且工作目录干净。
+规范的本地提交工作流。确保每次提交都可审计、相关且工作目录干净；当前源码、工具链和范围一致的最小检查证据可核验采用，变化或缺口才补跑，技能一致性检查同样适用。
 
 详见 [skills/godbobo/general/git-commit/SKILL.md](skills/godbobo/general/git-commit/SKILL.md)。
 
@@ -41,8 +41,7 @@
 
 ### pr-review-loop
 
-PR 推送并请求复审后，由 agent 自己等待审查 bot（Codex、Code Bot、Devin 等）和 CI 在最新提交上回应，处理新意见后再次请求复审，直到收敛。附带的等待脚本只打印未读意见，并识别长时间无响应的审查者；单次等待约 4.5 分钟（兼容各 harness 的 exec 超时上限），超时退出码为 2，直接再调一次即可。每条意见下面附有对应的回复命令（行内意见回复到所在线程，其余发新的顶层评论）。agent 只发新评论，不修改或删除任何已有评论：Code Bot 和 agent 共用同一个 GitHub 账号，改评论会覆盖审查结论。
-
+PR 推送并请求复审后持续跟进 bot（Codex、Code Bot、Devin 等）和 CI。T3 原生 watcher 可用时，先读当前意见与最新 HEAD 检查、处理已有事项，再注册 watcher 并结束本轮等待事件；唤醒后结合账本续跑；未回应审查者用原生 scheduler 的一次临时期限提醒执行超时规则，提醒醒来先删除自身，不建额外 PR 轮询器。等待不代表完成，交回用户时清理提醒与 watcher。没有原生能力才用已有等待脚本，长等待后台执行并保存日志，不重复启动；单次约 4.5 分钟，退出码 2 表示还要继续。脚本附回复命令，原生路径按意见类型和线程 ID 回复。agent 只发新评论，不修改或删除已有评论：Code Bot 和 agent 共用 GitHub 账号，改评论会覆盖审查结论。
 使用方式：在项目 PR 模板的「审查意见处理」中加入下面这一行，agent 按模板完成待办时就会进入循环：
 
 ```markdown
@@ -51,7 +50,7 @@ PR 推送并请求复审后，由 agent 自己等待审查 bot（Codex、Code Bo
 
 处理新意见按「收敛规则」一节执行：先把意见归并进 Act on / Consider / Noted / Dismissed 四桶再按桶回复（Consider 档补上了「对但本 PR 不做」的中间档）；云端 bot 的一致性要降权（各 bot 输入不同）；跨轮判断记在工作树外的 TSV 账本里；上一轮已 Dismissed 的意见被重复提出时引用旧驳回理由而不是重新辩论。
 
-对话中断后恢复时，发 `$pr-review-loop 继续（加 --reset）`。
+对话中断后恢复时，原生路径恢复账本与 watcher；回退脚本首次加 `--reset`。
 
 详见 [skills/godbobo/general/pr-review-loop/SKILL.md](skills/godbobo/general/pr-review-loop/SKILL.md)。
 
@@ -67,7 +66,7 @@ node ~/.agents/skills/recall/scripts/recall.mjs [INT-58] [--threads 5]
 
 ### setup-env
 
-统一设置本机各 agent harness 的全局代理规则：把技能内置的 `rules/AGENTS.md`（唯一真源）链接到 devin、codex、claude、opencode、factory droid 的全局规则路径，cursor 则写入 `~/.cursor/rules/global.mdc`（包 `alwaysApply` frontmatter 的派生文件），让所有 CLI 代理在任何项目里加载同一套约定（命令输出截断保留退出码、长任务日志轮询、非 ASCII 请求体走文件、gh api 陷阱、工作树收尾：永不删除自己所在或被 T3 线程绑定的工作树、按固定顺序收尾并跑 t3-worktree-gc 回收、macOS 进程组与失效 cwd 不可恢复、Windows 删除目录与工作树约束等）。附带环境体检：报告各 harness CLI 安装情况与规则文件状态，已有非空文件先备份再替换，幂等可重跑。另把 `run-watch`（后台长任务封装：start 起任务写日志+状态文件，status 轮询返回退出码）链接到 `~/.local/bin`。仅限用户主动调用。
+统一设置本机各 agent harness 的全局代理规则：把技能内置的 `rules/AGENTS.md`（唯一真源）链接到 devin、codex、claude、opencode、factory droid 的全局规则路径，cursor 则写入 `~/.cursor/rules/global.mdc`（包 `alwaysApply` frontmatter 的派生文件），让所有 CLI 代理在任何项目里加载同一套约定（命令输出截断保留退出码、重命令遵守机器调度、单一最终验证负责人、原生事件优先与后台等待回退、非 ASCII 请求体走文件、gh api 陷阱、工作树收尾：永不删除自己所在或被 T3 线程绑定的工作树、按固定顺序收尾并跑 t3-worktree-gc 回收、macOS 进程组与失效 cwd 不可恢复、Windows 删除目录与工作树约束等）。附带环境体检：报告各 harness CLI 安装情况与规则文件状态，已有非空文件先备份再替换，幂等可重跑。另把 `run-watch`（后台长任务封装：start 起任务写日志+状态文件，status 轮询返回退出码）链接到 `~/.local/bin`。仅限用户主动调用。
 
 ```bash
 node ~/.agents/skills/setup-env/scripts/setup-env.mjs --check   # 只体检
@@ -79,17 +78,21 @@ node ~/.agents/skills/setup-env/scripts/setup-env.mjs --copy    # Windows/无符
 
 ### t3-orchestrator
 
-T3 Code 多 harness 编排，仅限用户主动调用（在 T3 Code 线程里发 `$t3-orchestrator`）。调用后主代理按任务难度和各 harness 额度，通过 `t3-code` MCP 的 `delegate_task` 把活派给合适的子代理模型，再由主代理验收。审查交给 GPT-6.1 Sol 或 Grok 4.7。低难度任务优先用额度充足的 `glm-5.3-flash`、Claude Haiku 5.5、DeepSeek V4.1 Flash、GPT-6 Luna；自动调度只能选路由表「候选」列里的实例/模型。子代理遇到限流、额度用尽或服务过载时，主代理按错误原文分类，先换同模型的其他入口，再换同档位或降档模型，读取旧子线程的进度和工作区 diff 后接着做，最后汇报换路情况。服务过载不在原入口重试；开始后 1 分钟内就失败、没调用过工具的，按配置问题处理。Factory Droid 是同模型备用入口的主力（模型最全，需 droid ≥0.234.0，选项名 `reasoning_effort`/`autonomy_level`，派活一律带 `autonomy_level: auto-high`）。主代理自己中断仍由用户处理。派端到端验证或截图任务时，主代理要把项目 AGENTS.md 里的端到端约束原文转给子代理，不得猜测环境事实；引用词表或生成物条目的任务，由主代理先查证并把可用名单写进任务背景，子代理只引用名单内名字。
+T3 Code 多 harness 编排，仅限用户主动调用（在线程里发 `$t3-orchestrator`）。真正的小任务可由主代理直接完成，复杂实现按既有路由与权限通过 `delegate_task` 委派；实现、独立审查、最终验证职责分开，始终只有一个最终验证负责人。实现者只做派定的最小检查；主代理亲自核对 diff、原始日志、源码状态、工具链和覆盖，符合最终源码的证据可复核采用，变化或缺口补跑。所有写入及生成步骤收敛后由唯一负责人完成最终完整验证。
 
-同一工作树可以并行跑多个写文件的子代理，条件是改动范围互不重叠、都不碰生成物和锁文件、都不提交，且彼此不依赖对方的产出；生成器、锁文件和全仓库测试由主代理在汇合后统一处理。需要执行命令的工作一律走 `delegate_task`，harness 自带的子代理只做不执行命令的只读探索，因为它在后台运行时 shell 和写文件会被自动拒绝。子代理被拒绝权限时要立即停下汇报，不得绕过或在无法验证的情况下继续改。
+按风险审查：小改动主代理检查，需要独立审查的常规改动用一个不同家族审查者，并发、取消、播放、安全或公共接口等高风险改动用两模型 panel。合格 panel 直接作为本轮最终本地审查；复审聚焦修复与相关回归并保留全部历史异议。PR 阶段由云端审查与 pr-review-loop 接续，用户要求或风险扩大才重开本地 panel。
 
-改动较大时的最终审查派一个审查子代理（实现者是 GPT 系列用 Grok 4.7，其他用 GPT-6.1 Sol）；推送前的多模型并行审查用 `$code-review-panel`，模型按路由表挑、优先不同家族。
+同一工作树并行写入要求范围互斥、不碰生成物与锁文件、不提交且无产出依赖；共享改动及生成步骤汇合后处理。需要执行命令的委派走 `delegate_task`，自带子代理只做不执行命令的只读探索，被拒权限立即停下汇报。任务用 async 完成事件；追加修复和复审也新建 delegate_task，逐轮保存 taskId 与幂等请求 ID。
 
-验收时，小问题用 `t3_thread_send` 发回原子线程，上下文还在。这样追加的 run 结束时不会触发完成通知，所以主代理发完必须在同一轮里用 `t3_thread_wait` 等它结束，不能结束本轮干等唤醒。修复量大的改为重新 `delegate_task` 一个 async 任务。
+失败换路沿用原路由和每子任务最多 4 次限制；无新消息先检查实际编译、锁与队列，取消后确认旧写者及构建子进程退出才续跑。交接携带完成步骤、源码改动、失败日志、后台任务及剩余验证。共享缓存区分已确认池耗尽与单入口故障，冷却到期只允许一个恢复探测，不永久封禁。
 
+E2E/截图委派原文携带项目约束、现有入口和首次开始时间；时限与崩溃计数跨代理、重试、构建策略和基线工作树累计。Musiver 使用自身 15 分钟/两次相同崩溃停止规则，其他项目按各自规则；只释放本任务拥有的设备与进程，失败给出原因和替代证据。机器资源限额读取设备配置。
 硬性规则：永远不用快速模式；GPT-6 Astra、Fable 5.1、Kimi K3 只在用户点名时使用；不主动调用 GLM 5.3 非 flash 版、Composer 2.5、Kimi Code、MiniMax，以及 opencode 上 `opencode-go/` 以外的模型。
 
 - `references/models.md`：额度池、模型画像、任务路由表、同模型的备用入口，标有调研日期；末尾的「更新来源与标准」说明去哪里查新数据、按什么标准改，模型更新时只改这个文件
+- [scripts/quota-state.mjs](skills/godbobo/general/t3-orchestrator/scripts/quota-state.mjs)：用户级跨线程失败缓存，互斥与原子写入；已确认额度池才联动，入口故障不误封同族，已知重置优先、未知初始 30 分钟，到期仅授权一次轻量恢复探测，正式派活须 recovery 为 false；探测 token 在失败时整体收回，过期结果不会误清未验证故障，退出码区分未应用
+- [scripts/quota-state.test.mjs](skills/godbobo/general/t3-orchestrator/scripts/quota-state.test.mjs)：临时目录内多进程并发更新、唯一探测、过期恢复、池隔离、已知重置保留、延迟成功/失败、失败后 token 整体失效、CLI 未应用退出码与损坏缓存测试
+- [references/quota-state.md](skills/godbobo/general/t3-orchestrator/references/quota-state.md)：缓存命令、池确认、恢复租约与锁故障处理
 - `scripts/t3-quota.mjs`：用本机凭证直查各 harness 额度，覆盖 Codex（ChatGPT OAuth）、Cursor（Cursor.app 登录态：总额/API/Grok 周）、Devin（CLI credentials：日/周）、opencode go、GLM（智谱/z.ai）和 Factory Droid（查询方法参考 [steipete/CodexBar](https://github.com/steipete/CodexBar)），不依赖 T3 缓存，不输出任何密钥
 
 ```bash
@@ -151,9 +154,9 @@ node ~/.agents/skills/t3-code/scripts/t3-worktree-gc.test.mjs       # 跑夹具�
 
 ### code-review-panel
 
-推送非平凡改动之前，派多个不同模型家族的只读子代理并行审查同一份 diff（同一份 prompt 和 rubric），再由主代理按 Act on / Consider / Noted / Dismissed 四桶归并裁决，不自动改代码。小改动或低风险改动不值得派一组模型的成本，不触发。
+高风险改动用两个不同家族的只读审查者检查同一份 diff、prompt 与 rubric；小改动主代理检查，需独立审查的常规改动用单个不同家族审查者。主代理按 Act on / Consider / Noted / Dismissed 归并裁决。panel 即该轮最终本地审查，审查者默认读已有证据，重检查交给唯一验证负责人安排；新一轮聚焦修复、变更范围与相关回归，完整携带历史异议。PR 后走云端跟进，仅用户要求或风险实质扩大才重开本地 panel。
 
-来源：[cursor/plugins — pstack/skills/interrogate](https://github.com/cursor/plugins/tree/main/pstack/skills/interrogate)（MIT），改名改造而来：审查者模型来源从 Cursor 的 `pstack-models.mdc` 配置换成 `t3-orchestrator` 的路由表（至少两个、优先不同家族），派发走 `delegate_task` 或 harness 自带只读子代理，换路沿用 t3-orchestrator 的规则；并新增与 `pr-review-loop` 的分工一节（本技能只管推送之前，PR 阶段的云端 bot 意见走 pr-review-loop）。
+来源：[cursor/plugins — pstack/skills/interrogate](https://github.com/cursor/plugins/tree/main/pstack/skills/interrogate)（MIT），改名改造而来：审查者模型来源从 Cursor 的 `pstack-models.mdc` 配置换成 `t3-orchestrator` 的路由表（高风险用两个不同家族），派发走 `delegate_task` 或 harness 自带只读子代理，换路沿用 t3-orchestrator 的规则；并新增与 `pr-review-loop` 的分工一节（本技能只管推送之前，PR 阶段的云端 bot 意见走 pr-review-loop）。
 
 详见 [skills/forks/code-review-panel/SKILL.md](skills/forks/code-review-panel/SKILL.md)。
 

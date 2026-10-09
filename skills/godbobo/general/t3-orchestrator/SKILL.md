@@ -5,7 +5,7 @@ description: T3 Code 多 harness 编排：主代理按任务难度和各 harness
 
 用户调用本技能后，本线程余下的工作都按这里的规则进行。
 
-你是主代理：负责定方向、拆任务、派活、验收和汇报。实现类工作交给子代理，读代码、跑测试、几行以内的小修改可以自己做。
+你是主代理：负责定方向、拆任务、派活、验收和汇报。真正的小任务可以直接完成，避免侦察和交接比实现更长；复杂实现继续按原有路由与权限规则委派。
 
 主代理自己中断由用户处理，本技能只管子代理。
 
@@ -33,7 +33,9 @@ description: T3 Code 多 harness 编排：主代理按任务难度和各 harness
 
 1. 调一次 `orchestrator_capabilities`，确认哪些实例 `canRunChildTask`、有哪些模型和选项。工具没出现时，按 T3 注入的说明直接调用一次，或用 `acp-mcp-call` 兜底（具体语法见 `t3-code` 技能）。
 2. 运行 `node ~/.agents/skills/t3-orchestrator/scripts/t3-quota.mjs` 查看额度。它用本机凭证直查所有 harness（Codex、Cursor、Devin、GLM、opencode go、Droid），不依赖 T3 缓存。
-3. 读 [references/models.md](references/models.md)，里面有额度池、模型画像、路由表和同模型的备用入口。
+3. 读取共享失败状态：`node <技能目录>/scripts/quota-state.mjs status`。每次换路也读；用法与池边界见 [references/quota-state.md](references/quota-state.md)。
+4. 指定实现、独立审查和最终验证三类职责。最终验证默认由主代理负责，也可明确交给一个验证子代理；整个任务始终只有一个最终验证负责人，交接时先结束旧负责人的检查。
+5. 读 [references/models.md](references/models.md)，里面有额度池、模型画像、路由表和同模型的备用入口。
 
 ## 选模型
 
@@ -43,9 +45,9 @@ description: T3 Code 多 harness 编排：主代理按任务难度和各 harness
    - 违反「硬性规则」；
    - 实例不在 `orchestrator_capabilities` 里，或者 `canRunChildTask` 为 false；
    - 额度窗口用了 90% 以上，且离重置超过 24 小时（Devin 的 swe-2 在免费期内例外）；
-   - 本会话里这个额度池已经报过额度用尽。
+   - 共享状态显示该入口或已确认共用的额度池仍在冷却，或恢复探测已由其他线程持有。
 4. Cursor 其他池的模型（Opus 等，按 API 价扣费）只在 UI、难题（含安全）时自动使用。
-5. 审查（含最终审查）用 GPT-6.1 Sol 或 Grok 4.7，选和实现者不同家族的那个。
+5. 需要独立审查时用 GPT-6.1 Sol 或 Grok 4.7，选和实现者不同家族的那个。
 
 ## 派活
 
@@ -53,8 +55,8 @@ description: T3 Code 多 harness 编排：主代理按任务难度和各 harness
 
 - `target`：写明 `providerInstanceId`、`model`，需要时加 `options`（例如 `{"fastMode": false}`、`{"reasoningEffort": "medium"}`）。选项名以 `orchestrator_capabilities` 返回的为准。
 - `role`：按任务填 `implementation`、`review`、`research`、`design`、`test` 之一。
-- `mode`：预计 10 分钟内完成的用 `wait`；更长的用 `async`，派完就结束本轮，等 T3 唤醒，不要轮询，也不要另起监视任务。只有 `delegate_task` 派出的任务会唤醒你。结束本轮前，先确认没有自己用 `t3_thread_send` 发出、还没结束的 run，有的话按「验收」第 2 步用 `t3_thread_wait` 等完。
-- `clientRequestId`：写成 `<任务简称>-a<尝试序号>`，例如 `fix-seek-a1`，换路时序号加一。
+- `mode`：委派任务用 `async`，靠完成事件唤醒。派完处理剩余独立工作，然后结束本轮等待事件；不另起监视任务。追加修复和复审也新建 `delegate_task`，不能用子线程的 `t3_thread_send` 代替委派。
+- 保存每轮的 `taskId`、`childThreadId`、`clientRequestId`。taskId 用于 `task_status` / `task_cancel`；childThreadId 只用于读原始证据。每轮 clientRequestId 不同，同一轮工具重试沿用原值，换路增加尝试序号。
 - `runtimeMode`、`interactionMode` 保持继承，不能升级权限。
 
 规则：
@@ -65,12 +67,14 @@ description: T3 Code 多 harness 编排：主代理按任务难度和各 harness
   - 都不提交，也不跑会改写整个仓库的命令（生成器、全仓库格式化、依赖安装）；
   - 后一个任务不需要参照前一个任务的产出（例如 OHOS 要照着 desktop 的新代码对齐语义时，只能串行）。
 
-  不满足就串行。共享文件的改动、生成器和全仓库测试由主代理在所有写任务验收后统一处理。只读调研和审查随时可以并行。
+  不满足就串行。共享文件和生成器由主代理在所有写任务验收后统一处理；最终完整验证由唯一负责人在写入收敛后安排。只读调研和审查可并行。
 - 任务要引用的名字来自共享生成物或词表（l10n key、FFI/接口签名、生成的绑定等）时，派活前主代理先查证现有条目，把可用名单写进「背景」；缺的条目先作为前置任务串行产出。子代理只引用名单内的名字，需要新条目时在回报里提出，由主代理统一登记。
 - 并行派写任务时，在每个子代理的「范围」里写明同一工作树还有哪些任务在改哪些目录，要求它不碰、不回滚 `git status` 里的这些改动；「验收标准」只写本范围的定向检查（单个 crate 的 `cargo check`/`cargo test`、单个包的 lint）。并行的 cargo 命令会争用同一个 target 目录，`Blocking waiting for file lock` 是正常等待，不要当成卡死去结束进程。
 - 实现、审查和需要执行命令的调研都走 `delegate_task`，方便看到失败原因并换路。当前 harness 自带的子代理只用于不执行命令的只读探索（读文件、搜索）。自带子代理在后台运行时，需要审批的工具（shell、写文件）会被自动拒绝，它跑不了构建和测试，只能交回没验证过的改动。
 - 只有用户明确要求新线程时，才用 `create_threads` 或 `t3_thread_launch`。
-- 派端到端验证或截图任务时，把项目 AGENTS.md 里关于端到端验证的约束原文写进「约束」。环境事实只写查证过的，不要猜（例如把用户的工作电脑说成 CI 机），也不要建议约束以外的手段。
+- 派端到端验证或截图任务时，把项目 AGENTS.md 的相关约束原文写进「约束」，注明场景首次开始时间、已消耗时间、重复崩溃计数和现有统一入口。时限、停止条件跨代理、重试、编译策略及基线工作树累计；Musiver 按其项目规则执行单场景 15 分钟、同一崩溃两次停止，其他项目读取自身规则。
+- 截图前预检已有产物、harness 入口与上传条件，优先复用现有设施。环境事实只写查证过的；失败回报具体原因和替代证据，只释放本任务拥有的设备和进程。
+- 重命令遵守机器的调度入口与资源限额；限额取设备配置，不在本技能写死。审查者默认只读源码及已有证据，需额外重检查时提出请求，由最终验证负责人安排。
 
 子代理看不到父对话，提示词必须自带全部背景。按下面的模板写：
 
@@ -90,11 +94,18 @@ description: T3 Code 多 harness 编排：主代理按任务难度和各 harness
 <编码规范、需要用到的技能（写明技能名，例如 $git-commit）、禁止事项（例如不要提交、不要开 PR、不要回滚已有改动）>
 harness 拒绝执行工具时（例如 `Permission denied for this tool`、`was denied because this agent is running in the background`），立即停止，在回报里写明被拒的工具和命令。不要换别的工具绕过，也不要在无法验证的情况下继续改代码。
 
-## 验收标准
-<需要跑的命令、需要满足的行为>
+## 验证与资源
+最终验证负责人：<主代理或指定验证子代理>
+本任务最小检查：<准确命令及范围；不能自行扩展为全仓库构建>
+留给最终负责人：<完整验证与生成步骤>
+调度入口与资源需求：<已有入口、构建/设备需求、排队约定>
 
-## 回报
-改了哪些文件、各自做了什么、跑了哪些检查及结果、没做完的部分和原因。
+## 验收标准
+<需要满足的行为、最小检查覆盖>
+
+## 回报与交接
+改动文件与完成步骤；实际命令、工作目录、源码状态（提交及脏改动的快照/摘要）、工具链版本、退出码、原始日志和报告路径；未完成步骤、失败原因、仍在运行的任务/进程及归属、剩余验证。
+截图任务同时回报首次开始时间、累计耗时、崩溃计数与替代证据。
 ```
 
 ## 子代理失败时
@@ -103,13 +114,15 @@ harness 拒绝执行工具时（例如 `Permission denied for this tool`、`was 
 
 | 类型 | 典型原文 | 处理 |
 |---|---|---|
-| 临时过载 | `at capacity`、`server_is_overloaded`、`503`、`stream disconnected`、`Reconnecting... 5/5`、`runtime stream failed`、`Aborted` | 不在原目标重试，直接换同模型的其他入口 |
-| 额度或限流 | `usage limit`、`hit your usage limit`、`429`、`exceeded retry limit`、`quota`、`credits` | 本会话内把这个额度池标记为不可用，换同模型的其他入口 |
+| 临时过载或连接失败 | `at capacity`、`server_is_overloaded`、`503`、`stream disconnected`、`Reconnecting... 5/5`、`runtime stream failed`、`Aborted` | 只记录该入口冷却，确认旧尝试退出后换同模型的其他入口 |
+| 额度或限流 | 明确的 `usage limit` / `quota` / `credits` 耗尽；`429`、`exceeded retry limit` 需看原文 | 已确认额度耗尽才记录 quota；仅 rate limit 按单入口记录。只有已确认共用额度的入口才共用池标记，不能仅因 429 封禁整个池 |
 | 配置或环境 | `provider_unavailable`、`model_unavailable`、`Invalid value ... model`、`is not enabled`、`auth`、`Provider session failed to open`、`does not exist` | 不在原目标重试；重新调 `orchestrator_capabilities`，换入口 |
 | 启动即失败 | 开始后 1 分钟内失败，期间没有任何工具调用，原文不属于上面几类（例如 `Provider turn failed`） | 按配置或环境处理 |
 | 权限被拒 | `Permission denied for this tool`、`was denied because this agent is running in the background` | 不在原目标重试。如果用的是 harness 自带子代理，改用 `delegate_task` 重新派；如果已经是 `delegate_task`，不能升级权限，停下向用户报告被拒的工具 |
 | 任务没做好 | 状态是 completed，但结果不达标 | 不算 harness 故障，见「验收」 |
-| 长时间没进展 | `running`，但 `t3_thread_read` 的 activity 视图很久没有新内容 | `task_cancel`，然后按临时过载处理 |
+| 长时间无新消息 | activity 很久没有新内容 | 先查原始日志、实际编译进程、锁持有者和排队状态；仍在编译或合法排队就继续等待。确认无实际进展再取消，退出确认后才换路 |
+
+把已查证的失败类别与重置时间写入共享状态；未知重置初始冷却 30 分钟，到期通过 `claim` 争取唯一恢复探测，恢复失败带原 token 延长冷却，成功带原 token 清除标记；过期结果不影响新探测。单入口故障不封禁模型家族。首次派活及每次换路都先检查并认领入口和已确认的池。只有 claim 的 `recovery: false` 才派正式实现；`recovery: true` 先做一次轻量额度/连接查询，以 token 回报后重新检查。失败消耗整个探测 token，旧结果不能再清除其他 scope 的故障。具体命令见额度状态参考。
 
 换路顺序：
 
@@ -124,25 +137,29 @@ harness 拒绝执行工具时（例如 `Permission denied for this tool`、`was 
 换路前先弄清上一次尝试做到了哪一步：
 
 1. 用 `t3_thread_read` 读失败的子线程（`childThreadId`），用 activity 视图看它改了什么、卡在哪；
-2. 在工作目录看 `git status` 和 `git diff`。
+2. 用 `task_status` 与原始日志/实际进程交叉核对。需要取消时调 `task_cancel`；取消请求本身不是退出确认。确认旧写者及其构建子进程已退出、锁已释放，才能启动下一尝试。投影与实际不一致时继续查证，不复制启动同一写任务；仅可结束本任务拥有的进程。
+3. 在工作目录看 `git status` 和 `git diff`，核对已完成步骤、失败日志、后台任务及剩余验证。
 
 新的提示词沿用原模板，在「背景」末尾加上：
 
 ```text
 上一次尝试由 <实例/模型> 执行，因 <错误类型> 中断。
-已完成：<步骤>
-工作区已有的改动：<文件列表>
+已完成：<步骤与已有检查证据>
+工作区已有的改动：<文件列表和源码状态>
+失败日志：<原始路径>
+后台任务：<PID/任务ID、归属、已确认退出或仍运行>
+剩余验证：<检查与唯一负责人>
+截图边界：<首次开始时间、累计耗时与崩溃计数，续跑不重置>
 先核对这些改动是否正确，在此基础上继续，不要从头开始，也不要回滚。
 ```
 
-## 验收
+## 验收与本地审查
 
-1. 自己看 diff，跑验收标准里的命令。不能只信子代理的回报。
-2. 不达标时：
-   - 小问题用 `t3_thread_send`（`mode: "queue"`）把具体问题发回同一个子线程，上下文还在，成本最低。这样追加的 run 结束时不会唤醒你，发完要在同一轮里调 `t3_thread_wait`，传入返回的 `threadId` 和 `runId`；返回 `timedOut: true` 就再调一次，不要结束本轮。结束后用 `t3_thread_read` 读子线程最后的回报，再按第 1 步验收；
-   - 修复量大、预计超过 15 分钟的，不用 `t3_thread_send`，按「续跑」重新 `delegate_task` 一个 `async` 任务，靠完成通知唤醒；
-   - 方向错了或者反复改不对，换高一档的模型，按「续跑」重新派活。
-3. 改动较大时，派一个审查子代理做最终审查：实现者是 GPT 系列时用 Grok 4.7，其他情况用 GPT-6.1 Sol。主代理自己看过 diff 不能代替这一步。推送前需要多个模型并行审查时，用 `$code-review-panel`，审查者模型按本技能的路由表挑，优先不同家族。
+1. 主代理亲自读实际 diff、原始日志和测试报告，核对证据对应的源码、脏改动、工具链及覆盖范围，不能仅采信子代理自述。已有证据与最终源码一致且覆盖充分时复核采用；证据缺失、源码或工具链变化、有疑点时补跑相应检查。必要的独立行为核验仍执行。
+2. 不达标时，无论修复大小都新建一次 `delegate_task`，带原始意图、上轮发现、修复回应、未解决异议和完整续跑证据；保存新 taskId，async 等完成事件。方向错误或反复修不好按路由升档。每个子任务最多 4 次故障换路尝试，不能靠新建任务重置计数。
+3. 按风险安排审查：小改动由主代理检查；需要独立审查的常规改动安排一个不同家族审查者；并发、取消边界、播放、安全或公共接口等高风险改动用两模型 `$code-review-panel`。合格 panel 就是该轮最终本地审查，不再加一个审查者重复同一份 diff。
+4. 后续轮只复核已修问题、修改范围与相关回归，仍完整传递原始意图、上轮发现及未解决异议；出现新风险则扩展相关审查范围。创建 PR 后交给云端审查与 `$pr-review-loop`，仅用户要求或风险实质扩大时重启本地 panel。
+5. 所有写任务与生成步骤收敛后，唯一最终验证负责人完成最终完整验证；可按第 1 步条件复核采用已有检查证据，不降低整体覆盖。验收完成标准是最终源码、必要行为核验和所有有效审查问题都有可核查证据。
 
 ## 汇报
 

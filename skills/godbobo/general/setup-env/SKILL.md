@@ -5,7 +5,7 @@ description: 统一设置本机各 agent harness 的全局代理规则并做环�
 
 # setup-env
 
-把 `rules/AGENTS.md`（本技能目录下，唯一真源）链接到各 harness 的全局规则路径，让所有 CLI 代理在任何项目里都加载同一套约定；同时把 `scripts/run-watch.mjs` 链接为 `~/.local/bin/run-watch`（后台长任务封装，POSIX），并报告各 harness CLI 是否安装。
+把 `rules/AGENTS.md`（本技能目录下，唯一真源）链接到各 harness 的全局规则路径，让所有 CLI 代理在任何项目里都加载同一套约定；通用规则涵盖重命令遵守机器调度、单一最终验证负责人和原生事件优先的等待入口，具体编排流程留在对应技能。同步后仍以项目规则优先。同时把 `scripts/run-watch.mjs` 链接为 `~/.local/bin/run-watch`（后台长任务封装，POSIX），并报告各 harness CLI 是否安装。
 
 ## 步骤
 

@@ -1,11 +1,11 @@
 ---
 name: code-review-panel
-description: "Before pushing a non-trivial change, spawn read-only subagents on several different model families to adversarially review the same diff in parallel, then merge the findings yourself. Use for \"multi-model review\", \"adversarial review\", \"challenge this\", or a pre-push review of a large or risky diff — not for small or low-risk changes, which don't justify the cost of a panel. Once a PR exists, cloud bot feedback is handled by `pr-review-loop`, not this skill."
+description: "Before pushing a non-trivial change, spawn read-only subagents on two different model families to adversarially review the same diff in parallel, then merge the findings yourself. Use for \"multi-model review\", \"adversarial review\", \"challenge this\", or a pre-push review of a large or risky diff — not for small or low-risk changes, which don't justify the cost of a panel. Once a PR exists, cloud bot feedback is handled by `pr-review-loop`, not this skill."
 ---
 
 # Code Review Panel
 
-Spawn one reviewer per selected model to adversarially review code changes. Each model gets the same prompt and rubric. The adversarial signal comes from model diversity, not assigned personas.
+Use two reviewers for high-risk changes (concurrency, cancellation, playback, security, or public interfaces). Small changes stay with the lead; routine changes needing independent review use one reviewer from a different family. Spawn one reviewer per selected model to adversarially review code changes. Each model gets the same prompt and rubric. The adversarial signal comes from model diversity, not assigned personas.
 
 The deliverable is a synthesized verdict. Do NOT auto-apply changes.
 
@@ -32,9 +32,9 @@ Write one clear paragraph. If you're unsure about the intent, ask the user befor
 
 ## Step 3, Spawn Reviewers
 
-Pick reviewer models from the routing table in the `t3-orchestrator` skill's `references/models.md`: spawn at least two reviewers, preferring different model families. The same filled template goes to all reviewers, so every model applies the code-quality lens.
+Pick reviewer models from the routing table in the `t3-orchestrator` skill's `references/models.md`: select two reviewers from different model families for the panel. The same filled template goes to all reviewers, so every model applies the code-quality lens.
 
-Dispatch each reviewer as a read-only subagent — via the t3-code MCP `delegate_task`, or the harness's own read-only subagent mechanism for work that runs no commands.
+Reviewers read code and existing raw evidence by default. Route requests for heavy checks through the single final verification owner; reviewers do not start duplicate builds. Dispatch each reviewer as a read-only subagent — via the t3-code MCP `delegate_task`, or the harness's own read-only subagent mechanism for work that runs no commands.
 
 If a model is unavailable, rate-limited, or out of quota, follow the re-routing rules in `t3-orchestrator` — do not invent a separate fallback chain here.
 
@@ -43,6 +43,9 @@ Read `references/reviewer-prompt.md` and fill in the template with:
 2. The diff or file contents
 3. The review rubric from `references/rubric.md`
 4. The code-quality lens from `references/code-quality-review.md`
+5. Raw evidence paths and source state, the final verification owner, and prior findings/responses/unresolved objections plus the changed scope (or mark the first round).
+
+A qualifying panel is the final local review for that round; do not add another reviewer for the same diff. Follow-up rounds review repaired findings, changed scope, and related regressions, expanding only for new risk. Pass the original intent, prior findings, responses, and unresolved objections in full. In T3, create a fresh `delegate_task` for every round with a distinct clientRequestId (stable on retries), retain its taskId, and use async completion events.
 
 ## Step 4, Synthesize
 
@@ -74,7 +77,7 @@ For each finding, include:
 
 ## Division of labor with pr-review-loop
 
-This skill runs before the push, while the change is still local. Once a PR exists, do not spawn local reviewers again — the implementation phase already paid that cost. Review comments left on the PR by cloud bots (Codex, Code Bot, Devin, and similar) are handled by the convergence rules in `pr-review-loop`.
+This skill runs before the push, while the change is still local. Once a PR exists, repeat local panels only at the user’s request or when the change materially expands risk. Review comments left on the PR by cloud bots (Codex, Code Bot, Devin, and similar) are handled by the convergence rules in `pr-review-loop`.
 
 ## Output Format
 
