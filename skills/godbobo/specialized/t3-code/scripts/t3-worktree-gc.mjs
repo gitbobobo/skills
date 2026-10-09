@@ -25,13 +25,18 @@
 //      archived 或 deleted 任一；委派子线程的 settledOverride 永不写入，
 //      改看 subagents 表关联行是否全部终态）。有未终结线程则区分主线程/
 //      委派线程报告。零绑定允许回收，报告标 unbound；
-//   d. 绑定线程没有 queued/preparing/starting/running/waiting 状态的 run；
+//   d. 未终结的绑定线程没有 queued/preparing/starting/running/waiting 状态
+//      的 run；已终结线程上的活跃 run 是 runs 投影滞留（子线程完工后状态
+//      偶发停更），按陈旧数据降级为备注不阻断；
 //   e. 数据库文件不存在或打不开：此根下所有工作树全部 skip，「数据库缺席，不做删除」；
 //   f. git status --porcelain -uall 为空（-uall 抗 status.showUntrackedFiles
 //      配置）；ignored 逐文件展开（ls-files -o -i -z）里没有命中「珍贵模式」
 //      的条目（status 把 ignored 目录折叠成一行，目录内凭据只能靠逐文件
 //      检出；命中前先过 BENIGN_DIR_SEGMENTS 良性目录段滤掉编译产物防误报，
-//      报告列名收敛到顶层条目、超 8 个截断）。嵌套 git 仓库同样阻断：
+//      报告列名收敛到顶层条目、超 8 个截断）。*.properties 命中再过内容级
+//      豁免：整文件键都在工具链白名单（sdk.dir/ndk.dir/cmake.dir/flutter.*）
+//      的是 IDE 生成的 SDK 指针不是凭据，放行并进报告；其他键、不可解析行、
+//      读取失败一律维持阻断。嵌套 git 仓库同样阻断：
 //      普通嵌套仓库在 ls-files 里是尾斜杠边界条目，bare 仓库会被展开
 //      成文件（按 HEAD+objects/refs/config 同前缀特征识别）——其内部
 //      状态都无法评估；但落在良性目录段内的（.build/checkouts、Pods 等
@@ -45,8 +50,12 @@
 //      判定前先对该仓库跑一次 fetch --prune：远端跟踪引用只是本地缓存，
 //      远端删过分支后本地 ref 不除会让「已推送」误判；远端不可达整组 skip；
 //   h. 没有进程以它为 cwd（POSIX 用 lsof -d cwd -Fn；lsof 缺席时 Linux 退 /proc
-//      读 cwd 链接。非 Windows 上检查不可用也是阻断原因——宁可错杀不可错放；
-//      Windows 不做此检查，靠删除失败兜底）。
+//      读 cwd 链接；非 Windows 上检查不可用仍是阻断原因——看不到占用无从
+//      归因）。例外：绑定线程全部终结时占用者只可能是已终结线程的残留
+//      进程（孤儿代理/模拟器/守护进程），降级为备注放行——干净且已推送的
+//      目录删掉只让残留进程 cwd 失效；未绑定目录里的占用无法归因
+//      （可能是闲逛进去的活线程），维持阻断。Windows 不做此检查，靠删除
+//      失败兜底。汇总行末报告「在用工作树」计数（c/d 命中的目录数）。
 //
 // 非 git 残留目录里有一类可删：整树只含占位/系统垃圾文件（T3 合并 PR 后删
 // 工作树留下的 .keep/.worktree-placeholder——文件自述「safe to delete」——
@@ -64,14 +73,15 @@
 // 记空），rmSync 递归删目录后 git --git-dir <gitCommonDir> worktree prune
 // 注销注册项（不用 worktree remove：spawn 超时会把数万文件的递归删除砍在
 // 半途，留下 tracked 全 D 的半删残留），再 git branch -d 兜底删本地分支
-//（patch 等价的分支 git 视为未合并，用 -D；失败保留并注明）。任何一步失败
+//（改动已验证在远端的分支 -d 拒删时改用 -D——含 patch 等价与已推送未合入
+// 当前 HEAD 两种；失败保留并注明）。任何一步失败
 // 标 failed 继续下一个；绝不结束进程、绝不换更强硬的命令重试。
 //
 // 数据库只读打开：优先 node:sqlite 的 DatabaseSync(path,{readOnly:true})，
 // 退回 sqlite3 -readonly -json CLI，都不行视为数据库缺席。
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readlinkSync, realpathSync, rmSync, rmdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, rmdirSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, platform } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
@@ -187,6 +197,60 @@ const PRECIOUS_SUBSTRINGS = [".config/gh/", ".config/gcloud/"];
 const isPrecious = (p) =>
   p.split("/").some((seg) => seg && PRECIOUS_RE.some((re) => re.test(seg))) ||
   PRECIOUS_SUBSTRINGS.some((s) => p.includes(s));
+
+// *.properties 珍贵命中的内容级豁免：Android/Flutter 工具链生成的
+// local.properties 只写 SDK 路径与版本元数据（sdk.dir 等），没有凭据。
+// 逐文件读内容——全部键落在白名单才豁免；出现任何其他键（key.properties
+// 的 storePassword、gradle.properties 的口令项）、不可解析行、读取失败、
+// 超限或非普通文件，一律维持珍贵判定（失败方向永远是阻断）。
+const BENIGN_PROPERTIES_KEYS = new Set([
+  "sdk.dir",
+  "ndk.dir",
+  "cmake.dir",
+  "flutter.sdk",
+  "flutter.buildmode",
+  "flutter.versionname",
+  "flutter.versioncode",
+  "flutter.minsdkversion",
+  "flutter.targetsdkversion",
+  "flutter.compilesdkversion",
+  "flutter.ndkversion",
+]);
+// 奇数个结尾反斜杠 = properties 续行，下一行是值的一部分不是键
+const endsContinuation = (s) => {
+  let n = 0;
+  for (let i = s.length - 1; i >= 0 && s[i] === "\\"; i--) n++;
+  return n % 2 === 1;
+};
+function propertiesBenign(abs) {
+  if (!abs.toLowerCase().endsWith(".properties")) return false;
+  let st;
+  try {
+    st = statSync(abs);
+  } catch {
+    return false;
+  }
+  if (!st.isFile() || st.size > 64 * 1024) return false;
+  let text;
+  try {
+    text = readFileSync(abs, "utf8");
+  } catch {
+    return false;
+  }
+  let cont = false;
+  for (const raw of text.replace(/^\uFEFF/, "").split("\n")) {
+    const line = raw.trim();
+    if (cont) {
+      cont = endsContinuation(line);
+      continue;
+    }
+    if (!line || line.startsWith("#") || line.startsWith("!")) continue;
+    const m = /^([A-Za-z0-9._-]+)(?=[\s:=]|$)/.exec(line);
+    if (!m || !BENIGN_PROPERTIES_KEYS.has(m[1].toLowerCase())) return false;
+    cont = endsContinuation(line);
+  }
+  return true;
+}
 
 // 良性目录段：路径任一段命中即跳过珍贵匹配——build/target 等产物目录里的
 // 编译输出（如 **/Credentials.class）会误中 *credential* 之类模式。
@@ -472,16 +536,20 @@ function boundThreads(byWt, dir, wtReal) {
 }
 
 // 依赖快照的判定：c. 线程全终结、d. 无活跃 run、h. 无进程占用。
-// 返回阻断原因列表；unbound 顺带写进 notes（可删报告用）。
+// 返回 { reasons, inUse }；unbound/降级项顺带写进 notes（可删报告用）。
+// inUse = 有未终结绑定线程或未终结线程带进行中 run——即「在用工作树」。
 function snapshotReasons(dir, wtReal, snap, occ, notes) {
   const reasons = [];
+  let inUse = false;
+  let bound = [];
   if (!snap.state) {
     reasons.push(snap.note ?? "数据库缺席，不做删除");
   } else {
-    const bound = boundThreads(snap.state.byWt, dir, wtReal);
+    bound = boundThreads(snap.state.byWt, dir, wtReal);
     if (bound.length === 0) notes.push("unbound");
     const unsettled = bound.filter((t) => !t.settled);
     if (unsettled.length) {
+      inUse = true;
       const mains = unsettled.filter((t) => !t.delegated);
       const dels = unsettled.filter((t) => t.delegated);
       const fmt = (list, label) =>
@@ -491,13 +559,18 @@ function snapshotReasons(dir, wtReal, snap, occ, notes) {
       if (dels.length) parts.push(fmt(dels, "委派线程"));
       reasons.push(parts.join("、"));
     }
-    const running = bound.filter((t) => snap.state.activeRuns.has(t.id));
+    // 活跃 run 只统计未终结线程：已终结线程上的 running 行是 runs 投影
+    // 滞留（子线程完工后状态偶发停更），属陈旧数据——降级为备注不阻断
+    const running = bound.filter((t) => !t.settled && snap.state.activeRuns.has(t.id));
     if (running.length) {
+      inUse = true;
       reasons.push(`${running.length} 个绑定线程有进行中的 run（${running.map((t) => t.title).join("；")}）`);
     }
+    const stale = bound.filter((t) => t.settled && snap.state.activeRuns.has(t.id));
+    if (stale.length) notes.push(`${stale.length} 个已终结线程残留 running 状态的 run 投影`);
   }
   if (occ === null) {
-    // Windows 不查占用；POSIX 查不到时保守 skip
+    // Windows 不查占用；POSIX 查不到时保守 skip（看不到占用就无从归因）
     if (!isWindows) reasons.push("进程占用检查不可用（lsof 缺席且非 Linux /proc）");
   } else {
     const pids = [];
@@ -505,18 +578,27 @@ function snapshotReasons(dir, wtReal, snap, occ, notes) {
       const pr = tryReal(p) ?? norm(p);
       if (inside(pr, wtReal) || inside(norm(p), norm(dir))) pids.push(...ids);
     }
-    if (pids.length) reasons.push(`进程占用：pid ${[...new Set(pids)].join(", ")}`);
+    if (pids.length) {
+      const msg = `进程占用：pid ${[...new Set(pids)].join(", ")}`;
+      // 绑定线程全部终结时，占用者只可能是已终结线程的残留进程（孤儿
+      // 代理、模拟器、守护进程）——降级为备注放行：已验证干净+已推送的
+      // 目录删掉只让残留进程 cwd 失效，没有数据损失；未绑定目录里的
+      // 占用无法归因（可能是闲逛进去的活线程/用户进程），维持阻断
+      if (bound.length && bound.every((t) => t.settled)) notes.push(`${msg}（绑定线程已全部终结，判为残留进程）`);
+      else reasons.push(msg);
+    }
   }
-  return reasons;
+  return { reasons, inUse };
 }
 
 // 远端跟踪引用只是本地缓存：远端分支被删/强推后本地 ref 仍在，「已推送」
 // 会误判。每个公共 git 目录跑一次 fetch --prune 刷新后再判（worktree 共享
 // refs，按 gitCommon 去重）；取不到远端视为无法验证，该仓库整组 skip。
 const fetchCache = new Map(); // gitCommon → boolean
-// norm(dir) → HEAD 靠 patch 等价（非祖先）判定已上远端：squash 合并的分支
-// 对 git 是未合并状态，worktree remove 后 branch -d 会拒删，须放行 -D。
-const equivOnly = new Set();
+// norm(dir) → 该树分支允许 branch -D：HEAD 改动已验证在远端（祖先已推送
+// 或 patch/整支等价/无净改动）。-d 只认「合入当前 HEAD」，不查远端祖先——
+// 推上远端其他分支的支端同样会被拒，-D 丢弃的只是本地引用不丢内容。
+const forceDelOk = new Set();
 function refreshRemote(gitCommon, fresh = false) {
   if (fresh) fetchCache.delete(gitCommon); // 删除前复查不复用扫描期的旧快照
   if (!fetchCache.has(gitCommon)) {
@@ -640,7 +722,15 @@ function gitStateReasons(dir, notes, gitCommon, refetch = false) {
       if (!hasBenignSegment(d) && s.has("head") && (s.has("objs") || s.has("refs") || s.has("config")))
         nested.add(`${d}/`);
     if (nested.size) reasons.push(`含嵌套仓库/不可枚举目录：${[...nested].join("、")}`);
-    const precious = ignored.filter((p) => !hasBenignSegment(p)).filter(isPrecious);
+    // 珍贵命中再过一道内容级豁免：*.properties 整文件键都在工具链白名单
+    // （sdk.dir 等）说明是 IDE 生成的 SDK 指针不是凭据；其他模式与其他键
+    // 维持阻断。豁免件写进 notes 保持可审计
+    const precious = [];
+    const propExempt = [];
+    for (const p of ignored.filter((p) => !hasBenignSegment(p)).filter(isPrecious))
+      (propertiesBenign(join(dir, p)) ? propExempt : precious).push(p);
+    if (propExempt.length)
+      notes.push(`${propExempt.length} 个 properties 仅含 SDK 路径键已豁免（${propExempt.join("、")}）`);
     if (precious.length) reasons.push(`含珍贵忽略文件：${precious.join("、")}`);
     else if (ignored.length) {
       // 展示收敛到顶层条目（多段路径取首段加 /），超 8 个截断
@@ -680,7 +770,7 @@ function gitStateReasons(dir, notes, gitCommon, refetch = false) {
       if (!shipped) reasons.push("HEAD 不在任何 origin 分支上（本地提交未推送）");
       else {
         notes.push(shipped);
-        if (shipped !== "HEAD 已推送") equivOnly.add(norm(dir));
+        forceDelOk.add(norm(dir)); // 任一种「已在远端」成立，-D 都不丢内容
       }
     }
   }
@@ -703,6 +793,7 @@ if (!existsSync(scanRoot)) {
 const dbSnap = snapshotDb();
 const occSnap = computeOccupants();
 const cwdReal = tryReal(process.cwd()) ?? norm(process.cwd());
+let inUseDirs = 0; // 扫描期判定为「在用」（未终结线程绑定/进行中 run）的目录数
 
 for (const dir of candidates(scanRoot)) {
   const rel = relative(scanRoot, dir) || dir;
@@ -721,7 +812,9 @@ for (const dir of candidates(scanRoot)) {
       continue;
     }
     if (inside(cwdReal, wtReal)) reasons.push("调用者 cwd 位于此目录内（self）");
-    reasons.push(...snapshotReasons(dir, wtReal, dbSnap, occSnap, notes));
+    const sn = snapshotReasons(dir, wtReal, dbSnap, occSnap, notes);
+    reasons.push(...sn.reasons);
+    if (sn.inUse) inUseDirs++;
     if (reasons.length) {
       report("skip", rel, [...reasons, ...notes].join("；"), null);
       continue;
@@ -732,7 +825,7 @@ for (const dir of candidates(scanRoot)) {
       continue;
     }
     // 删除前重拍绑定/占用复查（与工作树同一 TOCTOU 收窄逻辑）
-    const rePh = snapshotReasons(dir, wtReal, snapshotDb(), computeOccupants(), []);
+    const rePh = snapshotReasons(dir, wtReal, snapshotDb(), computeOccupants(), []).reasons;
     if (rePh.length) {
       report("skip", rel, `删除前复查发现阻断：${rePh.join("；")}`, null);
       continue;
@@ -760,7 +853,9 @@ for (const dir of candidates(scanRoot)) {
   }
 
   // c/d/h. 依赖快照的判定（线程绑定、活跃 run、进程占用）
-  reasons.push(...snapshotReasons(dir, wtReal, dbSnap, occSnap, notes));
+  const sn = snapshotReasons(dir, wtReal, dbSnap, occSnap, notes);
+  reasons.push(...sn.reasons);
+  if (sn.inUse) inUseDirs++;
 
   // f/g. git 侧判定（未提交变更、珍贵忽略文件、HEAD 已推送）
   reasons.push(...gitStateReasons(dir, notes, gitCommon));
@@ -780,7 +875,7 @@ for (const dir of candidates(scanRoot)) {
   // 删除前重拍复查（收窄 TOCTOU）：线程绑定/活跃 run/进程占用可能已变；
   // git 状态同样重查——扫描与执行之间后台进程可能新写 ignored 凭据或本地提交
   const reReasons = [
-    ...snapshotReasons(dir, wtReal, snapshotDb(), computeOccupants(), []),
+    ...snapshotReasons(dir, wtReal, snapshotDb(), computeOccupants(), []).reasons,
     ...gitStateReasons(dir, [], gitCommon, true),
   ];
   if (reReasons.length) {
@@ -805,10 +900,10 @@ for (const dir of candidates(scanRoot)) {
   if (branch) {
     const bd = shErr("git", ["--git-dir", gitCommon, "branch", "-d", branch]);
     if (bd.ok) notes.push(`分支 ${branch} 已删`);
-    else if (equivOnly.has(norm(dir))) {
-      // patch 等价的分支 git 视为未合并：内容已在远端，-D 强删让悬挂提交进 gc
+    else if (forceDelOk.has(norm(dir))) {
+      // 改动已验证在远端：-d 拒删只是没合入当前 HEAD，-D 强删让悬挂引用进 gc
       const bf = shErr("git", ["--git-dir", gitCommon, "branch", "-D", branch]);
-      if (bf.ok) notes.push(`分支 ${branch} 已删（patch 等价，-D）`);
+      if (bf.ok) notes.push(`分支 ${branch} 已删（-D，改动已在远端）`);
       else notes.push(`分支 ${branch} 保留（${bf.err || "branch -D 失败"}）`);
     } else notes.push(`分支 ${branch} 保留（${bd.err || "branch -d 失败"}）`);
   }
@@ -846,6 +941,7 @@ const total = rows.length;
 console.log(
   `汇总：共 ${total} 个目录 — 可删 ${counts.delete} / 已删 ${counts.deleted} / skip ${counts.skip} / not-a-worktree ${counts["not-a-worktree"]} / failed ${counts.failed}`
 );
+console.log(`在用工作树（绑定线程未终结或有进行中 run）：${inUseDirs} 个`);
 if (!apply && counts.delete > 0) console.log("（dry-run：加 --apply 执行删除）");
 // 有 requested 删除失败时退出码非 0——自动化按退出码判清理成败
 process.exit(counts.failed > 0 ? 1 : 0);
