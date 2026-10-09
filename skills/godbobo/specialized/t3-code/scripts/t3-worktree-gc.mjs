@@ -22,8 +22,9 @@
 //   b. 是 git 链接工作树（rev-parse 成功且 --git-dir 与 --git-common-dir 解析后
 //      不同；相同是独立 clone。非 git 目录/gitfile 失效标 not-a-worktree 只报告）；
 //   c. DB 里 worktreePath 等于该路径的线程全部已终结（settledOverride='settled'、
-//      archived 或 deleted 任一）；有未终结线程则区分主线程/委派线程报告。零绑定
-//      允许回收，报告标 unbound；
+//      archived 或 deleted 任一；委派子线程的 settledOverride 永不写入，
+//      改看 subagents 表关联行是否全部终态）。有未终结线程则区分主线程/
+//      委派线程报告。零绑定允许回收，报告标 unbound；
 //   d. 绑定线程没有 queued/preparing/starting/running/waiting 状态的 run；
 //   e. 数据库文件不存在或打不开：此根下所有工作树全部 skip，「数据库缺席，不做删除」；
 //   f. git status --porcelain -uall 为空（-uall 抗 status.showUntrackedFiles
@@ -33,14 +34,25 @@
 //      报告列名收敛到顶层条目、超 8 个截断）。嵌套 git 仓库同样阻断：
 //      普通嵌套仓库在 ls-files 里是尾斜杠边界条目，bare 仓库会被展开
 //      成文件（按 HEAD+objects/refs/config 同前缀特征识别）——其内部
-//      状态都无法评估。assume-unchanged/skip-worktree
+//      状态都无法评估；但落在良性目录段内的（.build/checkouts、Pods 等
+//      依赖检出）不算用户仓库，与珍贵命中走同一豁免。assume-unchanged/skip-worktree
 //      标记文件（ls-files -v 小写或 S）同样阻断——其本地修改对 status 隐身；
-//   g. HEAD 可从某个 refs/remotes/origin/* 到达（merge-base --is-ancestor 任一为真）。
+//   g. HEAD 改动已在远端：HEAD 本身是某 refs/remotes/origin/* 的祖先，或
+//      git cherry 逐提交 patch 等价（rebase/单提交 squash 合并），或整支
+//      diff(base..HEAD) 的 patch-id 命中 base..ref 上某提交（多提交 squash
+//      合并），或对 base 无净改动。patch 等价只保证改动内容在远端，提交
+//      对象仍随删除丢弃——squash 工作流要的正是这一点。
 //      判定前先对该仓库跑一次 fetch --prune：远端跟踪引用只是本地缓存，
 //      远端删过分支后本地 ref 不除会让「已推送」误判；远端不可达整组 skip；
 //   h. 没有进程以它为 cwd（POSIX 用 lsof -d cwd -Fn；lsof 缺席时 Linux 退 /proc
 //      读 cwd 链接。非 Windows 上检查不可用也是阻断原因——宁可错杀不可错放；
 //      Windows 不做此检查，靠删除失败兜底）。
+//
+// 非 git 残留目录里有一类可删：整树只含占位/系统垃圾文件（T3 合并 PR 后删
+// 工作树留下的 .keep/.worktree-placeholder——文件自述「safe to delete」——
+// 以及 .DS_Store/Thumbs.db 等）的占位目录，同样过 self/绑定/run/占用检查后
+// 删除；含其他内容仍标 not-a-worktree 只报告。--apply 收尾顺带 rmdir 本轮
+// 删空的二层分组目录（rmdir 只删空目录，非空自然失败跳过）。
 //
 // 线程绑定/活跃 run/进程占用都可能在扫描期间变化：扫描阶段各取一份快照，
 // --apply 真正删除前会对该目录重拍快照并重查 git 状态（dirty/珍贵忽略/HEAD
@@ -49,16 +61,17 @@
 // 接口才能彻底消除。
 //
 // 删除动作（仅 --apply）：重拍复查通过后先记分支名（symbolic-ref，detached
-// 记空），git --git-dir <gitCommonDir> worktree remove <dir>，成功后
-// git branch -d 兜底删本地分支（失败保留并注明）。--git-dir 直传公共 git
-// 目录，兼容 bare / 独立 git-dir 布局，不推导主仓库路径。任何一步失败标
-// failed 继续下一个；绝不结束进程、绝不换更强硬的命令重试。
+// 记空），rmSync 递归删目录后 git --git-dir <gitCommonDir> worktree prune
+// 注销注册项（不用 worktree remove：spawn 超时会把数万文件的递归删除砍在
+// 半途，留下 tracked 全 D 的半删残留），再 git branch -d 兜底删本地分支
+//（patch 等价的分支 git 视为未合并，用 -D；失败保留并注明）。任何一步失败
+// 标 failed 继续下一个；绝不结束进程、绝不换更强硬的命令重试。
 //
 // 数据库只读打开：优先 node:sqlite 的 DatabaseSync(path,{readOnly:true})，
 // 退回 sqlite3 -readonly -json CLI，都不行视为数据库缺席。
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readlinkSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readlinkSync, realpathSync, rmSync, rmdirSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, platform } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
@@ -99,7 +112,8 @@ function shErr(cmd, argv, opts = {}) {
       encoding: "utf8",
       timeout: opts.timeout ?? 15000,
       maxBuffer: opts.maxBuffer ?? 16 * 1024 * 1024, // 默认 1MB 太小，status/ref 列表在巨型仓库会超限
-      stdio: ["ignore", "pipe", "pipe"],
+      input: opts.input, // 透传 stdin（git patch-id 读标准输入）；stdio[0] 必须 pipe 才生效
+      stdio: [opts.input !== undefined ? "pipe" : "ignore", "pipe", "pipe"],
       cwd: opts.cwd,
       env: opts.env ? { ...process.env, ...opts.env } : process.env,
     });
@@ -182,6 +196,7 @@ const BENIGN_DIR_SEGMENTS = [
   "node_modules",
   "dist",
   "build",
+  ".build", // SwiftPM 构建目录：checkouts/repositories 里是真实但可重建的依赖检出
   "target",
   "out",
   "coverage",
@@ -193,12 +208,59 @@ const BENIGN_DIR_SEGMENTS = [
   "artifacts",
   "tmp",
   "temp",
+  ".tmp", // 变体：musiver 用它放 app-store-derived（Xcode 派生数据克隆）
   "vendor",
+  "pods", // CocoaPods 检出
+  "carthage", // Carthage/Checkouts 检出
+  "sourcepackages", // DerivedData 下的 SwiftPM checkout 区
+  "deriveddata",
+  "checkouts", // SwiftPM/Carthage 依赖检出目录的通用名
+  "bower_components",
+  ".venv",
+  "venv",
+  "__pycache__",
+  ".dart_tool",
   ".idea",
   ".vscode",
 ];
 const BENIGN_SET = new Set(BENIGN_DIR_SEGMENTS.map((s) => s.toLowerCase()));
 const hasBenignSegment = (p) => p.split("/").some((seg) => seg && BENIGN_SET.has(seg.toLowerCase()));
+
+// 非 git 残留里的占位目录白名单：T3 合并 PR 后会删掉工作树并写
+// .keep/.worktree-placeholder 维持线程 cwd（文件自述 safe to delete）；
+// .DS_Store/Thumbs.db 等是系统浏览副产物。整树逐条目递归命中白名单（或为空）
+// 才算占位目录；出现任何其他文件即放弃，维持 not-a-worktree 只报告。
+const PLACEHOLDER_NAMES = new Set([
+  ".keep",
+  ".worktree-placeholder",
+  ".ds_store",
+  "thumbs.db",
+  "desktop.ini",
+  ".localized",
+]);
+function placeholderOnly(dir) {
+  let seen = 0;
+  const stack = [dir];
+  while (stack.length) {
+    const d = stack.pop();
+    let ents;
+    try {
+      ents = readdirSync(d, { withFileTypes: true });
+    } catch {
+      return false; // 读不了的目录不当占位目录
+    }
+    for (const e of ents) {
+      if (++seen > 2000) return false;
+      if (e.isDirectory()) {
+        stack.push(join(d, e.name)); // 目录本身不豁免——进去看内容
+        continue;
+      }
+      if (!e.isFile()) return false; // symlink/FIFO 等一律不删
+      if (!PLACEHOLDER_NAMES.has(e.name.toLowerCase())) return false;
+    }
+  }
+  return true;
+}
 
 const norm = (p) => resolve(p).replace(/[\\/]+$/, "");
 const tryReal = (p) => {
@@ -252,6 +314,12 @@ function threadSettled(t) {
   );
 }
 
+// 委派子线程的终态白名单：threads 行的 settledOverride 对
+// thread:delegated-task:* / thread:provider:* 子线程永不写入（T3 数据缺口），
+// delegate_task 的真实完结落在 orchestration_v2_projection_subagents.status。
+// 未知状态一律不当终态——宁可把还活着的子线程错判为阻塞，不可反向放行。
+const SUBAGENT_TERMINAL = new Set(["completed", "failed", "cancelled", "interrupted", "rolled_back"]);
+
 // worktreePath → 绑定线程列表；另建 realpath 别名键，容忍符号链接路径差异。
 function loadState(db) {
   const rows = db.all(
@@ -259,6 +327,24 @@ function loadState(db) {
      FROM orchestration_v2_projection_threads
      WHERE json_extract(payload_json,'$.worktreePath') IS NOT NULL`
   );
+  // 子线程 id → subagents 关联行计数。child_thread_id / provider_thread_id
+  // 两列都可能指向绑定工作树的子线程；关联行全部终态才视该线程终结。
+  // 表缺席（最小库/旧库/查询失败）= 无信息，不放宽任何判定。
+  const subByThread = new Map();
+  try {
+    for (const r of db.all(
+      `SELECT child_thread_id, provider_thread_id, status
+       FROM orchestration_v2_projection_subagents`
+    )) {
+      for (const id of [r.child_thread_id, r.provider_thread_id]) {
+        if (typeof id !== "string" || !id) continue;
+        const a = subByThread.get(id) ?? { total: 0, terminal: 0 };
+        a.total += 1;
+        if (SUBAGENT_TERMINAL.has(String(r.status))) a.terminal += 1;
+        subByThread.set(id, a);
+      }
+    }
+  } catch {}
   const byWt = new Map();
   const add = (key, t) => {
     const arr = byWt.get(key) ?? [];
@@ -272,11 +358,12 @@ function loadState(db) {
     } catch {}
     const wp = typeof p.worktreePath === "string" ? norm(p.worktreePath) : null;
     if (!wp) continue;
+    const sub = subByThread.get(t.thread_id);
     const rec = {
       id: t.thread_id,
       title: String(t.title ?? "").replace(/\s+/g, " ").slice(0, 60),
-      delegated: t.thread_id.startsWith("thread:delegated-task:"),
-      settled: threadSettled(t),
+      delegated: t.thread_id.startsWith("thread:delegated-task:") || sub != null,
+      settled: threadSettled(t) || (sub != null && sub.terminal === sub.total),
     };
     add(wp, rec);
     const rp = tryReal(wp);
@@ -427,6 +514,9 @@ function snapshotReasons(dir, wtReal, snap, occ, notes) {
 // 会误判。每个公共 git 目录跑一次 fetch --prune 刷新后再判（worktree 共享
 // refs，按 gitCommon 去重）；取不到远端视为无法验证，该仓库整组 skip。
 const fetchCache = new Map(); // gitCommon → boolean
+// norm(dir) → HEAD 靠 patch 等价（非祖先）判定已上远端：squash 合并的分支
+// 对 git 是未合并状态，worktree remove 后 branch -d 会拒删，须放行 -D。
+const equivOnly = new Set();
 function refreshRemote(gitCommon, fresh = false) {
   if (fresh) fetchCache.delete(gitCommon); // 删除前复查不复用扫描期的旧快照
   if (!fetchCache.has(gitCommon)) {
@@ -446,6 +536,52 @@ function refreshRemote(gitCommon, fresh = false) {
     );
   }
   return fetchCache.get(gitCommon);
+}
+
+// diff 文本 → patch-id 集合：git patch-id 从 stdin 读，git log -p 多提交
+// 输入按 "commit <sha>" 行分节、逐提交各产一个 id；单个 git diff 输出一 id。
+function patchIdsOf(diffText) {
+  const r = sh("git", ["patch-id", "--stable"], { input: diffText, maxBuffer: 256 * 1024 * 1024 });
+  if (r === null) return null;
+  return new Set(r.split("\n").map((l) => l.split(/\s/)[0]).filter(Boolean));
+}
+
+// g. HEAD 改动是否已在远端，按顺序取首个成立的方式，返回报告文案：
+//   - HEAD 是某 origin ref 的祖先（常规推送、merge 合并后远端分支仍在）；
+//   - git cherry <ref> HEAD 无 '+'：逐提交 patch 等价（rebase 合并、单提交 squash）；
+//   - 整支 diff(base..HEAD) 的 patch-id 命中 base..ref 上某提交（多提交 squash：
+//     N 个本地提交被压成远端 1 个，逐提交 cherry 对不上，整支 diff 能对上）；
+//   - diff(base..HEAD) 为空：相对上游无净改动，内容层面无可丢。
+// patch 等价只证明改动内容已进远端，提交对象仍随删除丢弃——squash 合并的
+// 本地分支正是这个形态；内容对不上的孤立提交仍按未推送阻断。
+function headShipped(dir, refs) {
+  for (const ref of refs)
+    if (shErr("git", ["-C", dir, "merge-base", "--is-ancestor", "HEAD", ref]).ok)
+      return "HEAD 已推送";
+  for (const ref of refs) {
+    const c = sh("git", ["-C", dir, "cherry", ref, "HEAD"]);
+    if (c !== null && !c.split("\n").some((l) => l.startsWith("+")))
+      return `HEAD 各提交 patch 等价于 ${ref} 上的提交（rebase/squash 合并）`;
+  }
+  for (const ref of refs) {
+    const base = sh("git", ["-C", dir, "merge-base", "HEAD", ref]);
+    if (!base) continue;
+    const diff = sh("git", ["-C", dir, "diff", base, "HEAD"], { maxBuffer: 256 * 1024 * 1024 });
+    if (diff === null) continue;
+    if (!diff.trim()) return `相对 ${ref} 无净改动`;
+    const bp = patchIdsOf(diff)?.values().next().value;
+    if (!bp) continue;
+    // 上游侧逐提交 patch-id：git log -p 的输出按 commit 行分节，patch-id
+    // 逐提交各产一行；封顶 400 个提交，日志体积上限与 ls-files 同规格
+    const up = sh(
+      "git",
+      ["-C", dir, "log", "--no-merges", "-n", "400", "-p", `${base}..${ref}`],
+      { maxBuffer: 256 * 1024 * 1024, timeout: 60000 }
+    );
+    if (up === null) continue;
+    if (patchIdsOf(up)?.has(bp)) return `HEAD 整支改动等价于 ${ref} 上的提交（squash 合并）`;
+  }
+  return null;
 }
 
 // f/g. git 侧判定：未提交变更、忽略文件里的珍贵内容、HEAD 已推送、
@@ -476,12 +612,14 @@ function gitStateReasons(dir, notes, gitCommon, refetch = false) {
   else {
     const ignored = ls.split("\0").filter(Boolean);
     // 尾斜杠 = ls-files 拒绝下探的目录（嵌套 git 仓库/不可读目录）：内部
-    // 凭据与未推送提交对它不可见，不细分场景一律阻断。
+    // 凭据与未推送提交对它不可见，一律阻断——但落在良性目录段内的是
+    // 依赖检出（SwiftPM .build/checkouts、Pods 等可重建产物），不算
+    // 用户仓库，与下方 bare 检测同一豁免。
     // bare 嵌套仓库没有 .git 边界会被展开成文件：同一前缀下 HEAD +
     // objects/|refs/|config 共存即按仓库判定（空 bare 有 HEAD+config，
     // 有提交的有 HEAD+objects/refs）；前缀命中良性目录段才放行（包内
     // git 夹具不算用户仓库）。
-    const nested = new Set(ignored.filter((p) => p.endsWith("/")));
+    const nested = new Set(ignored.filter((p) => p.endsWith("/") && !hasBenignSegment(p)));
     const bareMarks = new Map(); // 目录前缀 → 出现过的仓库特征
     const markBare = (prefix, k) => {
       if (!prefix) return;
@@ -537,8 +675,14 @@ function gitStateReasons(dir, notes, gitCommon, refetch = false) {
       .split("\n")
       .filter(Boolean);
     if (refs.length === 0) reasons.push("无 refs/remotes/origin/* 远端引用");
-    else if (!refs.some((ref) => shErr("git", ["-C", dir, "merge-base", "--is-ancestor", "HEAD", ref]).ok))
-      reasons.push("HEAD 不在任何 origin 分支上（本地提交未推送）");
+    else {
+      const shipped = headShipped(dir, refs);
+      if (!shipped) reasons.push("HEAD 不在任何 origin 分支上（本地提交未推送）");
+      else {
+        notes.push(shipped);
+        if (shipped !== "HEAD 已推送") equivOnly.add(norm(dir));
+      }
+    }
   }
   return reasons;
 }
@@ -564,18 +708,46 @@ for (const dir of candidates(scanRoot)) {
   const rel = relative(scanRoot, dir) || dir;
   const reasons = [];
   const notes = [];
+  const wtReal = tryReal(dir) ?? norm(dir);
 
-  // b. git 链接工作树判定（not-a-worktree 只报告，后续检查无意义）
+  // b. git 链接工作树判定。非 git/gitfile 失效的残留里，整树只含占位/系统
+  //    垃圾文件的是「占位目录」（T3 合并 PR 后删工作树留的 cwd 占位，文件
+  //    自述 safe to delete）——过同样的 self/绑定/占用检查后删除；含其他
+  //    内容的维持 not-a-worktree 只报告。
   const gitDirOut = sh("git", ["-C", dir, "rev-parse", "--git-dir"]);
   if (gitDirOut === null) {
-    report("not-a-worktree", rel, "非 git 目录或 gitfile 失效的残留", null);
+    if (!placeholderOnly(dir)) {
+      report("not-a-worktree", rel, "非 git 目录或 gitfile 失效的残留", null);
+      continue;
+    }
+    if (inside(cwdReal, wtReal)) reasons.push("调用者 cwd 位于此目录内（self）");
+    reasons.push(...snapshotReasons(dir, wtReal, dbSnap, occSnap, notes));
+    if (reasons.length) {
+      report("skip", rel, [...reasons, ...notes].join("；"), null);
+      continue;
+    }
+    notes.push("占位目录");
+    if (!apply) {
+      report("delete", rel, notes.join("；"), null);
+      continue;
+    }
+    // 删除前重拍绑定/占用复查（与工作树同一 TOCTOU 收窄逻辑）
+    const rePh = snapshotReasons(dir, wtReal, snapshotDb(), computeOccupants(), []);
+    if (rePh.length) {
+      report("skip", rel, `删除前复查发现阻断：${rePh.join("；")}`, null);
+      continue;
+    }
+    try {
+      rmSync(dir, { recursive: true }); // 内容已逐条核验为占位文件
+    } catch {}
+    if (existsSync(dir)) report("failed", rel, "占位目录删除失败", null);
+    else report("deleted", rel, notes.join("；"), null);
     continue;
   }
   const branch = sh("git", ["-C", dir, "symbolic-ref", "-q", "--short", "HEAD"]);
   const commonOut = sh("git", ["-C", dir, "rev-parse", "--git-common-dir"]) ?? gitDirOut;
   const gitDir = tryReal(resolve(dir, gitDirOut)) ?? resolve(dir, gitDirOut);
   const gitCommon = tryReal(resolve(dir, commonOut)) ?? resolve(dir, commonOut);
-  const wtReal = tryReal(dir) ?? norm(dir);
 
   // a. 自己所在的工作树永不删
   if (inside(cwdReal, wtReal)) reasons.push("调用者 cwd 位于此工作树内（self）");
@@ -599,7 +771,7 @@ for (const dir of candidates(scanRoot)) {
   }
 
   // ---- 全部条件满足 ----
-  notes.push("干净", "HEAD 已推送");
+  notes.push("干净"); // 推送状态文案由 gitStateReasons 按等价方式写进 notes
   if (!apply) {
     report("delete", rel, notes.join("；"), branch);
     continue;
@@ -616,18 +788,53 @@ for (const dir of candidates(scanRoot)) {
     continue;
   }
 
-  // --git-dir 直传公共 git 目录：bare / 独立 git-dir 布局下推导主仓库路径会错
-  const rm = shErr("git", ["--git-dir", gitCommon, "worktree", "remove", dir]);
-  if (!rm.ok || existsSync(dir)) {
-    report("failed", rel, `worktree remove 失败：${rm.err || "目录仍存在"}`, branch);
+  // 删除用 rmSync + worktree prune 而非 worktree remove：前者没有 spawn
+  // 超时——数万 ignored 产物（SwiftPM .build 等）的递归 unlink 可能超过任何
+  // 进程级超时上限，被砍在半途只会留下「tracked 全 D」的半删残留。
+  // 脏树/未推送等兜底核验已在上面复查段完成；Windows 上文件占用会抛错
+  // 走 failed，与「靠删除失败兜底」的既定策略一致。
+  try {
+    rmSync(dir, { recursive: true, maxRetries: 3, retryDelay: 300 });
+  } catch {}
+  if (existsSync(dir)) {
+    report("failed", rel, "目录删除失败（占用或权限）", branch);
     continue;
   }
+  // 注销 worktree 注册项：dir 已消失，prune 直接清掉 admin 记录
+  shErr("git", ["--git-dir", gitCommon, "worktree", "prune"]);
   if (branch) {
     const bd = shErr("git", ["--git-dir", gitCommon, "branch", "-d", branch]);
     if (bd.ok) notes.push(`分支 ${branch} 已删`);
-    else notes.push(`分支 ${branch} 保留（${bd.err || "branch -d 失败"}）`);
+    else if (equivOnly.has(norm(dir))) {
+      // patch 等价的分支 git 视为未合并：内容已在远端，-D 强删让悬挂提交进 gc
+      const bf = shErr("git", ["--git-dir", gitCommon, "branch", "-D", branch]);
+      if (bf.ok) notes.push(`分支 ${branch} 已删（patch 等价，-D）`);
+      else notes.push(`分支 ${branch} 保留（${bf.err || "branch -D 失败"}）`);
+    } else notes.push(`分支 ${branch} 保留（${bd.err || "branch -d 失败"}）`);
   }
   report("deleted", rel, notes.join("；"), branch);
+}
+
+// 收尾清扫：本轮删空的二层分组目录（如 musiver/ 下工作树删光后剩的空壳）
+// 一并 rmdir。只动空目录——rmdirSync 对非空目录报错，天然兜底；调用者 cwd
+// 与有进程 cwd 落在里面的跳过。
+if (apply) {
+  for (const g of subdirs(scanRoot)) {
+    const gr = tryReal(g) ?? norm(g);
+    if (inside(cwdReal, gr)) continue;
+    let busy = false;
+    if (occSnap)
+      for (const p of occSnap.keys())
+        if (inside(tryReal(p) ?? norm(p), gr)) {
+          busy = true;
+          break;
+        }
+    if (busy) continue;
+    try {
+      rmdirSync(g);
+      report("deleted", relative(scanRoot, g) || g, "删空的分组目录", null);
+    } catch {}
+  }
 }
 
 // ---------- 输出 ----------

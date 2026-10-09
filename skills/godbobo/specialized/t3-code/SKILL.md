@@ -70,16 +70,16 @@ node <技能目录>/scripts/t3-worktree-gc.mjs --root <dir>  # 单独指定扫�
 全部满足才删，任一不满足则 skip 并注明原因：
 
 - 调用者 cwd 不在该工作树内（self 永不删）；
-- 是 git 链接工作树（独立 clone skip；非 git/gitfile 失效标 not-a-worktree 只报告）；
-- 绑定的线程全部已终结（settled / archived / deleted 任一；零绑定标 unbound 可删），且没有 queued/preparing/starting/running/waiting 状态的 run；
-- `git status --porcelain -uall` 为空（`-uall` 覆盖 `status.showUntrackedFiles` 配置；所有读工作树状态的调用带 `-c core.fsmonitor=false -c core.untrackedCache=false`，防 fsmonitor 钩子/未跟踪缓存误报把本地编辑藏掉）；ignored 逐文件展开里没有命中「珍贵模式」的条目——珍贵模式 = 凭据类文件类型（`.env`、密钥/证书/keystore、`*.properties`、kubeconfig、`.kube`/`.docker`/`.azure` 等云凭据目录、`.config/gh`/`gcloud`（项目本地 `GH_CONFIG_DIR` 等 CLI 凭据区）、`*.tfstate*`/`local.settings.json`、`hosts.yml`、`.git-crypt`、凭据命名、本地数据库等，全集见脚本里 `PRECIOUS_PATTERNS`/`PRECIOUS_SUBSTRINGS`）；命中列出文件，其余 ignored 条目收敛到顶层名进报告、超 8 个截断；
-- 没有 ls-files 下探不了的目录（嵌套 git 仓库等尾斜杠条目）、没有 git 子模块（`submodule status` 为空）、没有 assume-unchanged/skip-worktree 标记文件（`ls-files -v` 小写或 `S` 标签）——这些路径的内部状态对所有检查不可见，一律不删；
-- HEAD 能从某个 `refs/remotes/origin/*` 到达（判定前先对该仓库跑一次 `fetch origin --prune` 刷新本地跟踪引用——远端删过分支后残留的 tracking ref 不代表已推送；远端不可达即 skip；本地孤立提交不丢）。注意 dry-run 也会执行这一步：fetch 需要联网、会更新本地 `refs/remotes/origin/*`（已禁交互凭据提示，缺凭据直接判不可达不卡终端）；
+- 是 git 链接工作树（独立 clone skip）。非 git/gitfile 失效的残留里，整树只含占位/系统垃圾文件（T3 合并 PR 后留的 `.keep`/`.worktree-placeholder`、`.DS_Store` 等）的占位目录同样过绑定/占用检查后删除；含其他内容标 not-a-worktree 只报告。`--apply` 收尾顺带 rmdir 本轮删空的二层分组目录；
+- 绑定的线程全部已终结（settled / archived / deleted 任一；委派子线程的 settledOverride 永不写入，改看 subagents 表 child_thread_id/provider_thread_id 关联行——全部终态即算终结，无关联行仍算未终结；零绑定标 unbound 可删），且没有 queued/preparing/starting/running/waiting 状态的 run；
+- `git status --porcelain -uall` 为空（`-uall` 覆盖 `status.showUntrackedFiles` 配置；所有读工作树状态的调用带 `-c core.fsmonitor=false -c core.untrackedCache=false`，防 fsmonitor 钩子/未跟踪缓存误报把本地编辑藏掉）；ignored 逐文件展开里没有命中「珍贵模式」的条目——珍贵模式 = 凭据类文件类型（`.env`、密钥/证书/keystore、`*.properties`、kubeconfig、`.kube`/`.docker`/`.azure` 等云凭据目录、`.config/gh`/`gcloud`（项目本地 `GH_CONFIG_DIR` 等 CLI 凭据区）、`*.tfstate*`/`local.settings.json`、`hosts.yml`、`.git-crypt`、凭据命名、本地数据库等，全集见脚本里 `PRECIOUS_PATTERNS`/`PRECIOUS_SUBSTRINGS`）；命中前先过 `BENIGN_DIR_SEGMENTS` 良性目录段滤掉产物/依赖目录（含 `.build`/`.tmp`/`Pods`/`Carthage`/`SourcePackages` 等 SwiftPM、CocoaPods 检出与派生数据），命中列出文件，其余 ignored 条目收敛到顶层名进报告、超 8 个截断；
+- 没有 ls-files 下探不了的目录（嵌套 git 仓库等尾斜杠条目；良性目录段内的豁免——`.build/checkouts` 这类依赖检出不算用户仓库）、没有 git 子模块（`submodule status` 为空）、没有 assume-unchanged/skip-worktree 标记文件（`ls-files -v` 小写或 `S` 标签）——这些路径的内部状态对所有检查不可见，一律不删；
+- HEAD 改动已在远端：HEAD 是某 `refs/remotes/origin/*` 的祖先，或 `git cherry` 逐提交 patch 等价（rebase/单提交 squash 合并），或整支 `diff(base..HEAD)` 的 patch-id 命中 `base..ref` 上某提交（多提交 squash 合并，上游比对封顶 400 个提交），或对 base 无净改动。patch 等价放行的是改动内容——提交对象仍丢弃，squash 工作流正是如此；内容对不上的孤立提交仍阻断。判定前先对该仓库跑一次 `fetch origin --prune` 刷新本地跟踪引用——远端删过分支后残留的 tracking ref 不代表已推送；远端不可达即 skip。注意 dry-run 也会执行这一步：fetch 需要联网、会更新本地 `refs/remotes/origin/*`（已禁交互凭据提示，缺凭据直接判不可达不卡终端）。patch 等价的分支在 `--apply` 后用 `branch -D` 强删（git 视角是未合并分支，但内容已在远端）；
 - 没有进程以它为 cwd（POSIX 用 lsof，缺席时 Linux 退 /proc；Windows 不查，靠删除失败兜底）。
 
-`--apply` 在 `git worktree remove` 前对该目录重拍线程绑定/活跃 run/进程占用快照并重查 git 侧全部条件，收窄扫描与执行之间的并发窗口。
+`--apply` 在真正删除前对该目录重拍线程绑定/活跃 run/进程占用快照并重查 git 侧全部条件，收窄扫描与执行之间的并发窗口。
 
-数据库 `userdata/statev2.sqlite` 只读打开（node:sqlite 优先，退回 sqlite3 CLI）；缺席或打不开时此根下全部 skip，不做删除。`--apply` 下 `git worktree remove` 成功后用 `git branch -d` 兜底删本地分支（失败保留并注明）；任一步失败标 failed 继续下一个，退出码置非 0；绝不结束进程、不换更强硬的命令重试。
+数据库 `userdata/statev2.sqlite` 只读打开（node:sqlite 优先，退回 sqlite3 CLI）；缺席或打不开时此根下全部 skip，不做删除。`--apply` 下用 `rmSync` 删目录后 `git worktree prune` 注销（不用 `worktree remove`：spawn 超时会把数万文件的递归删除砍在半途，留下半删残留），再用 `git branch -d` 兜底删本地分支（patch 等价的分支用 `-D`，失败保留并注明）；任一步失败标 failed 继续下一个，退出码置非 0；绝不结束进程、不换更强硬的命令重试。
 
 测试：`node <技能目录>/scripts/t3-worktree-gc.test.mjs`——在临时目录造夹具（git 仓库 + 假 origin + 最小 statev2.sqlite），覆盖每条 skip 原因；不碰真实 `~/.t3`。
 

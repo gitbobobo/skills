@@ -5,7 +5,7 @@
 //
 // 在 fs.mkdtempSync 临时目录里构造：git 主仓库 + 假 origin（bare）、
 // $T3CODE_HOME/worktrees/<组>/ 下若干 git worktree add 出的工作树、最小
-// userdata/statev2.sqlite（node:sqlite 建，只含 threads/runs 两表）。
+// userdata/statev2.sqlite（node:sqlite 建，含 threads/runs/subagents 三表）。
 // 全程不碰真实 ~/.t3：注入 T3CODE_HOME 与 --root。
 
 import assert from "node:assert/strict";
@@ -70,6 +70,16 @@ function insRun(db, { id, thread, status }) {
      VALUES (?,?,?,?,?,?,?)`
   ).run(id, thread, 1, "devin", status, "2026-01-01", "{}");
 }
+// 委派记录：thread_id=发起方线程，child_thread_id/provider_thread_id 指向
+// 绑定工作树的子线程；status 终态白名单见被测脚本 SUBAGENT_TERMINAL
+function insSubagent(db, { id, parent = "t-parent", child = null, providerThread = null, status }) {
+  db.prepare(
+    `INSERT INTO orchestration_v2_projection_subagents
+     (subagent_id, thread_id, parent_node_id, provider, child_thread_id,
+      provider_thread_id, origin, status, updated_at, payload_json)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`
+  ).run(id, parent, "n1", "devin", child, providerThread, "delegate_task", status, "2026-01-01", "{}");
+}
 
 before(() => {
   mkdirSync(group, { recursive: true });
@@ -80,7 +90,7 @@ before(() => {
   git(["init", "-b", "main", mainRepo]);
   writeFileSync(join(mainRepo, "f.txt"), "x\n");
   // 根 .gitignore 进初始提交：夹具 ignored 文件不用额外提交，也不显脏
-  writeFileSync(join(mainRepo, ".gitignore"), ".env\n*.db\n*.properties\n*.keystore\n*.log\nnode_modules/\ndist/\nbuild/\nlocal/\nsigning/\n.kube/\n.docker/\n*.tfstate*\nlocal.settings.json\nnested/\n.config/\n");
+  writeFileSync(join(mainRepo, ".gitignore"), ".env\n*.db\n*.properties\n*.keystore\n*.log\nnode_modules/\ndist/\nbuild/\nlocal/\nsigning/\n.kube/\n.docker/\n*.tfstate*\nlocal.settings.json\nnested/\n.config/\n.build/\n.tmp/\nPods/\nCarthage/\nSourcePackages/\nDerivedData/\n.venv/\nvenv/\n__pycache__/\n.dart_tool/\nbower_components/\ncheckouts/\n");
   git(["-C", mainRepo, "add", "."]);
   git(["-C", mainRepo, "commit", "-m", "init"]);
   git(["-C", mainRepo, "remote", "add", "origin", origin]);
@@ -100,7 +110,10 @@ before(() => {
   D.unbound = addWt("wt-unbound"); // 零绑定线程 → 可删（unbound）
   D.self = addWt("wt-self"); // self 用例：子进程 cwd 进去跑 → skip
   D.unsettled = addWt("wt-unsettled"); // 主线程未结算 → skip
-  D.delegated = addWt("wt-delegated"); // 委派线程未结算 → skip
+  D.delegated = addWt("wt-delegated"); // 委派线程未结算且无 subagent 行 → skip
+  D.deldone = addWt("wt-deldone"); // 委派线程未结算但 subagent 行已终态 → 可删
+  D.delprov = addWt("wt-delprov"); // provider 子线程经 provider_thread_id 关联 → 可删
+  D.delrun = addWt("wt-delrun"); // 委派线程有关联行但含非终态 → skip
   D.activerun = addWt("wt-activerun"); // 线程已结算但有 running run → skip
   D.dirty = addWt("wt-dirty"); // 未跟踪文件 → skip
   writeFileSync(join(D.dirty, "untracked.txt"), "x\n");
@@ -108,6 +121,27 @@ before(() => {
   writeFileSync(join(D.unpushed, "wip.txt"), "x\n");
   git(["-C", D.unpushed, "add", "."]);
   git(["-C", D.unpushed, "commit", "-m", "wip"]);
+  D.squash = addWt("wt-squash"); // 单提交 squash 合并：git cherry 逐提交 patch 等价 → 可删
+  writeFileSync(join(D.squash, "sq.txt"), "sq\n");
+  git(["-C", D.squash, "add", "."]);
+  git(["-C", D.squash, "commit", "-m", "wip"]);
+  D.squash2 = addWt("wt-squash2"); // 多提交被压成上游单提交：整支 diff patch-id 等价 → 可删
+  writeFileSync(join(D.squash2, "m1.txt"), "m1\n");
+  git(["-C", D.squash2, "add", "."]);
+  git(["-C", D.squash2, "commit", "-m", "wip1"]);
+  writeFileSync(join(D.squash2, "m2.txt"), "m2\n");
+  git(["-C", D.squash2, "add", "."]);
+  git(["-C", D.squash2, "commit", "-m", "wip2"]);
+  // 等价提交落到 origin main：sq.txt 单独一个（对 wt-squash）、m1+m2 合一个
+  // （对 wt-squash2 的合并 diff）。此时两工作树分支点仍是 init 提交
+  writeFileSync(join(mainRepo, "sq.txt"), "sq\n");
+  git(["-C", mainRepo, "add", "sq.txt"]);
+  git(["-C", mainRepo, "commit", "-m", "wip (#11)"]);
+  writeFileSync(join(mainRepo, "m1.txt"), "m1\n");
+  writeFileSync(join(mainRepo, "m2.txt"), "m2\n");
+  git(["-C", mainRepo, "add", "m1.txt", "m2.txt"]);
+  git(["-C", mainRepo, "commit", "-m", "wip (#22)"]);
+  git(["-C", mainRepo, "push", "origin", "main"]);
   D.occupied = addWt("wt-occupied"); // 进程占用 → skip
   D.alias = addWt("wt-alias"); // 双路径拼写绑定，未终结别名线程须让它 skip
   D.precious = addWt("wt-precious"); // ignored 珍贵文件 → skip 并列出命中
@@ -130,6 +164,13 @@ before(() => {
   D.classfiles = addWt("wt-classfiles"); // build/ 下的 *Credentials*.class：良性目录段过滤，不误拦
   mkdirSync(join(D.classfiles, "build", "intermediates"), { recursive: true });
   writeFileSync(join(D.classfiles, "build", "intermediates", "UpstreamBootstrapCredentials.class"), "x\n");
+  D.buildnested = addWt("wt-buildnested"); // .build/checkouts 下的依赖检出是真实嵌套仓库，良性段豁免 → 可删
+  git(["init", "-q", "-b", "main", join(D.buildnested, ".build", "checkouts", "PkgX")]);
+  writeFileSync(join(D.buildnested, ".build", "checkouts", "PkgX", "x.txt"), "x\n");
+  D.buildprecious = addWt("wt-buildprecious"); // .build 下凭据命名的构建产物（index store / build.db）→ 可删
+  mkdirSync(join(D.buildprecious, ".build", "store"), { recursive: true });
+  writeFileSync(join(D.buildprecious, ".build", "store", "NSURLCredential.h"), "x\n");
+  writeFileSync(join(D.buildprecious, ".build", "build.db"), "x\n");
   D.clouddir = addWt("wt-clouddir"); // 标准云凭据位置：.kube/.docker/tfstate/azure → skip
   mkdirSync(join(D.clouddir, ".kube"));
   writeFileSync(join(D.clouddir, ".kube", "config"), "x\n");
@@ -175,7 +216,24 @@ before(() => {
   git(["-C", D.submod, "commit", "-m", "add submodule"]);
   git(["-C", D.submod, "push", "origin", "HEAD:br-wt-submod"]);
   git(["-C", D.submod, "fetch", "origin"]); // refs/remotes/origin/br-wt-submod 就位
-  mkdirSync(join(group, "plain-dir")); // 非 git 目录 → not-a-worktree
+  mkdirSync(join(group, "plain-dir")); // 空的非 git 目录 = 全白名单占位 → 可删
+  // 占位残留：整树只有 T3 占位/系统垃圾文件 → 可删（绑定/占用检查照旧）
+  D.placeholder = join(group, "wt-placeholder");
+  mkdirSync(D.placeholder);
+  writeFileSync(join(D.placeholder, ".keep"), "x\n");
+  writeFileSync(join(D.placeholder, ".worktree-placeholder"), "x\n");
+  writeFileSync(join(D.placeholder, ".DS_Store"), "x\n");
+  D.phmixed = join(group, "wt-phmixed"); // 占位文件之外还有真实文件 → not-a-worktree
+  mkdirSync(D.phmixed);
+  writeFileSync(join(D.phmixed, ".keep"), "x\n");
+  writeFileSync(join(D.phmixed, "real.txt"), "x\n");
+  D.phbound = join(group, "wt-phbound"); // 占位目录但绑着未终结线程 → skip
+  mkdirSync(D.phbound);
+  writeFileSync(join(D.phbound, ".keep"), "x\n");
+  // 二层分组目录：唯一子项是占位目录，--apply 删完子项后分组目录被清扫
+  D.phgrp = join(wtRoot, "emptygrp", "wt-phgrp");
+  mkdirSync(D.phgrp, { recursive: true });
+  writeFileSync(join(D.phgrp, ".keep"), "x\n");
   git(["clone", mainRepo, join(group, "wt-clone")]); // 独立 clone → skip
   // gitfile 失效残留：.git 文件指向不存在的 admin 路径 → not-a-worktree
   D.stalegit = join(group, "wt-stalegit");
@@ -206,14 +264,27 @@ before(() => {
     run_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, ordinal INTEGER NOT NULL,
     provider TEXT NOT NULL, provider_thread_id TEXT, status TEXT NOT NULL,
     requested_at TEXT NOT NULL, completed_at TEXT, payload_json TEXT NOT NULL, provider_instance_id TEXT)`);
+  db.exec(`CREATE TABLE orchestration_v2_projection_subagents (
+    subagent_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, run_id TEXT,
+    parent_node_id TEXT NOT NULL, provider TEXT NOT NULL, provider_thread_id TEXT,
+    child_thread_id TEXT, origin TEXT NOT NULL, status TEXT NOT NULL,
+    started_at TEXT, completed_at TEXT, updated_at TEXT NOT NULL, payload_json TEXT NOT NULL)`);
   insThread(db, { id: "t-clean-1", wt: D.clean, settled: true });
   insThread(db, { id: "t-clean-2", wt: D.clean, archived: "2026-01-02" }); // archived 同样算终结
   insRun(db, { id: "r0", thread: "t-clean-1", status: "completed" }); // 已结束 run 不阻挡
   insThread(db, { id: "t-unsettled", title: "主线程未结算", wt: D.unsettled });
   insThread(db, { id: "thread:delegated-task:test%3Ad1", title: "委派线程未结算", wt: D.delegated });
+  insThread(db, { id: "thread:delegated-task:test%3Adone", title: "委派线程子代理已完结", wt: D.deldone });
+  insSubagent(db, { id: "sa-done", child: "thread:delegated-task:test%3Adone", status: "completed" });
+  insThread(db, { id: "thread:provider:acpRegistry:test%3Ap1", title: "provider子线程", wt: D.delprov });
+  insSubagent(db, { id: "sa-prov", providerThread: "thread:provider:acpRegistry:test%3Ap1", status: "failed" });
+  insThread(db, { id: "thread:delegated-task:test%3Adrun", title: "委派线程部分终态", wt: D.delrun });
+  insSubagent(db, { id: "sa-run-1", child: "thread:delegated-task:test%3Adrun", status: "completed" });
+  insSubagent(db, { id: "sa-run-2", child: "thread:delegated-task:test%3Adrun", status: "running" });
   insThread(db, { id: "t-activerun", title: "有活跃run", wt: D.activerun, settled: true });
   insRun(db, { id: "r1", thread: "t-activerun", status: "running" });
-  for (const [k, wt] of Object.entries({ self: D.self, dirty: D.dirty, unpushed: D.unpushed, occupied: D.occupied, toplevel: D.toplevel, bare: D.bare, precious: D.precious, keystore: D.keystore, artifacts: D.artifacts, hiddendir: D.hiddendir, classfiles: D.classfiles, clouddir: D.clouddir, indexflags: D.indexflags, nested: D.nested, baregit: D.baregit, staleref: D.staleref, submod: D.submod }))
+  insThread(db, { id: "t-phbound", title: "占位目录绑定线程", wt: D.phbound }); // 占位目录绑未终结线程仍 skip
+  for (const [k, wt] of Object.entries({ self: D.self, dirty: D.dirty, unpushed: D.unpushed, squash: D.squash, squash2: D.squash2, occupied: D.occupied, toplevel: D.toplevel, bare: D.bare, precious: D.precious, keystore: D.keystore, artifacts: D.artifacts, hiddendir: D.hiddendir, classfiles: D.classfiles, buildnested: D.buildnested, buildprecious: D.buildprecious, clouddir: D.clouddir, indexflags: D.indexflags, nested: D.nested, baregit: D.baregit, staleref: D.staleref, submod: D.submod }))
     insThread(db, { id: `t-${k}`, wt, settled: true });
   // 同一工作树的两种路径拼写：realpath 别名下的未终结线程必须命中（别名合并回归）
   insThread(db, { id: "t-alias-1", wt: D.alias, settled: true });
@@ -255,6 +326,16 @@ test("dry-run：逐目录判定，不删任何东西", () => {
   assert.match(hiddendirLine, /local\/\.env/); // 折叠进 local/ 的凭据被逐文件检出
   assert.match(hiddendirLine, /signing\/app\.keystore/);
   assert.match(lineFor(out, "wt-classfiles"), /^delete\s.*忽略文件 1 个（build\/）/); // Credentials.class 经 build/ 段过滤
+  assert.match(lineFor(out, "wt-buildnested"), /^delete\s/); // .build/checkouts 依赖检出经良性段豁免
+  assert.match(lineFor(out, "wt-buildprecious"), /^delete\s/); // .build 下凭据命名产物经良性段豁免
+  // squash 合并：单提交走 cherry 逐提交等价，多提交走整支 diff patch-id 等价
+  assert.match(lineFor(out, "wt-squash "), /^delete\s.*等价/);
+  assert.match(lineFor(out, "wt-squash2"), /^delete\s.*等价/);
+  // 占位残留目录：全占位文件可删；绑未终结线程仍 skip；混入真实文件维持只报告
+  assert.match(lineFor(out, "wt-placeholder"), /^delete\s.*占位目录/);
+  assert.match(lineFor(out, "wt-phgrp"), /^delete\s.*占位目录/);
+  assert.match(lineFor(out, "wt-phbound"), /^skip\s.*未终结.*占位目录绑定线程/);
+  assert.match(lineFor(out, "wt-phmixed"), /^not-a-worktree/);
   const flagsLine = lineFor(out, "wt-indexflags"); // assume-unchanged/skip-worktree 标记 → skip
   assert.match(flagsLine, /^skip\s.*assume-unchanged\/skip-worktree 标记文件 2 个/);
   assert.match(flagsLine, /\.gitignore/);
@@ -278,14 +359,19 @@ test("dry-run：逐目录判定，不删任何东西", () => {
   assert.match(cloudLine, /\.config\/gh\/hosts\.yml/);
   assert.match(lineFor(out, "wt-unsettled"), /^skip\s.*主线程 1 个未终结.*主线程未结算/);
   assert.match(lineFor(out, "wt-delegated"), /^skip\s.*委派线程 1 个未终结.*委派线程未结算/);
+  // 委派子线程 settledOverride 永不写入：subagent 关联行全终态即放行
+  assert.match(lineFor(out, "wt-deldone"), /^delete\s/);
+  assert.match(lineFor(out, "wt-delprov"), /^delete\s/);
+  // 关联行含非终态（running）仍按未终结阻塞
+  assert.match(lineFor(out, "wt-delrun"), /^skip\s.*委派线程 1 个未终结.*委派线程部分终态/);
   assert.match(lineFor(out, "wt-activerun"), /^skip\s.*run.*有活跃run/);
   assert.match(lineFor(out, "wt-dirty"), /^skip\s.*1 个未提交文件/);
   assert.match(lineFor(out, "wt-unpushed"), /^skip\s.*未推送/);
   assert.match(lineFor(out, "wt-alias"), /^skip\s.*未终结.*别名路径未终结线程/);
   if (!isWindows) assert.match(lineFor(out, "wt-occupied"), /^skip\s.*进程占用：pid \d+/);
   assert.match(lineFor(out, "wt-clone"), /^skip\s.*独立 clone/);
-  assert.match(lineFor(out, "plain-dir"), /^not-a-worktree/);
-  assert.match(lineFor(out, "wt-stalegit"), /^not-a-worktree/);
+  assert.match(lineFor(out, "plain-dir"), /^delete\s.*占位目录/); // 空目录视同为占位残留
+  assert.match(lineFor(out, "wt-stalegit"), /^not-a-worktree/); // .git 失效文件不在白名单，维持只报告
   assert.match(out, /--apply 执行删除/);
   for (const d of Object.values(D)) assert.ok(existsSync(d), `dry-run 不应删除 ${d}`);
 });
@@ -293,7 +379,7 @@ test("dry-run：逐目录判定，不删任何东西", () => {
 test("数据库缺席：根下所有工作树全部 skip", () => {
   const empty = mkdtempSync(join(tmpdir(), "t3gc-nodb-"));
   const out = runGc(["--root", wtRoot], { env: { T3CODE_HOME: empty } });
-  for (const name of ["wt-clean", "wt-unbound", "wt-self", "wt-toplevel", "wt-bare", "wt-unsettled", "wt-dirty", "wt-unpushed", "wt-occupied", "wt-alias", "wt-precious", "wt-keystore", "wt-artifacts", "wt-hiddendir", "wt-classfiles", "wt-clouddir", "wt-indexflags", "wt-fsmon", "wt-nested", "wt-baregit", "wt-staleref", "wt-submod"])
+  for (const name of ["wt-clean", "wt-unbound", "wt-self", "wt-toplevel", "wt-bare", "wt-unsettled", "wt-delegated", "wt-deldone", "wt-delprov", "wt-delrun", "wt-dirty", "wt-unpushed", "wt-squash", "wt-squash2", "wt-occupied", "wt-alias", "wt-precious", "wt-keystore", "wt-artifacts", "wt-hiddendir", "wt-classfiles", "wt-buildnested", "wt-buildprecious", "wt-clouddir", "wt-indexflags", "wt-fsmon", "wt-nested", "wt-baregit", "wt-staleref", "wt-submod", "wt-placeholder", "wt-phbound", "wt-phgrp", "plain-dir"])
     assert.match(lineFor(out, name), /^skip\s.*数据库缺席/, name);
   assert.equal(out.split("\n").filter((l) => l.startsWith("delete ")).length, 0, "DB 缺席时不得出现可删项");
   rmSync(empty, { recursive: true, force: true });
@@ -318,7 +404,7 @@ test("--root 缺值：报错退出而非静默回退 ~/.t3", () => {
 
 test("--apply：只删可删工作树并清理本地分支", () => {
   const out = runGc(["--apply"]);
-  const deletable = ["wt-clean", "wt-unbound", "wt-self", "wt-toplevel", "wt-artifacts", "wt-classfiles"];
+  const deletable = ["wt-clean", "wt-unbound", "wt-self", "wt-toplevel", "wt-artifacts", "wt-classfiles", "wt-buildnested", "wt-buildprecious", "wt-squash", "wt-squash2", "wt-deldone", "wt-delprov"];
   if (isWindows) deletable.push("wt-occupied"); // Windows 不做占用检查，会被删
   for (const name of deletable) {
     assert.match(lineFor(out, name), /^deleted\s/, name);
@@ -333,13 +419,21 @@ test("--apply：只删可删工作树并清理本地分支", () => {
   // git worktree 注册同步移除
   const list = git(["-C", mainRepo, "worktree", "list", "--porcelain"]);
   for (const d of [D.clean, D.unbound, D.self, D.toplevel, D.artifacts, D.classfiles]) assert.ok(!list.includes(d), `${d} 不应再注册`);
-  const kept = [D.unsettled, D.delegated, D.activerun, D.dirty, D.unpushed, D.alias, D.precious, D.keystore, D.hiddendir, D.clouddir, D.indexflags, D.nested, D.baregit, D.staleref, D.submod];
+  const kept = [D.unsettled, D.delegated, D.delrun, D.activerun, D.dirty, D.unpushed, D.alias, D.precious, D.keystore, D.hiddendir, D.clouddir, D.indexflags, D.nested, D.baregit, D.staleref, D.submod];
   if (!isWindows) kept.push(D.occupied); // Windows 不查占用，该树会被删
   for (const d of kept) assert.ok(list.includes(d), `${d} 应仍在注册表`);
   // skip 的工作树全部保留
   for (const d of kept) assert.ok(existsSync(d), `${d} 应保留`);
-  assert.ok(existsSync(join(group, "plain-dir")));
+  assert.ok(!existsSync(join(group, "plain-dir")), "空占位目录应已删除");
   assert.ok(existsSync(join(group, "wt-clone")));
   assert.ok(existsSync(D.stalegit));
+  // 占位目录被删；绑着未终结线程的占位目录与混入真实文件的目录保留
+  assert.match(lineFor(out, "wt-placeholder"), /^deleted\s/);
+  assert.ok(!existsSync(D.placeholder));
+  assert.match(lineFor(out, "wt-phgrp"), /^deleted\s/);
+  assert.ok(!existsSync(D.phgrp));
+  assert.ok(!existsSync(join(wtRoot, "emptygrp")), "删空的分组目录应被清扫");
+  assert.ok(existsSync(D.phbound), "绑定未终结线程的占位目录应保留");
+  assert.ok(existsSync(D.phmixed), "混入真实文件的目录应保留");
   assert.ok(!/^failed/m.test(out), "不应有 failed");
 });
