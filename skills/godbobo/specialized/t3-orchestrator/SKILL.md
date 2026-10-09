@@ -94,7 +94,7 @@ description: T3 Code 多 harness 编排：主代理按任务难度和各 harness
 不要碰：<文件或目录>
 
 ## 约束
-<编码规范、需要用到的技能（写明技能名，例如 $git-commit）、禁止事项（例如不要提交、不要开 PR、不要回滚已有改动）>
+<编码规范、需要用到的技能（写明技能名，例如 $git-prefs）、禁止事项（例如不要提交、不要开 PR、不要回滚已有改动）>
 harness 拒绝执行工具时（例如 `Permission denied for this tool`、`was denied because this agent is running in the background`），立即停止，在回报里写明被拒的工具和命令。不要换别的工具绕过，也不要在无法验证的情况下继续改代码。
 
 ## 验证与资源

@@ -22,7 +22,7 @@ npx skills add gitbobobo/skills -l
 
 ### 2. 确认安装范围
 
-- **技能**：全部（`-s "*"`）或指定技能（`-s git-commit`，多个重复传参）
+- **技能**：全部（`-s "*"`）或指定技能（`-s git-prefs`，多个重复传参）
 - **agent**：默认 `-a universal -a claude-code`；用户另有要求时按需调整
 - **范围**：默认全局 `-g`（本机所有项目可用）
 
@@ -38,7 +38,7 @@ npx skills add gitbobobo/skills -l
 npx skills add gitbobobo/skills -g -s "*" -a universal -a claude-code -y
 
 # 单个技能
-npx skills add gitbobobo/skills -g -s plain-plan -a universal -a claude-code -y
+npx skills add gitbobobo/skills -g -s git-prefs -a universal -a claude-code -y
 ```
 
 ### 4. 验证
@@ -57,7 +57,7 @@ npx skills ls -g
 
 ```bash
 npx skills update -g                      # 更新全部全局技能
-npx skills update -g git-commit git-sync  # 只更新指定技能
+npx skills update -g git-prefs            # 只更新指定技能
 ```
 
 - `-p` 仅更新项目级，`-y` 跳过范围确认

@@ -32,7 +32,6 @@ Factory Droid 备注：
 - 官方文档确认 `~/.factory/AGENTS.md` 是跨项目的个人指令层；Droid 还会检查 `~/.agents/`、`~/.agent/` 个人目录，本脚本取 `~/.factory` 为主落点。
 - 优先级语义：项目 `AGENTS.md` 优先于个人文件——个人层放与仓库无关的通用约定，不会覆盖项目规则。
 - 逐次调用另可用 `droid --append-system-prompt-file <path>` 追加提示词（仅当次进程生效，不是持久配置）。
-- T3 Code 的 factory_droid harness 当前按编排策略停用；此目标是预先覆盖，启用后自动生效。
 
 Cursor 备注：
 

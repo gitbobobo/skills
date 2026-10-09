@@ -2,7 +2,7 @@
 // 等待当前 PR 的审查 bot 和 CI 在最新提交上全部回应，然后打印未读过的新意见。
 //
 // 用法：node pr-review-wait.mjs [--pr <number>] [--timeout <秒>] [--peek]
-//   --timeout  最多等待多少秒，默认 270（压在常见 harness exec 上限内；超时退出码 2，直接再调一次）
+//   --timeout  最多等待多少秒，默认 1800（覆盖一个 30 分钟无响应窗口；超时退出码 2，再调一次）
 //   --peek     只看不记，不把本次输出的意见标记为已读
 //   --reset    丢弃已读记录，重新显示最新提交之后的所有意见（对话中断后恢复时用）
 //
@@ -19,10 +19,10 @@ const argValue = (name) => {
   const i = args.indexOf(name);
   return i === -1 ? undefined : args[i + 1];
 };
-const timeoutSec = Number(argValue("--timeout") ?? 270);
+const timeoutSec = Number(argValue("--timeout") ?? 1800);
 const peek = args.includes("--peek");
 const reset = args.includes("--reset");
-const POLL_SEC = 45;
+const POLL_SEC = 90;
 // 请求复审后超过这么久还没回应，视为无响应，不再等待
 const STALE_MIN = 30;
 const isStale = (iso) => Date.now() - Date.parse(iso) > STALE_MIN * 60 * 1000;
