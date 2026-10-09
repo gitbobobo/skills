@@ -9,7 +9,7 @@
 | 池 | 实例 | 额度怎么看 | 说明 |
 |---|---|---|---|
 | Cursor 模型池 | `cursor` 上的 grok-4.x | 脚本可读（Grok 周窗口） | 包含用量明显多，主力池 |
-| Cursor 其他池 | `cursor` 上的 Opus、GPT、Gemini 等 | 脚本可读（API 月窗口） | 按 API 价扣费，只在 UI、难题（含安全）时用 |
+| Cursor 其他池 | `cursor` 上的 Opus、GPT、Gemini 等 | 脚本可读（API 月窗口） | 按 API 价扣费，只在审查、顾问咨询时用 |
 | Codex Pro | `codex` | 脚本可读（5h、周） | 更高推理档多耗额度；Astra 约是 Sol 的 3 倍，只限点名 |
 | Devin | `acpRegistry_devin`（脚本里 `devin` 行的周额度是同一账号） | 脚本可读（周） | swe-2 免费期内不占额度（官方写 10-10 或 10-15 截止）；周额度 100% 时 swe-2 仍可用，其他模型不行 |
 | 智谱 GLM Coding Plan | `claudeAgent` | 脚本直接查询（5h、MCP 月） | 只用 `glm-5.3-flash[1m]`；额度充足；闲时（含周末）半价 |
@@ -19,16 +19,16 @@
 
 ## 模型画像
 
-状态：**自动** = 可以自动选；**点名** = 只有用户点名才用；**不用** = 不主动调用。
+状态：**自动** = 可以自动选；**顾问** = 自动用于审查和咨询，不承担写代码的实现任务；**点名** = 只有用户点名才用；**不用** = 不主动调用。
 
 | 模型 | 状态 | 定位 | 关键数据 | 擅长 | 短板 |
 |---|---|---|---|---|---|
-| Opus 5.5 | 自动（Cursor 其他池限 UI、难题） | 前沿，综合第一 | FrontierCode 第 1（medium 54.6%，$0.80）；CursorBench high 56.0% | 长时程、终端任务、规划、审查 | max 档极浪费；安全、生物、ML kernel 类任务会被静默回退到旧模型 |
-| GPT-6.1 Sol | 自动 | 日常主力 | FrontierCode medium 50.2%，$0.36，性价比最高 | 审查（首选）、实现、调试 | 输出比 6 Sol 多 10–30% |
+| Opus 5.5 | 顾问 | 前沿，综合第一 | FrontierCode 第 1（medium 54.6%，$0.80）；CursorBench high 56.0% | 方案咨询、视觉判断、长时程规划意见、审查 | 不写实现（额度有限）；max 档极浪费；安全、生物、ML kernel 类任务会被静默回退到旧模型 |
+| GPT-6.1 Sol | 顾问 | 审查与咨询主力 | FrontierCode medium 50.2%，$0.36，性价比最高 | 审查（首选）、方案咨询、调试思路 | 不写实现（额度有限）；输出比 6 Sol 多 10–30% |
 | SWE-2 | 自动 | 接近前沿，便宜 | FrontierCode max 50.0%（$1.18） | 端到端测试覆盖；被质疑时会重新推导；探索聚焦 | 多小时级终端长任务弱于 Opus |
 | Grok 4.7 | 自动 | 前沿，长任务 | FrontierCode high 47.6%（$6.65）；CursorBench xhigh 46.3% | 审查（用户实测适合）、长时程任务、自我验证、文档类知识工作 | 慢（小任务均 177s，Opus 34s），输出 token 约 4.5 倍；UI 口碑一般；500k 上下文双倍价 |
 | Grok 4.6 | 自动 | 前沿偏下 | FrontierCode high 48.0%（$2.88） | 同池里比 4.7 更省 | 长终端任务弱 |
-| Sonnet 5.5 | 自动 | 准前沿，性价比向 | FrontierCode xhigh 52.1%（max 46.2%，Anthropic 自报 max 跑法依赖 code-review 技能被扣 scope 分）；CursorBench xhigh 53.1%（$2.81）、high 47.8%（$1.20） | 常规实现、难题兜底 | max 档不升反降 |
+| Sonnet 5.5 | 自动 | 准前沿，性价比向 | FrontierCode xhigh 52.1%（max 46.2%，Anthropic 自报 max 跑法依赖 code-review 技能被扣 scope 分）；CursorBench xhigh 53.1%（$2.81）、high 47.8%（$1.20） | 实现兜底 | max 档不升反降 |
 | Haiku 5.5 | 自动，低难度优先 | 便宜档最强 | FrontierCode max 46.4%；CursorBench xhigh 44.3%（$0.56）、high 42.3%（$0.32） | 低难度、批量，分数远超同档 | droid 上没有；步数偏多 |
 | GLM 5.3 Flash | 自动，低难度优先 | 便宜，额度充足 | CursorBench max 36.8%，$0.39 | 低难度、批量；原生多模态，能看截图 | 能力有上限 |
 | DeepSeek V4.1 Flash | 自动，低难度优先 | 便宜，额度充足 | 厂商数据为主，未上第三方榜 | 低难度、批量 | 上一代在 FrontierCode 有违规联网记录 |
@@ -48,12 +48,12 @@
 | 任务 | 候选（实例 / 模型 / 选项） |
 |---|---|
 | 低难度（小改动、机械修改、批量） | `claudeAgent` / `glm-5.3-flash[1m]` → `opencode` / `opencode-go/claude-haiku-5-5` → `opencode` / `opencode-go/deepseek-v4.1-flash` → `codex` / `gpt-6-luna` / `{"reasoningEffort": "high"}` → `acpRegistry_devin` / `swe-2-high` |
-| 常规实现、修 bug | `acpRegistry_devin` / `swe-2-high`（免费期内优先） → `codex` / `gpt-6.1-sol` / `{"reasoningEffort": "medium"}` → `acpRegistry_factory_droid` / `claude-sonnet-5-5` → `acpRegistry_devin` / `gpt-6-1-sol-medium` → `acpRegistry_factory_droid` / `gpt-6.1-sol` → `cursor` / `grok-4.6` / `{"fastMode": false}` |
-| 难题、架构、疑难 bug | `cursor` / `claude-opus-5-5` / `{"effort": "high", "fastMode": false}` → `acpRegistry_factory_droid` / `claude-opus-5-5` / `{"reasoning_effort": "high"}` → `acpRegistry_devin` / `claude-opus-5-5-medium` → `acpRegistry_factory_droid` / `claude-sonnet-5-5` / `{"reasoning_effort": "xhigh"}` → `codex` / `gpt-6.1-sol` / `{"reasoningEffort": "xhigh"}` |
-| UI、前端视觉 | `cursor` / `claude-opus-5-5` / `{"effort": "high", "fastMode": false}` → `acpRegistry_factory_droid` / `claude-opus-5-5` → `codex` / `gpt-6.1-sol` / `{"reasoningEffort": "high"}`；只需按截图做小调整时用 `claudeAgent` / `glm-5.3-flash[1m]` |
+| 实现、修 bug、架构、疑难 bug（常规与难题同路由） | `acpRegistry_devin` / `swe-2-high`（免费期内优先；免费期结束后降到 Grok 4.6 之后，到期重排） → `claudeAgent` / `glm-5.3-flash[1m]` → `cursor` / `grok-4.6` / `{"fastMode": false}` → `acpRegistry_factory_droid` / `claude-sonnet-5-5`；判断为难题（架构、疑难 bug、跨模块高风险改动）时先派一次顾问咨询，方案定下来再按本行派实现；方案拿不准的实现任务同样先咨询 |
+| UI、前端视觉 | `acpRegistry_factory_droid` / `claude-sonnet-5-5` → `acpRegistry_devin` / `swe-2-high` → `cursor` / `grok-4.7` / `{"fastMode": false}`；视觉方案可先派顾问咨询问 Opus；只需按截图做小调整时用 `claudeAgent` / `glm-5.3-flash[1m]` |
+| 顾问咨询（方案定型、卡壳、方向分歧） | `codex` / `gpt-6.1-sol` / `{"reasoningEffort": "high"}` → `cursor` / `claude-opus-5-5` / `{"effort": "high", "fastMode": false}` → `acpRegistry_factory_droid` / `claude-opus-5-5` / `{"reasoning_effort": "high"}`；只读，不写代码；视觉、长时程规划类问题直接选 Opus 入口 |
 | 代码审查（含最终审查） | `codex` / `gpt-6.1-sol` / `{"reasoningEffort": "high"}` → `cursor` / `grok-4.7` / `{"fastMode": false, "contextWindow": "256k"}` → `acpRegistry_devin` / `gpt-6-1-sol-medium` → `acpRegistry_factory_droid` / `gpt-6.1-sol` 或 `grok-4.7`。实现者是 GPT 系列时先用 Grok 4.7 |
-| 调研、写文档 | `cursor` / `grok-4.6` 或 `grok-4.7` / `{"fastMode": false, "contextWindow": "256k"}` → `codex` / `gpt-6.1-sol` → `acpRegistry_factory_droid` / `claude-opus-5-5` |
-| 安全、漏洞 | `cursor` / `claude-opus-5-5` / `{"effort": "high", "fastMode": false}`，再用 `codex` / `gpt-6.1-sol` / `{"reasoningEffort": "high"}` 交叉复核（Opus 可能静默回退） |
+| 调研、写文档 | `cursor` / `grok-4.6` 或 `grok-4.7` / `{"fastMode": false, "contextWindow": "256k"}` → `codex` / `gpt-6.1-sol` → `acpRegistry_factory_droid` / `claude-sonnet-5-5` |
+| 安全、漏洞 | 审查：`cursor` / `claude-opus-5-5` / `{"effort": "high", "fastMode": false}`，再用 `codex` / `gpt-6.1-sol` / `{"reasoningEffort": "high"}` 交叉复核（Opus 可能静默回退）；漏洞修复的实现走「实现」行 |
 
 ## 同模型的备用入口
 
@@ -92,7 +92,7 @@
 
 ### 标准
 
-1. **只有用户能改的规则**：快速模式、点名专用、不主动调用这三类限制由用户决定。更新时可以提出建议，不能自行改动。
+1. **只有用户能改的规则**：快速模式、点名专用、不主动调用、顾问定位（不写实现）这四类限制由用户决定。更新时可以提出建议，不能自行改动。
 2. **排序依据**：先看 FrontierCode 和 CursorBench 的分数和每任务成本；厂商自报数字只用来在第三方数据缺失或分数接近时参考，并在表里注明「厂商」。
 3. **加入自动路由**，须同时满足：
    - 用户现有订阅里至少一个 harness 能用；
