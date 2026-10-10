@@ -1,6 +1,6 @@
 # 模型与额度参考
 
-调研日期：2026-10-08。模型 ID 以 `orchestrator_capabilities` 实时返回为准，这里的 ID 只是当时的快照。更新方法见文末「更新来源与标准」。
+调研日期：2026-10-10。模型 ID 以 `orchestrator_capabilities` 实时返回为准，这里的 ID 只是当时的快照。更新方法见文末「更新来源与标准」。
 
 基准说明：FrontierCode（Cognition 维护，按代码能否合并评分）和 CursorBench 是第三方统一 harness 的榜单；Terminal-Bench、DeepSWE 多为厂商自报，不同版本不能横比。
 
@@ -13,7 +13,9 @@
 | Codex Pro | `codex` | 脚本可读（5h、周） | 更高推理档多耗额度；Astra 约是 Sol 的 3 倍，只限点名 |
 | Devin | `acpRegistry_devin`（脚本里 `devin` 行的周额度是同一账号） | 脚本可读（周） | swe-2 免费期内不占额度（官方写 10-10 或 10-15 截止）；周额度 100% 时 swe-2 仍可用，其他模型不行 |
 | 智谱 GLM Coding Plan | `claudeAgent` | 脚本直接查询（5h、MCP 月） | 只用 `glm-5.3-flash[1m]`；额度充足；闲时（含周末）半价 |
-| opencode go | `opencode` 上的 `opencode-go/*` | 脚本可读（5h、周、月） | 只用 `opencode-go/` 前缀的模型 |
+| opencode go | `opencode` 上的 `opencode-go/*` | 脚本可读（5h、周、月，聚合窗口） | $10 档按模型独立计月限（5h=20%、周=50%、月=100%）：只允许 `glm-5.3-flash` 与 `deepseek-v4.1-flash`（$60/月档）；其余 go 模型 $15–30/月不用，`opencode/` 前缀是 Zen 按量 |
+
+opencode Go $10 档分模型月限（2026-10-10 核对官方文档）：$60/月档 = glm-5.3-flash、glm-5.2、kimi-k2.7-code、kimi-k2.6、longcat-2.0、mimo-v2.6-flash、mimo-v2.5、minimax-m3、minimax-m2.7、muse-spark 1.2/1.3、qwen3.7-plus、deepseek-v4.1-flash、hy3；$30/月档 = qwen3.8-flash、deepseek-v4-flash、hy4-preview、space-bunny；其余（grok-4.x、claude-haiku-5-5、gpt-*-luna、glm-5.3、kimi-k3、qwen3.8-max、deepseek-v4-pro、mimo-pro 等）仅 $15/月。限额耗尽后请求被拦；console「Use balance」开启时会回落到 Zen 余额扣真钱。分模型耗尽表现为入口级 429，聚合探针看不出是哪个模型。
 | Factory | `acpRegistry_factory_droid` | 脚本直接查询，需要 `FACTORY_API_KEY` | 模型最全，适合作为同模型的备用入口。需 droid ≥0.234.0（修复 acp-daemon `--mcp-servers`，[Factory-AI/factory#9](https://github.com/Factory-AI/factory/issues/9)）。选项名是 `reasoning_effort`（snake_case）和 `autonomy_level`（调度一律传 `auto-high`），不是 `reasoningEffort` |
 | 不使用 | `claudeAgent_kimi`（没有订阅）、`claudeAgent_minimax`（能力太差） | — | 用户点名也要先提醒 |
 
@@ -47,7 +49,7 @@
 
 | 任务 | 候选（实例 / 模型 / 选项） |
 |---|---|
-| 低难度（小改动、机械修改、批量） | `claudeAgent` / `glm-5.3-flash[1m]` → `opencode` / `opencode-go/claude-haiku-5-5` → `opencode` / `opencode-go/deepseek-v4.1-flash` → `codex` / `gpt-6-luna` / `{"reasoningEffort": "high"}` → `acpRegistry_devin` / `swe-2-high` |
+| 低难度（小改动、机械修改、批量） | `claudeAgent` / `glm-5.3-flash[1m]` → `opencode` / `opencode-go/deepseek-v4.1-flash` → `opencode` / `opencode-go/glm-5.3-flash` → `codex` / `gpt-6-luna` / `{"reasoningEffort": "high"}` → `acpRegistry_devin` / `swe-2-high` |
 | 实现、修 bug、架构、疑难 bug（常规与难题同路由） | `acpRegistry_devin` / `swe-2-high`（免费期内优先；免费期结束后降到 Grok 4.6 之后，到期重排） → `claudeAgent` / `glm-5.3-flash[1m]` → `cursor` / `grok-4.6` / `{"fastMode": false}` → `acpRegistry_factory_droid` / `claude-sonnet-5-5`；判断为难题（架构、疑难 bug、跨模块高风险改动）时先派一次顾问咨询，方案定下来再按本行派实现；方案拿不准的实现任务同样先咨询 |
 | UI、前端视觉 | `acpRegistry_factory_droid` / `claude-sonnet-5-5` → `acpRegistry_devin` / `swe-2-high` → `cursor` / `grok-4.7` / `{"fastMode": false}`；视觉方案可先派顾问咨询问 Opus；只需按截图做小调整时用 `claudeAgent` / `glm-5.3-flash[1m]` |
 | 顾问咨询（方案定型、卡壳、方向分歧） | `codex` / `gpt-6.1-sol` / `{"reasoningEffort": "high"}` → `cursor` / `claude-opus-5-5` / `{"effort": "high", "fastMode": false}` → `acpRegistry_factory_droid` / `claude-opus-5-5` / `{"reasoning_effort": "high"}`；只读，不写代码；视觉、长时程规划类问题直接选 Opus 入口 |
@@ -62,11 +64,11 @@
 | Opus 5.5 | `cursor` `claude-opus-5-5` · `acpRegistry_factory_droid` `claude-opus-5-5` · `acpRegistry_devin` `claude-opus-5-5-medium` |
 | Sonnet 5.5 | `acpRegistry_factory_droid` `claude-sonnet-5-5` · `acpRegistry_devin` `claude-sonnet-5-5-medium` · `cursor` `claude-sonnet-5-5` |
 | GPT-6.1 Sol | `codex` `gpt-6.1-sol` · `acpRegistry_devin` `gpt-6-1-sol-medium` · `acpRegistry_factory_droid` `gpt-6.1-sol` |
-| GPT-6 Luna | `codex` `gpt-6-luna` · `acpRegistry_devin` `gpt-6-luna-medium` · `opencode` `opencode-go/gpt-6-luna` · `acpRegistry_factory_droid` `gpt-6-luna` |
+| GPT-6 Luna | `codex` `gpt-6-luna` · `acpRegistry_devin` `gpt-6-luna-medium` · `acpRegistry_factory_droid` `gpt-6-luna` |
 | GLM 5.3 Flash | `claudeAgent` `glm-5.3-flash[1m]` · `opencode` `opencode-go/glm-5.3-flash` · `acpRegistry_factory_droid` `glm-5.3-flash` · `acpRegistry_devin` `glm-5-3-flash-max` · `cursor` `glm-5p3-flash` |
 | DeepSeek V4.1 Flash | `opencode` `opencode-go/deepseek-v4.1-flash` · `acpRegistry_factory_droid` `deepseek-v4.1-flash` · `acpRegistry_devin` `deepseek-v4-1-flash-high` |
-| Haiku 5.5 | `opencode` `opencode-go/claude-haiku-5-5` · `acpRegistry_devin` `claude-haiku-5-5-medium` · `cursor` `claude-haiku-5-5`（droid 没有） |
-| Grok 4.7 / 4.6 | `cursor` `grok-4.7` / `grok-4.6` · `acpRegistry_devin` `grok-4-7-medium` / `grok-4-6-medium` · `acpRegistry_factory_droid` `grok-4.7` / `grok-4.6` · `opencode` `opencode-go/grok-4.7` / `opencode-go/grok-4.6` |
+| Haiku 5.5 | `acpRegistry_devin` `claude-haiku-5-5-medium` · `cursor` `claude-haiku-5-5`（droid 没有） |
+| Grok 4.7 / 4.6 | `cursor` `grok-4.7` / `grok-4.6` · `acpRegistry_devin` `grok-4-7-medium` / `grok-4-6-medium` · `acpRegistry_factory_droid` `grok-4.7` / `grok-4.6` |
 | SWE-2 | 只有 `acpRegistry_devin` `swe-2-high`。Devin Fusion（`fusion-<主模型>-sidekick-swe-2-medium`）适合大量机械工作，判断本身就是交付物时不要用 |
 
 用户点名时的入口：
@@ -75,7 +77,7 @@
 |---|---|
 | GPT-6 Astra | `codex` `gpt-6-astra` · `acpRegistry_devin` `gpt-6-astra-medium` · `acpRegistry_factory_droid` `gpt-6-astra` |
 | Fable 5.1 | `cursor` `claude-fable-5-1` · `acpRegistry_devin` `claude-fable-5-1-medium` · `acpRegistry_factory_droid` `claude-fable-5.1` |
-| Kimi K3 | `cursor` `kimi-k3` · `acpRegistry_devin` `kimi-k3-high` · `opencode` `opencode-go/kimi-k3` · `acpRegistry_factory_droid` `kimi-k3` |
+| Kimi K3 | `cursor` `kimi-k3` · `acpRegistry_devin` `kimi-k3-high` · `acpRegistry_factory_droid` `kimi-k3` |
 
 ## 更新来源与标准
 

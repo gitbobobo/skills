@@ -23,12 +23,12 @@ description: T3 Code 多 harness 编排：主代理按任务难度和各 harness
    - Composer 2.5；
    - `claudeAgent_kimi`（没有订阅）；
    - `claudeAgent_minimax`、MiniMax 系列；
-   - `opencode` 上 `opencode-go/` 以外的模型。
+   - `opencode` 只允许 `opencode-go/glm-5.3-flash` 与 `opencode-go/deepseek-v4.1-flash`；其余 `opencode-go/*` 模型月限仅 $15–30，`opencode/` 前缀是 Zen 按量。
 4. **Opus 5.5 和 GPT-6.1 Sol 不自动承担写代码的实现任务**；自动调度中它们只用于代码审查和顾问咨询。路由表的实现类行（实现、UI）不得列它们。
 5. **自动调度只选路由表「候选」列里的实例/模型组合**；「同模型的备用入口」「用户点名时的入口」只是已选模型的换路入口，不构成新候选。`orchestrator_capabilities` 里有、路由表没写的模型不得自动选用。
 6. `claudeAgent` 只用 `glm-5.3-flash[1m]`，不选它模型列表里的 `claude-*`（请求实际会发到智谱）。
 7. `acpRegistry_factory_droid` 的任务，`options` 一律带 `{"autonomy_level": "auto-high"}`；用户指定其他自治级别时照用户说的。
-8. 用户点名了模型或 harness 时，照用户说的做，不受第 2、3、4、5 条限制，但第 1、7 条仍然有效。
+8. 用户点名了模型或 harness 时，照用户说的做，不受第 2、3、4、5 条限制，但第 1、6、7 条仍然有效。
 
 ## 开工前
 
@@ -41,7 +41,7 @@ description: T3 Code 多 harness 编排：主代理按任务难度和各 harness
 ## 选模型
 
 1. 先判断任务类型：低难度（小改动、机械修改、批量）、实现、难题、UI、审查、调研、安全。实现和难题共用路由表「实现」行，难题先派一次顾问咨询再派实现；拿不准是否属于低难度时按实现处理。
-2. 低难度任务优先用额度充足的便宜模型：`glm-5.3-flash[1m]`、`opencode-go/claude-haiku-5-5`、`opencode-go/deepseek-v4.1-flash`、`gpt-6-luna`。
+2. 低难度任务优先用额度充足的便宜模型：`glm-5.3-flash[1m]`、`opencode-go/glm-5.3-flash`、`opencode-go/deepseek-v4.1-flash`、`gpt-6-luna`。
 3. 在路由表对应行里按顺序选第一个可用的候选。以下情况跳过该候选：
    - 违反「硬性规则」；
    - 实例不在 `orchestrator_capabilities` 里，或者 `canRunChildTask` 为 false；
@@ -60,6 +60,12 @@ description: T3 Code 多 harness 编排：主代理按任务难度和各 harness
 - `mode`：委派任务用 `async`，靠完成事件唤醒。派完处理剩余独立工作，然后结束本轮等待事件；不另起监视任务。追加修复和复审也新建 `delegate_task`，不能用子线程的 `t3_thread_send` 代替委派。
 - 保存每轮的 `taskId`、`childThreadId`、`clientRequestId`。taskId 用于 `task_status` / `task_cancel`；childThreadId 只用于读原始证据。每轮 clientRequestId 不同，同一轮工具重试沿用原值，换路增加尝试序号。
 - `runtimeMode`、`interactionMode` 保持继承，不能升级权限。
+
+确定 `target` 后、调用 `delegate_task` 前跑校验脚本，硬性规则已编码其中，违规时退出码 1 并列出允许入口：
+
+```bash
+node <技能目录>/scripts/delegate-check.mjs --provider <providerInstanceId> --model <model> [--role <role>] [--options '<json>'] [--user-named]
+```
 
 规则：
 
