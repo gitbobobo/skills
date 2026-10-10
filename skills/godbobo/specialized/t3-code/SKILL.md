@@ -91,6 +91,7 @@ node <技能目录>/scripts/t3-worktree-gc.mjs --root <dir>  # 单独指定扫�
 - delegated 子代理偶发静默丢失，主代理要做好降级自审。
 - `subagents`/`runs` 投影偶发停在 `running`：子线程实际已完工，`task_status` 却一直返回 running。别只信状态轮询，用 `t3_thread_read` 读 `childThreadId` 尾部判断真实进度。
 - `mcp__t3-code__*` 偶发报 "Failed to connect to MCP server 't3-code'"，重试即恢复；不行再走 ACP 兜底。
+- `watch_pull_request` 观察到不在「自己 GitHub 账号发表的评论」上唤醒线程：Code Bot 这类借用户 token 发结论的 bot，其评论署名是自己账号，不触发唤醒；只有真 bot 账号（如 `chatgpt-codex-connector[bot]`）的评论会。等这类结论要靠 `$pr-review-loop` 的等待脚本兜底轮询。
 - `mcp_list_tools` 每次会话都重查完整目录，token 开销不小。
 - `command_execution` 输出留存不全（见上节），分析失败命令时 stderr 多半拿不到，只能看退出码。
 

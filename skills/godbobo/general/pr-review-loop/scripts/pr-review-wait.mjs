@@ -27,6 +27,9 @@ const POLL_SEC = 90;
 const STALE_MIN = 30;
 const isStale = (iso) => Date.now() - Date.parse(iso) > STALE_MIN * 60 * 1000;
 
+// 自己发的回复统一带此标记（HTML 注释，渲染不可见），用于把自己和别人区分开
+const REPLY_MARK = "pr-review-loop:reply";
+
 // trigger：请求复审的顶层评论；isArtifact：该审查者的回应
 const REVIEWERS = [
   {
@@ -37,7 +40,8 @@ const REVIEWERS = [
   {
     name: "Code Bot",
     trigger: /^@CodeBot review\s*$/i,
-    isArtifact: (item) => item.kind === "comment" && item.body.startsWith("**Code Bot 审查结论"),
+    // 结论借本账号 token 发布，和 agent 回复同作者；排除带标记的回复，防止引用了结论开头的回复被当成新结论
+    isArtifact: (item) => item.kind === "comment" && item.body.startsWith("**Code Bot 审查结论") && !item.body.includes(REPLY_MARK),
   },
   {
     name: "Cursor",
@@ -113,10 +117,13 @@ function collect(repo, pr, head) {
   return { items, reviewers, ci };
 }
 
-// 过滤掉复审触发评论；gitbobobo 账号下只保留 Code Bot 结论（agent 自己的回复也用这个账号）
+// 意见识别不看作者：Code Bot 结论等借本账号 token 发布，按作者过滤会漏掉它们。
+// 排除项：复审触发评论；带 REPLY_MARK 的自己的回复；本账号发的行内回复（历史上无标记，基本是 agent 旧回复）。
+// 本账号的其余评论（旧回复、用户手动评论、新格式 bot 结论）宁可显示一次也不漏。
 function isFeedback(item, prAuthor) {
   if (REVIEWERS.some((rv) => rv.trigger.test(item.body.trim()))) return false;
-  if (item.author === prAuthor) return item.body.startsWith("**Code Bot 审查结论");
+  if (item.body.includes(REPLY_MARK)) return false;
+  if (item.author === prAuthor && item.kind === "inline" && item.replyTo) return false;
   return item.body.trim().length > 0;
 }
 
@@ -135,13 +142,15 @@ function stripNoise(body) {
 }
 
 // 回复一律发新评论。Code Bot 和 agent 共用账号，改已有评论会覆盖审查结论，所以不给 PATCH/DELETE 的写法。
-// 行内意见只能回复到线程的第一条评论，回复的回复也挂到 replyTo 上
+// 行内意见只能回复到线程的第一条评论，回复的回复也挂到 replyTo 上。
+// 命令里自动在正文末尾附上 REPLY_MARK 标记；Windows 不支持 $(cat …)，把标记写进回复文件末尾后用 -F body=@<回复文件>。
 function replyCommand(repo, number, item) {
+  const body = `-f body="$(cat '<回复文件>'; printf '\\n\\n<!-- ${REPLY_MARK} -->')"`;
   if (item.kind === "inline") {
     const root = item.replyTo ?? item.id.slice(1);
-    return `gh api repos/${repo}/pulls/${number}/comments -X POST -F in_reply_to=${root} -F body=@<回复文件>`;
+    return `gh api repos/${repo}/pulls/${number}/comments -X POST -F in_reply_to=${root} ${body}`;
   }
-  return `gh api repos/${repo}/issues/${number}/comments -X POST -F body=@<回复文件>`;
+  return `gh api repos/${repo}/issues/${number}/comments -X POST ${body}`;
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

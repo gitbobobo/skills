@@ -29,6 +29,8 @@ description: PR 推送并请求复审后，自动等待审查 bot 与 CI、处�
 
 ## 收敛规则
 
+**意见识别不看作者。**Code Bot 等 bot 借本账号 token 发结论，人类同事也可能用任意账号评论——所有非空评论都会进新意见列表；只有自己带 `<!-- pr-review-loop:reply -->` 标记的评论被排除（见「回复」）。
+
 处理本轮新意见之前，先把它们归并分桶，再按桶回复：
 
 | 桶 | 含义 | 回复动作 |
@@ -48,8 +50,10 @@ description: PR 推送并请求复审后，自动等待审查 bot 与 CI、处�
 
 脚本在每条新意见下面打印了「回复：」命令，照着用，把 `<回复文件>` 换成回复正文的文件路径。正文先写进 UTF-8 无 BOM 的临时文件，不要把中文内联在命令里。
 
-- 行内意见：`gh api repos/<repo>/pulls/<n>/comments -X POST -F in_reply_to=<线程第一条评论的 id> -F body=@<回复文件>`
-- 顶层评论、审查总结和 Code Bot 结论：`gh api repos/<repo>/issues/<n>/comments -X POST -F body=@<回复文件>`，正文开头引用被回复的意见或附上它的链接。
+- 行内意见：`gh api repos/<repo>/pulls/<n>/comments -X POST -F in_reply_to=<线程第一条评论的 id> -f body="$(cat '<回复文件>'; printf '\n\n<!-- pr-review-loop:reply -->')"`
+- 顶层评论、审查总结和 Code Bot 结论：`gh api repos/<repo>/issues/<n>/comments -X POST -f body="$(cat '<回复文件>'; printf '\n\n<!-- pr-review-loop:reply -->')"`，正文开头引用被回复的意见或附上它的链接。
+
+**自己发的每条评论末尾都要带 `<!-- pr-review-loop:reply -->` 标记**（HTML 注释，渲染后不可见）——回复、处置总结、更正都一样。监控脚本不按作者过滤，不带标记的自己评论会在下一轮被当作新意见回收一次。打印的回复命令已自动附加标记；手写命令（或 Windows 下 `$(cat …)` 不可用）时把标记写进回复文件末尾，再用 `-F body=@<回复文件>` 提交。
 
 不要对任何评论执行 `PATCH` 或 `DELETE`，自己账号发的也不行。Code Bot 和 agent 用的是同一个 GitHub 账号，GitHub 不会拦，改错了就会覆盖审查结论。回复发错了就再发一条更正，不要改原评论。修改 PR 描述用 `gh pr edit`，不受这条限制。
 

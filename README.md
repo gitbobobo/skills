@@ -29,7 +29,7 @@ git 操作偏好：可审计粒度的规范提交、优先 rebase 的远程同�
 
 ### pr-review-loop
 
-PR 推送并请求复审后，自动跟进审查 bot 与 CI、处理新意见、再次请求复审直到收敛。
+PR 推送并请求复审后，自动跟进审查 bot 与 CI、处理新意见、再次请求复审直到收敛。意见识别不看作者（bot 结论常借本账号 token 发布），自己的回复统一带 `<!-- pr-review-loop:reply -->` 标记排除。
 
 详见 [skills/godbobo/general/pr-review-loop/SKILL.md](skills/godbobo/general/pr-review-loop/SKILL.md)。
 
