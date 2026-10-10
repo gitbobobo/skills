@@ -47,7 +47,7 @@ PR 推送并请求复审后，自动跟进审查 bot 与 CI、处理新意见、
 
 ### t3-orchestrator
 
-T3 Code 多 harness 编排：按任务难度与各 harness 额度路由子代理任务并验收，限流、额度用尽、过载时自动换路续跑。专用技能，仅限用户主动调用。
+T3 Code 多 harness 编排：选 harness/模型由 `route.mjs` 按固定规则裁决（`route-data.mjs` 是唯一事实源），delegate_task 派活验收，限流、额度用尽、过载时自动换路续跑；附 `route-playground.mjs` 生成的可视化路由沙盒，供人工搭配输入排查规则问题。专用技能，仅限用户主动调用。
 
 详见 [skills/godbobo/specialized/t3-orchestrator/SKILL.md](skills/godbobo/specialized/t3-orchestrator/SKILL.md)。
 

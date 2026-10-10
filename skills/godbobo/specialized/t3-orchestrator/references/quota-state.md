@@ -2,7 +2,7 @@
 
 `scripts/quota-state.mjs` 记录本机实际失败，不代替 `t3-quota.mjs` 的实时额度查询。默认写入 `${XDG_CACHE_HOME:-~/.cache}/t3-orchestrator/`，不写工作树，不记录密钥或原始错误文本。`--cache-dir` 仅用于隔离测试/专门配置。
 
-入口 ID 用 `<providerInstanceId>/<model>`；池 ID 从 `models.md` 的额度池与本机账号事实确认，跨线程保持一致。同模型的不同服务商通常不是同一个池；同一 provider 的不同模型也可能分池。池关系未确认时只记录入口。
+入口 ID 用 `<providerInstanceId>/<model>`；池 ID 取 `models.md`「额度池」表的池 ID 列（与 `route-data.mjs` 的 `POOLS` 一致），结合本机账号事实确认，跨线程保持一致。同模型的不同服务商通常不是同一个池；同一 provider 的不同模型也可能分池。池关系未确认时只记录入口。
 
 每次选择/换路先 `status`，在实际派发前用 `claim` 原子检查入口及已确认的池。`check` 只供诊断，不能授权恢复探测。`claim` 返回 `recovery: false` 才能正式派实现；`recovery: true` 只授权一次轻量额度/连接查询，绝不以实现委派充当探测。先按结果 success/fail，成功清除后重新 claim，确认 recovery 为 false 再派活。下面的 `codex-pro` 只适用于已查证同账号的 Codex Pro 池：
 
