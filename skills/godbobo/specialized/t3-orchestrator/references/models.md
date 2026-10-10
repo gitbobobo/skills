@@ -49,7 +49,7 @@ opencode Go $10 档分模型月限（2026-10-10 核对官方文档）：$60/月�
 
 | 任务 | 候选（实例 / 模型 / 选项） |
 |---|---|
-| 低难度（小改动、机械修改、批量） | `claudeAgent` / `glm-5.3-flash[1m]` → `opencode` / `opencode-go/deepseek-v4.1-flash` → `opencode` / `opencode-go/glm-5.3-flash` → `codex` / `gpt-6-luna` / `{"reasoningEffort": "high"}` → `acpRegistry_devin` / `swe-2-high` |
+| 低难度（小改动、机械修改、批量） | `claudeAgent` / `glm-5.3-flash[1m]` → `opencode` / `opencode-go/glm-5.3-flash` → `opencode` / `opencode-go/deepseek-v4.1-flash` → `codex` / `gpt-6-luna` / `{"reasoningEffort": "high"}` → `acpRegistry_devin` / `swe-2-high` |
 | 实现、修 bug、架构、疑难 bug（常规与难题同路由） | `acpRegistry_devin` / `swe-2-high`（免费期内优先；免费期结束后降到 Grok 4.6 之后，到期重排） → `claudeAgent` / `glm-5.3-flash[1m]` → `cursor` / `grok-4.6` / `{"fastMode": false}` → `acpRegistry_factory_droid` / `claude-sonnet-5-5`；判断为难题（架构、疑难 bug、跨模块高风险改动）时先派一次顾问咨询，方案定下来再按本行派实现；方案拿不准的实现任务同样先咨询 |
 | UI、前端视觉 | `acpRegistry_factory_droid` / `claude-sonnet-5-5` → `acpRegistry_devin` / `swe-2-high` → `cursor` / `grok-4.7` / `{"fastMode": false}`；视觉方案可先派顾问咨询问 Opus；只需按截图做小调整时用 `claudeAgent` / `glm-5.3-flash[1m]` |
 | 顾问咨询（方案定型、卡壳、方向分歧） | `codex` / `gpt-6.1-sol` / `{"reasoningEffort": "high"}` → `cursor` / `claude-opus-5-5` / `{"effort": "high", "fastMode": false}` → `acpRegistry_factory_droid` / `claude-opus-5-5` / `{"reasoning_effort": "high"}`；只读，不写代码；视觉、长时程规划类问题直接选 Opus 入口 |
@@ -65,7 +65,7 @@ opencode Go $10 档分模型月限（2026-10-10 核对官方文档）：$60/月�
 | Sonnet 5.5 | `acpRegistry_factory_droid` `claude-sonnet-5-5` · `acpRegistry_devin` `claude-sonnet-5-5-medium` · `cursor` `claude-sonnet-5-5` |
 | GPT-6.1 Sol | `codex` `gpt-6.1-sol` · `acpRegistry_devin` `gpt-6-1-sol-medium` · `acpRegistry_factory_droid` `gpt-6.1-sol` |
 | GPT-6 Luna | `codex` `gpt-6-luna` · `acpRegistry_devin` `gpt-6-luna-medium` · `acpRegistry_factory_droid` `gpt-6-luna` |
-| GLM 5.3 Flash | `claudeAgent` `glm-5.3-flash[1m]` · `opencode` `opencode-go/glm-5.3-flash` · `acpRegistry_factory_droid` `glm-5.3-flash` · `acpRegistry_devin` `glm-5-3-flash-max` · `cursor` `glm-5p3-flash` |
+| GLM 5.3 Flash | `claudeAgent` `glm-5.3-flash[1m]` · `opencode` `opencode-go/glm-5.3-flash` · `acpRegistry_factory_droid` `glm-5.3-flash` · `acpRegistry_devin` `glm-5-3-flash-max` · `cursor` `glm-5p3-flash`（入口顺序即用户定下的优先级：Coding Plan 额度最足 > Go $60 池 > Factory 池） |
 | DeepSeek V4.1 Flash | `opencode` `opencode-go/deepseek-v4.1-flash` · `acpRegistry_factory_droid` `deepseek-v4.1-flash` · `acpRegistry_devin` `deepseek-v4-1-flash-high` |
 | Haiku 5.5 | `acpRegistry_devin` `claude-haiku-5-5-medium` · `cursor` `claude-haiku-5-5`（droid 没有） |
 | Grok 4.7 / 4.6 | `cursor` `grok-4.7` / `grok-4.6` · `acpRegistry_devin` `grok-4-7-medium` / `grok-4-6-medium` · `acpRegistry_factory_droid` `grok-4.7` / `grok-4.6` |
