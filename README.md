@@ -168,14 +168,3 @@ node scripts/check.mjs
 ```
 
 详见 [scripts/check.mjs](scripts/check.mjs)。
-
-### patch-cursor-cli-acp-retry
-
-为 Cursor CLI 的 ACP 模式开启 `enableAgentRetries`（结构匹配才补丁，支持 Windows 与 Unix）。
-
-```bash
-./scripts/patch-cursor-cli-acp-retry.py --status   # 仅检查
-./scripts/patch-cursor-cli-acp-retry.py            # 补丁当前激活版本
-```
-
-详见 [scripts/patch-cursor-cli-acp-retry.py](scripts/patch-cursor-cli-acp-retry.py)。
