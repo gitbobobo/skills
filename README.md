@@ -69,7 +69,7 @@ T3 Code 多 harness 编排：选 harness/模型由 `route.mjs` 按固定规则�
 
 ### uiv
 
-把截图、录屏上传到 UIV，拿到公开链接与 Markdown，用于展示端到端验证成果（需 `UIV_URL`/`UIV_TOKEN`）。专用技能，配合同名自托管服务使用。
+把截图、录屏上传到 UIV，拿到公开链接与 Markdown，用于展示端到端验证成果（需 `UIV_URL`/`UIV_TOKEN`）；含「等界面到达最终状态再截图」与动图自检规则。专用技能，配合同名自托管服务使用。
 
 来源：[gitbobobo/uiv — skills/uiv](https://github.com/gitbobobo/uiv/tree/main/skills/uiv)
 
