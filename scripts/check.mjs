@@ -11,8 +11,10 @@
 //   4. skills/forks/ 下的技能，其 README 小节必须注明「来源」
 //   5. scripts/ 下的 .mjs/.py 工具在 README 中有链接
 //   6. 带 disable-model-invocation: true 的技能，README 小节写明「仅限用户主动调用」（单向：反过来不强制）
+//   7. skills/**/*.test.mjs 全部通过（node --test）
 
 import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -89,9 +91,31 @@ for (const f of readdirSync(scriptsDir)) {
   if (!readme.includes(rel)) fail(`${rel}：README.md 的工具脚本小节没有登记`);
 }
 
+// 6. 技能脚本测试
+function* walkFiles(dir, depth = 0) {
+  if (depth > 6) return;
+  for (const e of readdirSync(dir)) {
+    if (e.startsWith(".") || e === "node_modules") continue;
+    const p = join(dir, e);
+    if (statSync(p).isDirectory()) {
+      yield* walkFiles(p, depth + 1);
+      continue;
+    }
+    if (e.endsWith(".test.mjs")) yield p;
+  }
+}
+const testFiles = [...walkFiles(skillsDir)];
+if (testFiles.length) {
+  const r = spawnSync(process.execPath, ["--test", ...testFiles], { encoding: "utf8" });
+  if (r.status !== 0) {
+    const out = `${r.stdout ?? ""}\n${r.stderr ?? ""}`.trim().split("\n").slice(-30).join("\n");
+    fail(`脚本测试未通过（${testFiles.length} 个测试文件）：\n${out}`);
+  }
+}
+
 if (fails.length) {
   console.log(`检查未通过（${fails.length} 项）：`);
   for (const f of fails) console.log(`- ${f}`);
   process.exit(1);
 }
-console.log(`检查通过：${skillCount} 个技能、AGENTS/CLAUDE 一致、scripts 已登记。`);
+console.log(`检查通过：${skillCount} 个技能、AGENTS/CLAUDE 一致、scripts 已登记、${testFiles.length} 个测试文件全绿。`);
