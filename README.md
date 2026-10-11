@@ -61,7 +61,7 @@ T3 Code 多 harness 编排：选 harness/模型由 `route.mjs` 按固定规则�
 
 ### fast-ship
 
-通过 Fast Ship REST API 创建、更新与查询 Issue：PR 关联、人机协作区、附件、截图库等（需 API Key）。专用技能，配合同名服务使用。
+通过 Fast Ship REST API 创建、更新与查询 Issue：PR 关联、人机协作区、附件、截图库与截图标注等（需 API Key）。专用技能，配合同名服务使用。
 
 来源：[gitbobobo/fast_ship — skills/fast-ship](https://github.com/gitbobobo/fast_ship/tree/main/skills/fast-ship)
 
