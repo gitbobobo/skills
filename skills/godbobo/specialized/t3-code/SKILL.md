@@ -57,9 +57,14 @@ sqlite3 $DB "SELECT type, COUNT(*) FROM orchestration_v2_projection_turn_items G
   `ELECTRON_RUN_AS_NODE=1 "$T3_ACP_MCP_NODE" ${T3_ACP_MCP_ENTRYPOINT:+"$T3_ACP_MCP_ENTRYPOINT"} acp-mcp-call <tool> '<json>'`。
 - `schedule_task` 的 `schedule` 传结构化对象（`{"type":"interval","everyMs":N}` / `{"type":"fixed_time","timeOfDay":"HH:MM","weekdays":[...]}`），不是 JSON 字符串。
 
+## 子线程取证（t3_thread_read）
+
+- 默认视图只回消息项；工具调用与文件写入要用 `view:"activity"`。找子代理回报或某次写入，从尾部 position 往回翻，不要从 0 分页。
+- `file_change` 项的 `originalFile` 带编辑前全量快照：未跟踪文件被改毁时，取该文件最后一个 file_change 的 `originalFile` 重建——这是此类事故的最后恢复途径。
+
 ## 工作树回收（t3-worktree-gc）
 
-T3 线程绑定的工作树（`~/.t3/worktrees/<项目分组>/<名>`）在线程结束后不会自动清理。收尾时用 `scripts/t3-worktree-gc.mjs` 只回收「其他已终结线程」的工作树——自己所在的树留给后续会话，绑定中的树永远不碰（删掉绑定目录会让该线程终端永久失效）。
+T3 线程绑定的工作树（`~/.t3/worktrees/<项目分组>/<名>`）在线程结束后不会自动清理。同一绑定工作树可能经 junction/符号链接以多个路径等价可达（数据目录迁移后常见）：看到工作树路径「变了」先确认是不是同一目录（Windows `dir /al`/`fsutil reparsepoint query`，POSIX `readlink`/`stat`），不要当成目录迁移。收尾时用 `scripts/t3-worktree-gc.mjs` 只回收「其他已终结线程」的工作树——自己所在的树留给后续会话，绑定中的树永远不碰（删掉绑定目录会让该线程终端永久失效）。
 
 ```bash
 node <技能目录>/scripts/t3-worktree-gc.mjs               # dry-run：逐目录打印结论

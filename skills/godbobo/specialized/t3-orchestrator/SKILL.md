@@ -87,6 +87,7 @@ node <技能目录>/scripts/route-playground.mjs [--caps-file ...] [--quota-file
 
 ## 范围
 工作目录：<绝对路径>
+执行环境：<目标 exec 的 shell 方言——子代理看不到父环境，必须写明；cmd.exe 填「`&&` 连接、`dir`/`type`/`findstr`/`rg`、无 `ls`/`head`/`sed`/`grep`/heredoc、含引号或多行的脚本先写临时文件再跑」，POSIX bash 填 bash>
 可以改：<文件或目录>
 不要碰：<文件或目录>
 
