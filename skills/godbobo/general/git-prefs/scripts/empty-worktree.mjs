@@ -27,12 +27,27 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 
-const dryRun = process.argv.slice(2).includes("--dry-run");
+const args = process.argv.slice(2);
+const USAGE = `用法：node empty-worktree.mjs [--dry-run]
+  --dry-run   只打印将删除的条目，不实际删除
+  --help      打印本用法
+
+清空当前 git 链接工作树的全部内容，只保留目录壳。必须在要清空的
+工作树根目录下运行；主检出与子目录一律拒绝执行。`;
 
 const fail = (msg) => {
   console.error(`拒绝执行：${msg}`);
   process.exit(1);
 };
+
+if (args.includes("--help") || args.includes("-h")) {
+  console.log(USAGE);
+  process.exit(0);
+}
+const unknown = args.filter((a) => a !== "--dry-run");
+if (unknown.length > 0) fail(`未知参数：${unknown.join(" ")}（--help 查看用法）`);
+
+const dryRun = args.includes("--dry-run");
 
 const git = (args, cwd) => {
   try {
