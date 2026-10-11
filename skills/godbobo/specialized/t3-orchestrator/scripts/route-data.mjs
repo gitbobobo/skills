@@ -20,7 +20,8 @@
 //   - PROVIDER_RULES     harness 级白名单（用户偏好 ∩ 工具限制）
 
 // SWE-2 免费期：官方写 10-10 或 10-15 截止，用户确认 10-15（2026-10-11 仍在免费期内）。
-// 过期后 swe-2 在 implementation 行自动降到 grok-4.6 之后，且不再豁免疫 devin 额度拦截。
+// 免费期内：devin 额度窗口与 devin 池的 quota 冷却都不拦 swe-2（其他 devin 模型照常拦）。
+// 过期后：swe-2 经 EXPIRY_DEMOTE 在 implementation 行降到 grok-4.6 之后，且不再豁免疫拦截。
 export const SWE2_FREE_UNTIL = "2026-10-15";
 
 export const PROVIDER_RULES = {
@@ -216,8 +217,8 @@ export const ROUTES = {
     { model: "swe-2", provider: "acpRegistry_devin" },
   ],
   implementation: [
-    { model: "swe-2", provider: "acpRegistry_devin" }, // 免费期后自动降到 grok-4.6 之后（SWE2_FREE_UNTIL）
-    { model: "glm-5.3-flash", provider: "claudeAgent" },
+    { model: "glm-5.3-flash", provider: "claudeAgent" }, // 用户确认：implementation 首选 glm-5.3-flash
+    { model: "swe-2", provider: "acpRegistry_devin" }, // 免费期内紧随 glm；到期后由 EXPIRY_DEMOTE 降到 grok-4.6 之后
     { model: "grok-4.6", provider: "cursor" },
     { model: "sonnet-5.5", provider: "acpRegistry_devin" },
   ],
@@ -270,6 +271,10 @@ export const DOWNGRADE = {
   research: "low",
   security: "review",
 };
+
+// SWE2_FREE_UNTIL 到期后生效的行内重排（models.md「更新标准」第 5 条：到期后重新排序）。
+// 把 task 行内 model 候选移到该行 below 模型最后一个候选之后；below 不在行内则保持原位。
+export const EXPIRY_DEMOTE = [{ task: "implementation", model: "swe-2", below: "grok-4.6" }];
 
 // 入口 pool → t3-quota.mjs --json 里的窗口。窗口任一满足「用量 ≥90% 且重置 >24h」即拦截。
 // pool 为 null 的入口不查额度（理论上不该出现）。

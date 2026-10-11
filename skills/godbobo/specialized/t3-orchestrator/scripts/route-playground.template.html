@@ -97,7 +97,7 @@
 const DATA = JSON.parse(document.getElementById('route-data').textContent);
 const CAPS = JSON.parse(document.getElementById('caps-data').textContent);
 const QUOTA = JSON.parse(document.getElementById('quota-data').textContent);
-const {MODELS, ROUTES, DOWNGRADE, POOLS, PROVIDER_RULES, BANNED_PROVIDERS, MODEL_BANS, TASKS, QUOTA_BLOCK_PERCENT, QUOTA_BLOCK_RESET_MS, MAX_ATTEMPTS} = DATA;
+const {MODELS, ROUTES, DOWNGRADE, EXPIRY_DEMOTE, POOLS, PROVIDER_RULES, BANNED_PROVIDERS, MODEL_BANS, TASKS, QUOTA_BLOCK_PERCENT, QUOTA_BLOCK_RESET_MS, MAX_ATTEMPTS} = DATA;
 const NOW = Date.now();
 
 // ---------- UI 状态 ----------
@@ -133,10 +133,22 @@ function expandCandidates(cands, stream, seen, via) {
     });
   }
 }
+function applyExpiryDemote(taskKey,cands){
+  if (swe2Free()) return cands;
+  const out=[...cands];
+  for(const d of (EXPIRY_DEMOTE||[])){
+    if(d.task!==taskKey)continue;
+    const from=out.findIndex(c=>c.model===d.model); if(from<0)continue;
+    const [moved]=out.splice(from,1);
+    let below=-1; out.forEach((c,i)=>{if(c.model===d.below)below=i;});
+    out.splice(below<0?from:below+1,0,moved);
+  }
+  return out;
+}
 function expandRoute(taskKey) {
   const stream=[]; const seen=new Set(); const seenTasks=new Set();
   const visit=(key,via)=>{ if(seenTasks.has(key))return; seenTasks.add(key);
-    expandCandidates(ROUTES[key]||[],stream,seen,via); const d=DOWNGRADE[key]; if(d)visit(d,'downgrade'); };
+    expandCandidates(applyExpiryDemote(key,ROUTES[key]||[]),stream,seen,via); const d=DOWNGRADE[key]; if(d)visit(d,'downgrade'); };
   visit(taskKey,'route'); return stream;
 }
 function swe2Free(){ return NOW < Date.parse(S.swe2Until); }
@@ -159,7 +171,8 @@ function gateEntry(item,named){
   else if (S.provOff.has(item.provider)) reasons.push('实例不可派子任务'+(info.constraints?.length?`（${info.constraints.join('; ')}）`:''));
   else if (!info.models.some(m=>m.id===item.id)) reasons.push('该实例模型清单无此 ID');
   const ps = S.poolState[item.pool];
-  if (ps==='cooldown') reasons.push('池冷却中');
+  // 池冷却记录在 quota-state.mjs 只会是 quota 类——免费期内不拦 swe-2
+  if (ps==='cooldown' && !(item.model==='swe-2'&&swe2Free())) reasons.push('池冷却中');
   if (ps==='quota' && !(item.model==='swe-2'&&swe2Free())) {
     const def=POOLS[item.pool], row=QUOTA.find(r=>r.key===def?.quotaKey);
     const w=row?.windows?.find(x=>def.windows.includes(x.label)&&Number(x.usedPercent)>=QUOTA_BLOCK_PERCENT&&x.resetMs-NOW>QUOTA_BLOCK_RESET_MS);
@@ -188,10 +201,10 @@ function resolveModel(q){
 function taskStream(){
   const task=S.task;
   if (task==='security'){
-    const fallback=(ROUTES[DOWNGRADE.security]||[]).map(c=>({...c,via:'downgrade'}));
+    const fallback=applyExpiryDemote(DOWNGRADE.security,(ROUTES[DOWNGRADE.security]||[]).map(c=>({...c,via:'downgrade'})));
     const legs=[...new Set(ROUTES.security.map(c=>c.leg||'main'))];
     return legs.map(leg=>{
-      const stream=[]; expandCandidates([...ROUTES.security.filter(c=>(c.leg||'main')===leg),...fallback],stream,new Set(),'route');
+      const stream=[]; expandCandidates([...applyExpiryDemote('security',ROUTES.security.filter(c=>(c.leg||'main')===leg)),...fallback],stream,new Set(),'route');
       return {leg, stream};
     });
   }

@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { applyExpiryDemote, expandRoute } from "./route.mjs";
+import { ROUTES, SWE2_FREE_UNTIL } from "./route-data.mjs";
 
 const DIR = dirname(fileURLToPath(import.meta.url));
 const SCRIPT = join(DIR, "route.mjs");
@@ -152,6 +154,18 @@ test("select: low 行首选 claudeAgent GLM", () => {
   }
 });
 
+test("select: implementation 行首选 claudeAgent GLM（用户确认）", () => {
+  const f = fixture();
+  try {
+    const r = run(["select", "--task", "implementation", ...f.base]);
+    if (r.status !== 0) throw new Error(r.stdout + r.stderr);
+    const m = pick(r);
+    if (m?.[1] !== "claudeAgent" || m?.[2] !== "glm-5.3-flash[1m]") throw new Error(`pick 错误: ${r.stdout}`);
+  } finally {
+    f.cleanup();
+  }
+});
+
 test("select: --exclude 按展开顺序递补（同模型入口先于下一行候选）", () => {
   const f = fixture();
   try {
@@ -214,6 +228,54 @@ test("select: 额度窗口 ≥90% 且 >24h 重置 → 该池入口全拦", () =>
   }
 });
 
+test(
+  "select: devin 池 quota 冷却不拦免费期 swe-2",
+  { skip: Date.now() >= Date.parse(SWE2_FREE_UNTIL) && "SWE-2 免费期已过" },
+  () => {
+    const f = fixture();
+    try {
+      mkdirSync(f.state, { recursive: true });
+      writeFileSync(
+        join(f.state, "state.json"),
+        JSON.stringify({
+          version: 1,
+          records: { "pool:devin": { kind: "quota", failures: 1, retryAt: Date.now() + 36e5, generation: "test-gen" } },
+        }),
+      );
+      // droid 不可派 + cursor 两池额度打满：ui 行只剩 swe-2 可用
+      const caps = JSON.parse(JSON.stringify(CAPS));
+      caps.providers.find((p) => p.providerInstanceId === "acpRegistry_factory_droid").canRunChildTask = false;
+      writeFileSync(f.caps, JSON.stringify(caps));
+      const quota = JSON.parse(JSON.stringify(QUOTA_OK));
+      quota.find((r) => r.key === "cursor").windows = [
+        { label: "API", usedPercent: 95, resetMs: Date.now() + 15 * 864e5 },
+        { label: "Grok 周", usedPercent: 95, resetMs: Date.now() + 3 * 864e5 },
+      ];
+      writeFileSync(f.quota, JSON.stringify(quota));
+      const r = run(["select", "--task", "ui", ...f.base]);
+      const m = pick(r);
+      if (m?.[1] !== "acpRegistry_devin" || m?.[2] !== "swe-2-high") throw new Error(`应选豁免的 swe-2: ${r.stdout}`);
+      // 其他 devin 模型照常拦：sonnet 的 devin 入口必须出现在 skipped 且原因是池冷却
+      if (!/acpRegistry_devin\/claude-sonnet-5-5-medium.*池冷却/s.test(r.stdout)) throw new Error(`sonnet devin 入口应仍被池冷却拦下: ${r.stdout}`);
+    } finally {
+      f.cleanup();
+    }
+  },
+);
+
+test("EXPIRY_DEMOTE: 免费期后 implementation 行 swe-2 降到 grok-4.6 之后", () => {
+  const expired = applyExpiryDemote("implementation", ROUTES.implementation, false).map((c) => c.model);
+  const want = ["glm-5.3-flash", "grok-4.6", "swe-2", "sonnet-5.5"];
+  if (JSON.stringify(expired) !== JSON.stringify(want)) throw new Error(`过期后行序错: ${expired.join(",")}`);
+  const free = applyExpiryDemote("implementation", ROUTES.implementation, true).map((c) => c.model);
+  if (free[1] !== "swe-2") throw new Error(`免费期内 swe-2 应紧随 glm: ${free.join(",")}`);
+  // 展开流层面：过期后 grok-4.6 全部入口排在 swe-2 之前
+  const ids = expandRoute("implementation", false).map((s) => `${s.provider}/${s.id}`);
+  const swe = ids.indexOf("acpRegistry_devin/swe-2-high");
+  const lastGrok = ids.lastIndexOf("acpRegistry_factory_droid/grok-4.6");
+  if (!(swe > -1 && lastGrok > -1 && swe > lastGrok)) throw new Error(`展开后 swe-2 应排在 grok-4.6 全部入口之后: ${ids.join(",")}`);
+});
+
 test("select: review + implementer 同家族后移", () => {
   const f = fixture();
   try {
@@ -246,7 +308,7 @@ test("select: --hard 输出顾问+实现两步", () => {
     const out = JSON.parse(r.stdout);
     if (out.steps?.[0]?.role !== "design" || out.steps?.[1]?.role !== "implementation") throw new Error(`steps 结构错: ${r.stdout}`);
     if (out.steps[0].pick?.model !== "gpt-6.1-sol") throw new Error(`顾问步应选 sol: ${r.stdout}`);
-    if (out.steps[1].pick?.model !== "swe-2-high") throw new Error(`实现步应选 swe-2: ${r.stdout}`);
+    if (out.steps[1].pick?.model !== "glm-5.3-flash[1m]") throw new Error(`实现步应选 glm: ${r.stdout}`);
   } finally {
     f.cleanup();
   }

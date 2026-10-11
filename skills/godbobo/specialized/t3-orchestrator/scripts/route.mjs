@@ -32,6 +32,7 @@ import {
   TASKS,
   ROUTES,
   DOWNGRADE,
+  EXPIRY_DEMOTE,
   POOLS,
   QUOTA_BLOCK_PERCENT,
   QUOTA_BLOCK_RESET_MS,
@@ -271,14 +272,31 @@ function expandCandidates(cands, stream, seen, via) {
   }
 }
 
-function expandRoute(taskKey) {
+// EXPIRY_DEMOTE 在候选层应用：free 为 false（SWE2_FREE_UNTIL 已过期）时按规则重排行内候选。
+// free 缺省取模块级真实时间；测试可显式传值。
+function applyExpiryDemote(taskKey, cands, free = swe2Free) {
+  if (free) return cands;
+  const out = [...cands];
+  for (const d of EXPIRY_DEMOTE) {
+    if (d.task !== taskKey) continue;
+    const from = out.findIndex((c) => c.model === d.model);
+    if (from < 0) continue;
+    const [moved] = out.splice(from, 1);
+    let below = -1;
+    out.forEach((c, i) => { if (c.model === d.below) below = i; });
+    out.splice(below < 0 ? from : below + 1, 0, moved);
+  }
+  return out;
+}
+
+function expandRoute(taskKey, free = swe2Free) {
   const stream = [];
   const seen = new Set();
   const seenTasks = new Set();
   const visit = (key, via) => {
     if (seenTasks.has(key)) return; // DOWNGRADE 链允许成环（advisor↔review），展开一次即止
     seenTasks.add(key);
-    expandCandidates(ROUTES[key] ?? [], stream, seen, via);
+    expandCandidates(applyExpiryDemote(key, ROUTES[key] ?? [], free), stream, seen, via);
     const down = DOWNGRADE[key];
     if (down) visit(down, "downgrade");
   };
@@ -314,7 +332,10 @@ function gateEntry(item, ctx, opts) {
   }
   if (item.pool && ctx.blockedPools.has(item.pool)) {
     const b = ctx.blockedPools.get(item.pool);
-    reasons.push(`池冷却（${b.kind}，至 ${new Date(b.until).toISOString().slice(0, 16)}Z）`);
+    // 免费期内 devin 池的 quota 冷却不拦 swe-2；其他 kind（连接/配置等）照样拦
+    if (!(item.model === "swe-2" && swe2Free && b.kind === "quota")) {
+      reasons.push(`池冷却（${b.kind}，至 ${new Date(b.until).toISOString().slice(0, 16)}Z）`);
+    }
   }
   const qb = quotaBlock(item, ctx.quotaRows, ctx.quotaWarnings);
   if (qb) reasons.push(qb);
@@ -398,10 +419,10 @@ async function selectCmd(opts) {
     out.alternatives = impl.slice(1, 8);
   } else if (task === "security") {
     // 两腿：每条腿的候选 = 本腿 ROUTES 候选 + 降档行（DOWNGRADE.security）兜底，各自独立展开去重
-    const fallbackCands = (ROUTES[DOWNGRADE.security] ?? []).map((c) => ({ ...c, via: "downgrade" }));
+    const fallbackCands = applyExpiryDemote(DOWNGRADE.security, (ROUTES[DOWNGRADE.security] ?? []).map((c) => ({ ...c, via: "downgrade" })));
     const legs = [...new Set(ROUTES.security.map((c) => c.leg ?? "main"))];
     out.steps = legs.map((leg) => {
-      const cands = ROUTES.security.filter((c) => (c.leg ?? "main") === leg);
+      const cands = applyExpiryDemote("security", ROUTES.security.filter((c) => (c.leg ?? "main") === leg));
       const stream = [];
       expandCandidates([...cands, ...fallbackCands], stream, new Set(), "route");
       const avail = pickFrom(stream, leg);
@@ -492,7 +513,10 @@ async function namedCmd(opts) {
     else if (!info.runnable) reasons.push(`实例不可派子任务${info.reason ? `（${info.reason}）` : ""}`);
     else if (!info.models.has(item.id)) reasons.push("该实例模型清单无此 ID");
     if (ctx.blockedEntries.has(entryId(item))) reasons.push("入口冷却中");
-    if (item.pool && ctx.blockedPools.has(item.pool)) reasons.push("池冷却中");
+    if (item.pool && ctx.blockedPools.has(item.pool)) {
+      const b = ctx.blockedPools.get(item.pool);
+      if (!(item.model === "swe-2" && swe2Free && b.kind === "quota")) reasons.push("池冷却中");
+    }
     const qb = quotaBlock(item, ctx.quotaRows, ctx.quotaWarnings);
     if (qb) reasons.push(qb);
     if (reasons.length) out.skipped.push({ entry: entryId(item), reasons });
@@ -576,4 +600,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   }
 }
 
-export { gateCheck, expandRoute, expandCandidates, loadProviders, quotaBlock, resolveModel, findModel };
+export { gateCheck, expandRoute, expandCandidates, applyExpiryDemote, loadProviders, quotaBlock, resolveModel, findModel };
