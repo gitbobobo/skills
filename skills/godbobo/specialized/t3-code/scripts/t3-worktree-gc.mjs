@@ -795,8 +795,12 @@ const occSnap = computeOccupants();
 const cwdReal = tryReal(process.cwd()) ?? norm(process.cwd());
 let inUseDirs = 0; // 扫描期判定为「在用」（未终结线程绑定/进行中 run）的目录数
 
+// 报告行统一 / 分隔：Windows 下 relative() 产出 \，而同行 detail 里的
+// git 路径（ls-files 等）恒为 /——两种方言混在一行不利于下游按 / 匹配
+const relOf = (p) => (relative(scanRoot, p) || p).replaceAll(sep, "/");
+
 for (const dir of candidates(scanRoot)) {
-  const rel = relative(scanRoot, dir) || dir;
+  const rel = relOf(dir);
   const reasons = [];
   const notes = [];
   const wtReal = tryReal(dir) ?? norm(dir);
@@ -927,7 +931,7 @@ if (apply) {
     if (busy) continue;
     try {
       rmdirSync(g);
-      report("deleted", relative(scanRoot, g) || g, "删空的分组目录", null);
+      report("deleted", relOf(g), "删空的分组目录", null);
     } catch {}
   }
 }

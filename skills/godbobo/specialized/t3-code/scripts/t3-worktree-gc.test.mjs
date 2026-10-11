@@ -13,7 +13,7 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { platform, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -55,6 +55,8 @@ function runGc(extra = [], { cwd = tmp, env = {} } = {}) {
 const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const lineFor = (out, name) =>
   out.split("\n").find((l) => new RegExp(`[\\s/]${escRe(name)}(?:\\s|$)`).test(l)) ?? "";
+// git worktree list --porcelain 恒用 / 分隔；D.* 是本机分隔符，比较前先统一
+const gpath = (p) => p.split(sep).join("/");
 
 // ---------- 夹具 ----------
 function insThread(db, { id, title = id, wt, settled = false, archived = null, deleted = null }) {
@@ -449,13 +451,13 @@ test("--apply：只删可删工作树并清理本地分支", () => {
   assert.match(lineFor(out, "wt-bare"), /^deleted\s/);
   assert.ok(!existsSync(D.bare));
   assert.equal(git(["--git-dir", bareRepo, "branch", "--list", "br-wt-bare"]), "", "br-wt-bare 应已删除");
-  assert.ok(!git(["--git-dir", bareRepo, "worktree", "list", "--porcelain"]).includes(D.bare));
+  assert.ok(!git(["--git-dir", bareRepo, "worktree", "list", "--porcelain"]).includes(gpath(D.bare)));
   // git worktree 注册同步移除
   const list = git(["-C", mainRepo, "worktree", "list", "--porcelain"]);
-  for (const d of [D.clean, D.unbound, D.self, D.toplevel, D.artifacts, D.classfiles]) assert.ok(!list.includes(d), `${d} 不应再注册`);
+  for (const d of [D.clean, D.unbound, D.self, D.toplevel, D.artifacts, D.classfiles]) assert.ok(!list.includes(gpath(d)), `${d} 不应再注册`);
   const kept = [D.unsettled, D.delegated, D.delrun, D.dirty, D.unpushed, D.alias, D.precious, D.keystore, D.localmixed, D.occlive, D.hiddendir, D.clouddir, D.indexflags, D.nested, D.baregit, D.staleref, D.submod];
   if (!isWindows) kept.push(D.occunbound); // POSIX 下零绑定占用仍阻断；Windows 不查占用会被删
-  for (const d of kept) assert.ok(list.includes(d), `${d} 应仍在注册表`);
+  for (const d of kept) assert.ok(list.includes(gpath(d)), `${d} 应仍在注册表`);
   // skip 的工作树全部保留
   for (const d of kept) assert.ok(existsSync(d), `${d} 应保留`);
   assert.ok(!existsSync(join(group, "plain-dir")), "空占位目录应已删除");
