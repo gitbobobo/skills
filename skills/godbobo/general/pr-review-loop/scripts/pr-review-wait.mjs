@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // 等待当前 PR 的审查 bot 和 CI 在最新提交上全部回应，然后打印未读过的新意见。
+// 等待期间每轮轮询把新意见即时打进输出——tail 日志随时能看到新评论，不用等脚本退出。
 //
 // 用法：node pr-review-wait.mjs [--pr <number>] [--timeout <秒>] [--peek]
 //   --timeout  最多等待多少秒，默认 1800（覆盖一个 30 分钟无响应窗口；超时退出码 2，再调一次）
@@ -172,6 +173,26 @@ function currentHead() {
 const deadline = Date.now() + timeoutSec * 1000;
 let head = currentHead();
 let snapshot = collect(repo, pr, head);
+
+const file = statePath(repo, pr.number);
+// 第一次调用时，HEAD 提交之前的意见视为上一轮已处理
+const seen = new Set(existsSync(file) && !reset ? JSON.parse(readFileSync(file, "utf8")) : snapshot.items.filter((i) => i.at < head.date).map((i) => i.id));
+let freshCount = 0;
+
+// 新意见即时打印并即记已读：日志里能看到到达顺序，脚本中途被杀也不会重复显示。
+function printFresh(items) {
+  for (const i of items) {
+    if (seen.has(i.id) || !isFeedback(i, prAuthor)) continue;
+    seen.add(i.id);
+    freshCount++;
+    const where = i.kind === "inline" ? ` ${i.path}:${i.line ?? "?"}${i.replyTo ? "（回复）" : ""}` : "";
+    console.log(`\n### 新意见 [${i.kind}] ${i.author} ${i.at}${where}\n${i.url}\n回复：${replyCommand(repo, pr.number, i)}\n\n${truncate(stripNoise(i.body))}`);
+  }
+}
+
+printFresh(snapshot.items);
+if (freshCount && !peek) writeFileSync(file, JSON.stringify([...seen]));
+
 while ((snapshot.reviewers.some((r) => r.pending) || snapshot.ci.some((c) => !c.done)) && Date.now() + POLL_SEC * 1000 < deadline) {
   await sleep(POLL_SEC * 1000);
   const now = currentHead();
@@ -180,9 +201,12 @@ while ((snapshot.reviewers.some((r) => r.pending) || snapshot.ci.some((c) => !c.
     console.log(`检测到新提交 ${head.sha.slice(0, 9)}，按新 HEAD 重新计算审查与 CI 状态`);
   }
   snapshot = collect(repo, pr, head);
+  const before = freshCount;
+  printFresh(snapshot.items);
+  if (freshCount > before && !peek) writeFileSync(file, JSON.stringify([...seen]));
 }
 
-const { items, reviewers, ci } = snapshot;
+const { reviewers, ci } = snapshot;
 console.log("\n## 审查者");
 if (reviewers.length === 0) console.log("- 还没有请求任何审查");
 for (const r of reviewers) console.log(`- ${r.name}：${r.pending ? "等待中" : r.stale ? `无响应（超过 ${STALE_MIN} 分钟）` : "已回应"}`);
@@ -191,18 +215,8 @@ console.log("\n## CI");
 if (ci.length === 0) console.log("- 无");
 for (const c of ci) console.log(`- ${c.name}：${!c.done ? "运行中" : c.ok ? "通过" : "失败"}`);
 
-const file = statePath(repo, pr.number);
-// 第一次调用时，HEAD 提交之前的意见视为上一轮已处理
-const seen = new Set(existsSync(file) && !reset ? JSON.parse(readFileSync(file, "utf8")) : items.filter((i) => i.at < head.date).map((i) => i.id));
-const fresh = items.filter((i) => !seen.has(i.id) && isFeedback(i, prAuthor));
-
-console.log(`\n## 新意见（${fresh.length} 条未读）`);
-for (const i of fresh) {
-  const where = i.kind === "inline" ? ` ${i.path}:${i.line ?? "?"}${i.replyTo ? "（回复）" : ""}` : "";
-  console.log(`\n### [${i.kind}] ${i.author} ${i.at}${where}\n${i.url}\n回复：${replyCommand(repo, pr.number, i)}\n\n${truncate(stripNoise(i.body))}`);
-}
-
-if (!peek) writeFileSync(file, JSON.stringify([...seen, ...fresh.map((i) => i.id)]));
+console.log(`\n## 新意见（本轮 ${freshCount} 条${peek ? "，--peek 未记已读" : ""}）`);
+if (freshCount === 0) console.log("（无）");
 
 const stale = reviewers.filter((r) => r.stale).map((r) => r.name);
 if (stale.length > 0) console.log(`\n注意：${stale.join("、")} 无响应。可以重新请求一次；仍无响应就停下来告诉用户。`);
