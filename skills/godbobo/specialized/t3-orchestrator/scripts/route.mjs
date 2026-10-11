@@ -8,6 +8,9 @@
 //                    [--state-dir <path>] [--quota-file <path> | --no-quota] [--json]
 //   route.mjs named <模型> [--provider <id>] [--caps-file ...] [--json]
 //   route.mjs check --provider <id> --model <id> [--role <role>] [--options '<json>'] [--user-named]
+//   route.mjs audit [--caps-file <path>] [--json]
+//                                     审计 route-data 全部入口与 ROUTES 行内 options
+//                                     是否「目录可查 + 取值合法」，有问题 exit 1
 //   route.mjs table [--json]          打印当前生效的路由数据（供人工核对）
 //   route.mjs tasks                   列出 --task 可用取值
 //
@@ -37,6 +40,10 @@ import {
   QUOTA_BLOCK_PERCENT,
   QUOTA_BLOCK_RESET_MS,
   MAX_ATTEMPTS,
+  VERIFIED_OPTION_VALUES,
+  EFFORT_STANDARD,
+  EFFORT_OPTION_IDS,
+  EFFORT_EXCEPTIONS,
 } from "./route-data.mjs";
 import { operate, defaultCache } from "./quota-state.mjs";
 import { collect as collectQuota } from "./t3-quota.mjs";
@@ -66,21 +73,31 @@ const entryId = (e) => `${e.provider}/${e.id}`;
 
 // ---------- capabilities ----------
 
+// 选项描述符 → { type, values:Set|null }；values 仅 select 类有取值集，boolean 为 null
+function optionSpec(descriptors) {
+  const spec = new Map();
+  for (const o of descriptors ?? []) {
+    spec.set(o.id, { type: o.type, values: o.options?.length ? new Set(o.options.map((v) => v.id)) : null });
+  }
+  return spec;
+}
+
 function loadProviders(capsFile) {
   const warnings = [];
-  const providers = new Map(); // id -> {runnable, reason?, models:Set, optionIds:Map<modelId,Set>, cross:boolean}
+  const providers = new Map(); // id -> {runnable, reason?, models:Set, optionSpecs:Map<modelId,Map<optionId,{type,values}>>, optionIds, cross:boolean}
   const capsJson = capsFile ? JSON.parse(readFileSync(capsFile, "utf8")) : null;
   if (capsJson) {
     const list = Array.isArray(capsJson) ? capsJson : (capsJson.providers ?? []);
     for (const p of list) {
-      const optionIds = new Map();
-      for (const m of p.models ?? []) optionIds.set(m.id, new Set((m.options ?? []).map((o) => o.id)));
+      const optionSpecs = new Map();
+      for (const m of p.models ?? []) optionSpecs.set(m.id, optionSpec(m.options));
       providers.set(p.providerInstanceId, {
         runnable: p.canRunChildTask === true,
         cross: p.canRunCrossProviderChildTask === true,
         reason: p.canRunChildTask ? undefined : (p.constraints ?? []).join("; ") || "canRunChildTask=false",
         models: new Set((p.models ?? []).map((m) => m.id)),
-        optionIds,
+        optionSpecs,
+        optionIds: new Map([...optionSpecs].map(([k, v]) => [k, new Set(v.keys())])),
       });
     }
     return { providers, warnings, live: true };
@@ -95,15 +112,18 @@ function loadProviders(capsFile) {
       c = JSON.parse(readFileSync(file, "utf8"));
     } catch {}
     if (!c) {
-      providers.set(id, { runnable: false, reason: `无缓存文件 ${file}`, models: new Set(), optionIds: new Map() });
+      providers.set(id, { runnable: false, reason: `无缓存文件 ${file}`, models: new Set(), optionSpecs: new Map(), optionIds: new Map() });
       continue;
     }
     const runnable = c.enabled === true && c.status === "ready" && c.auth?.status === "authenticated";
+    const optionSpecs = new Map();
+    for (const m of c.models ?? []) optionSpecs.set(m.slug ?? m.id, optionSpec(m.capabilities?.optionDescriptors));
     providers.set(id, {
       runnable,
       reason: runnable ? undefined : `缓存状态 enabled=${c.enabled} status=${c.status} auth=${c.auth?.status}`,
-      models: new Set((c.models ?? []).map((m) => m.slug ?? m.id)),
-      optionIds: new Map(),
+      models: new Set(optionSpecs.keys()),
+      optionSpecs,
+      optionIds: new Map([...optionSpecs].map(([k, v]) => [k, new Set(v.keys())])),
     });
   }
   warnings.push("未提供 --caps-file，用 ~/.t3/caches 快照判断可用性（无法验证 canRunChildTask）");
@@ -192,20 +212,56 @@ function resolveModel(query) {
 
 // ---------- 选项注入与硬性校验 ----------
 
-function injectOptions(entry, providers) {
+function injectOptions(entry, providers, at = now) {
   const options = { ...(entry.options ?? {}) };
   const info = providers.get(entry.provider);
   if (entry.provider === "acpRegistry_factory_droid" && options.autonomy_level === undefined) {
     options.autonomy_level = PROVIDER_RULES.acpRegistry_factory_droid.forceOptions.autonomy_level;
   }
-  const hasFast =
-    (info?.optionIds.get(entry.id)?.has("fastMode") ?? false) || (!info?.optionIds.size && /^cursor|^claudeAgent/.test(entry.provider));
-  if (hasFast && options.fastMode === undefined) options.fastMode = false;
+  // fastMode 只在该模型目录规格里确实存在时注入；规格未知不猜（曾因正则兜底给没有
+  // fastMode 的 cursor/claudeAgent 模型注入，被服务端拒掉）
+  const specHasFast = info?.optionSpecs.get(entry.id)?.has("fastMode") ?? false;
+  if (specHasFast && options.fastMode === undefined) options.fastMode = false;
+  // 带期限的档位例外（如 swe-2 免费期 max）：到期自动回落 EFFORT_STANDARD
+  const exc = EFFORT_EXCEPTIONS[`${entry.provider}/${entry.id}`];
+  if (exc?.until && at >= Date.parse(exc.until)) {
+    const k = EFFORT_OPTION_IDS.find((id) => id in options);
+    if (k) options[k] = EFFORT_STANDARD;
+  }
   return options;
 }
 
+// 校验 options 是否「目录可查 + 取值合法」。返回问题描述数组；
+// 该模型规格未知（provider/模型不在目录里）时返回 []，不误拦。
+function validateOptions(provider, modelId, options = {}, providers) {
+  const specs = providers?.get(provider)?.optionSpecs.get(modelId);
+  if (!specs) return [];
+  const problems = [];
+  const verified = VERIFIED_OPTION_VALUES[provider] ?? {};
+  for (const [k, v] of Object.entries(options)) {
+    const spec = specs.get(k);
+    if (!spec) {
+      problems.push(`${provider}/${modelId} 无选项 ${k}（可用: ${[...specs.keys()].join(", ") || "无"}）`);
+      continue;
+    }
+    if (spec.type === "boolean") {
+      if (typeof v !== "boolean") problems.push(`${provider}/${modelId} 选项 ${k} 应为 boolean，实传 ${JSON.stringify(v)}`);
+      continue;
+    }
+    if (spec.values?.size) {
+      let allowed = spec.values;
+      if (verified[k]) allowed = new Set([...allowed].filter((x) => verified[k].includes(x)));
+      if (!allowed.has(String(v))) {
+        problems.push(`${provider}/${modelId} 选项 ${k} 非法取值 ${JSON.stringify(v)}（允许: ${[...allowed].join(", ")}）`);
+      }
+    }
+  }
+  return problems;
+}
+
 // check 子命令用的全部硬性规则；select 对生成的组合也跑一遍兜底。
-function gateCheck({ provider, model, role, options = {}, userNamed = false }) {
+// providers 可选：传了才做目录取值校验（check --caps-file），不传维持原有行为。
+function gateCheck({ provider, model, role, options = {}, userNamed = false }, providers) {
   const fails = [];
   const warns = [];
   const resolved = findModel(provider, model);
@@ -224,6 +280,8 @@ function gateCheck({ provider, model, role, options = {}, userNamed = false }) {
     else if (options.autonomy_level !== "auto-high") warns.push(`autonomy_level=${options.autonomy_level}，非 auto-high——确认是用户指定`);
     if (options.reasoningEffort !== undefined) fails.push("factory_droid 推理档选项名是 reasoning_effort（snake_case），不是 reasoningEffort");
   }
+
+  if (providers) fails.push(...validateOptions(provider, model, options, providers));
 
   if (!userNamed) {
     if (status === "named") fails.push(`${resolved.label} 仅限用户点名才可用，自动调度与换路跳过`);
@@ -339,6 +397,8 @@ function gateEntry(item, ctx, opts) {
   }
   const qb = quotaBlock(item, ctx.quotaRows, ctx.quotaWarnings);
   if (qb) reasons.push(qb);
+  // 注入后的最终 options 过一遍目录校验（选项名/取值非法的入口直接跳过）
+  reasons.push(...validateOptions(item.provider, item.id, injectOptions(item, ctx.providers), ctx.providers));
   return reasons;
 }
 
@@ -547,7 +607,8 @@ function checkCmd(opts) {
       process.exit(2);
     }
   }
-  const { fails, warns } = gateCheck({ provider, model, role: opts.role, options, userNamed: opts["user-named"] });
+  const providers = opts["caps-file"] ? loadProviders(opts["caps-file"]).providers : undefined;
+  const { fails, warns } = gateCheck({ provider, model, role: opts.role, options, userNamed: opts["user-named"] }, providers);
   for (const w of warns) console.log(`WARN ${w}`);
   if (fails.length) {
     console.log(`FAIL ${provider}/${model}${opts.role ? ` role=${opts.role}` : ""}`);
@@ -555,6 +616,60 @@ function checkCmd(opts) {
     process.exit(1);
   }
   console.log(`OK ${provider}/${model}${opts.role ? ` role=${opts.role}` : ""}${opts["user-named"] ? " (user-named)" : ""}`);
+}
+
+// ---------- audit ----------
+
+// 审计 route-data：全部 MODELS entries 与 ROUTES 候选的「入口 options + 行内 options」
+// 合并结果，逐条核对 provider/模型在目录里、选项名与取值合法。返回问题描述数组。
+function auditRouteData(providers) {
+  const problems = [];
+  const check = (label, provider, modelId, options) => {
+    const info = providers.get(provider);
+    if (!info) {
+      problems.push(`${label}: ${provider} 不在目录`);
+      return;
+    }
+    if (!info.models.has(modelId)) {
+      problems.push(`${label}: ${provider}/${modelId} 不在该实例模型清单`);
+      return;
+    }
+    // 校验注入后的最终 options（覆盖 fastMode 自动注入、行内覆盖）
+    const finalOptions = injectOptions({ provider, id: modelId, options }, providers);
+    for (const p of validateOptions(provider, modelId, finalOptions, providers)) problems.push(`${label}: ${p}`);
+  };
+  for (const [key, m] of Object.entries(MODELS)) {
+    for (const e of m.entries) check(`MODELS.${key}`, e.provider, e.id, e.options ?? {});
+  }
+  for (const [task, cands] of Object.entries(ROUTES)) {
+    for (const c of cands) {
+      const m = MODELS[c.model];
+      if (!m) {
+        problems.push(`ROUTES.${task}: 未知模型 ${c.model}`);
+        continue;
+      }
+      const e = c.provider ? m.entries.find((x) => x.provider === c.provider) : m.entries[0];
+      if (!e) {
+        problems.push(`ROUTES.${task}: ${c.model} 在 ${c.provider} 上无入口`);
+        continue;
+      }
+      check(`ROUTES.${task}`, e.provider, e.id, { ...(e.options ?? {}), ...(c.options ?? {}) });
+    }
+  }
+  return problems;
+}
+
+function auditCmd(opts) {
+  const { providers, warnings } = loadProviders(opts["caps-file"]);
+  const problems = auditRouteData(providers);
+  if (opts.json) {
+    console.log(JSON.stringify({ problems, warnings }, null, 2));
+  } else {
+    for (const w of warnings) console.log(`WARN ${w}`);
+    if (problems.length) for (const p of problems) console.log(`PROBLEM ${p}`);
+    else console.log("audit: 0 问题，全部入口目录可查、选项合法");
+  }
+  process.exit(problems.length ? 1 : 0);
 }
 
 // ---------- table / tasks ----------
@@ -580,12 +695,13 @@ function renderTable({ MODELS: ms, ROUTES: rs, DOWNGRADE: dg }) {
 // ---------- main ----------
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const KNOWN = new Set(["select", "named", "check", "table", "tasks"]);
+  const KNOWN = new Set(["select", "named", "check", "audit", "table", "tasks"]);
   const [cmd, ...rest] = process.argv.slice(2);
   const isCmd = KNOWN.has(cmd);
   const opts = parseArgs(isCmd ? rest : process.argv.slice(2));
   try {
     if (cmd === "check") checkCmd(opts);
+    else if (cmd === "audit") auditCmd(opts);
     else if (cmd === "named") await namedCmd(opts);
     else if (cmd === "table") tableCmd(opts);
     else if (cmd === "tasks") {
@@ -600,4 +716,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   }
 }
 
-export { gateCheck, expandRoute, expandCandidates, applyExpiryDemote, loadProviders, quotaBlock, resolveModel, findModel };
+export { gateCheck, expandRoute, expandCandidates, applyExpiryDemote, loadProviders, quotaBlock, resolveModel, findModel, validateOptions, injectOptions, auditRouteData };

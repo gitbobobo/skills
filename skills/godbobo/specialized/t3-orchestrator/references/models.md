@@ -1,6 +1,6 @@
 # 模型与额度参考
 
-调研日期：2026-10-10。模型 ID 以 `orchestrator_capabilities` 实时返回为准，这里的 ID 只是当时的快照。更新方法见文末「更新来源与标准」。
+调研日期：2026-10-11。模型 ID 以 `orchestrator_capabilities` 实时返回为准，这里的 ID 只是当时的快照。更新方法见文末「更新来源与标准」。
 
 基准说明：FrontierCode（Cognition 维护，按代码能否合并评分）和 CursorBench 是第三方统一 harness 的榜单；Terminal-Bench、DeepSWE 多为厂商自报，不同版本不能横比。
 
@@ -13,7 +13,7 @@
 | `cursor-grok` | `cursor` 上的 grok-4.x | 脚本可读（Grok 周窗口） | 包含用量明显多，主力池 |
 | `cursor-api` | `cursor` 上的 Opus、GPT、Gemini 等 | 脚本可读（API 月窗口） | 按 API 价扣费，各路由末位入口（claude 系 cursor 入口全走本池） |
 | `codex-pro` | `codex` | 脚本可读（5h、周） | 更高推理档多耗额度；Astra 约是 Sol 的 3 倍，只限点名 |
-| `devin` | `acpRegistry_devin`（脚本里 `devin` 行的周额度是同一账号） | 脚本可读（周） | swe-2 免费期内不占额度（用户确认 10-15 截止，脚本常量 `SWE2_FREE_UNTIL`）；周额度 100% 时 swe-2 仍可用，其他模型不行 |
+| `devin` | `acpRegistry_devin`（脚本里 `devin` 行的周额度是同一账号） | 脚本可读（周） | swe-2 免费期内不占额度（用户确认 10-15 截止，脚本常量 `SWE2_FREE_UNTIL`）；周额度 100% 时 swe-2 仍可用，其他模型不行。思考档用 `thought_level` 选项传入：服务端实测只收 medium/high/max；目录取值集会漂移（曾短暂列出五档），以 `VERIFIED_OPTION_VALUES` 为准，详见「选项与档位」；slug 的 `-medium/-high/-max` 后缀只是默认档；各入口统一 high，swe-2 免费期内例外用 max（见「选项与档位」） |
 | `glm-plan` | `claudeAgent` | 脚本直接查询（5h、MCP 月） | 只用 `glm-5.3-flash[1m]`；额度充足；闲时（含周末）半价 |
 | `opencode-go` | `opencode` 上的 `opencode-go/*` | 脚本可读（5h、周、月，聚合窗口） | $10 档按模型独立计月限（5h=20%、周=50%、月=100%）：只允许 `glm-5.3-flash` 与 `deepseek-v4.1-flash`（$60/月档）；其余 go 模型 $15–30/月不用，`opencode/` 前缀是 Zen 按量 |
 | `factory` | `acpRegistry_factory_droid` | 脚本直接查询，需要 `FACTORY_API_KEY` | 模型最全，适合作为同模型的备用入口。需 droid ≥0.234.0（修复 acp-daemon `--mcp-servers`，[Factory-AI/factory#9](https://github.com/Factory-AI/factory/issues/9)）。选项名是 `reasoning_effort`（snake_case）和 `autonomy_level`（调度一律传 `auto-high`），不是 `reasoningEffort` |
@@ -51,6 +51,35 @@ opencode Go $10 档分模型月限（2026-10-10 核对官方文档）：$60/月�
 
 画像表中的「状态」列与 `MODELS.status` 对应：自动 → `auto`、顾问 → `advisor`、点名 → `named`、不用 → `banned`。
 
+## 选项与档位
+
+各 harness 的思考档选项名不同（2026-10-11 按实时目录核对）：
+
+| harness | 选项名 | 备注 |
+|---|---|---|
+| devin | `thought_level` | 服务端只收 medium/high/max；目录取值集会漂移 |
+| codex | `reasoningEffort` | 另有 `serviceTier`，保持 default 不用 priority |
+| droid | `reasoning_effort` | snake_case；另有必传的 `autonomy_level`（调度一律 auto-high） |
+| cursor | `effort` / `reasoning_effort` / `reasoning` | 随模型而异，须逐模型看目录；部分模型还有 `fastMode`、`contextWindow`、`thinking` |
+| opencode | `variant` | 另有 `agent` |
+| claudeAgent | 无 | `glm-5.3-flash[1m]` 一个选项都没有 |
+
+档位取值规则（用户定）：**主代理派发一律 `high`**。每个入口显式声明一个档位选项且值为 `high`，不依赖 slug 后缀和 harness 默认；偏离必须登记到 `route-data.mjs` 的 `EFFORT_EXCEPTIONS` 并写明 `reason`，由 `route.test.mjs` 强制校验。例外分两种：`claudeAgent/glm-5.3-flash[1m]` 目录里没有任何选项可设（无 `value`）；`acpRegistry_devin/swe-2-high` 免费期内用 `max`（FrontierCode 实测最优档，免费期不占额度），登记了 `until: SWE2_FREE_UNTIL`——有期限的优惠必须登记 `until`，到期由 `route.mjs` 的 `injectOptions` 自动回落 `high`，路由数据里声明的仍是真实意图值。
+
+目录取值集会漂移，不能只信目录：2026-10-11 19:24 实时目录与本机缓存都把 devin 全部 122 个模型的 `thought_level` 列成五档，19:29 两者都回落到三档；服务端校验在这两个时间点始终只收 medium/high/max。实测收窄集记录在 `route-data.mjs` 的 `VERIFIED_OPTION_VALUES`，校验时生效集 = 目录集 ∩ 收窄集。探测方法（2026-10-11）：`delegate_task` 同时传一个必然非法的 `mode` 值，请求被选项校验拦下、不起 agent，报错文本列出该模型真实允许集；覆盖 18 个模型（route-data 全部 13 个 devin 入口 + adaptive/swe-1-7-lightning-medium/swe-1-7-medium/glm-5-2/一个 fusion），结果一致 `medium, high, max`。`low` 一律被拒；`xhigh` 在无活跃会话时偶尔绕过校验返回成功，但不落 `modelSelection`，等于白传。已落库跑通的组合（`orchestration_v2_projection_runs`）：swe-2-high/max、claude-opus-5-5-medium/high、gpt-6-1-sol-medium/high、deepseek-v4-1-flash-high/medium。
+
+`fastMode` 不写进路由数据：`route.mjs` 只在目录规格里确实存在该选项时自动注入 `fastMode:false`（曾按 provider 名猜测，给没有该选项的 cursor 模型传了 `fastMode`，被服务端拒掉）。
+
+### 持续校验：`route.mjs audit`
+
+```bash
+node scripts/route.mjs audit --caps-file /tmp/t3-caps.json   # 有问题逐条打印并 exit 1
+```
+
+审计 `route-data.mjs` 全部 entries 与 ROUTES 候选的合并 options：provider/模型在目录里、选项名存在、取值在生效集内。`check --caps-file` 对手工拼的组合做同样的取值校验；select 时对注入后的最终 options 也跑一遍，非法入口直接进 skipped。
+
+测试用的裁剪夹具 `scripts/fixtures/caps-trimmed.json` 只含 route-data 用到的 provider/模型/选项。目录变化后重新生成：取实时 `orchestrator_capabilities` 落盘，按 `route-data.mjs` 里 entries 的 provider/模型 id 过滤 providers 与 models（保留模型完整选项描述），并把 `canRunChildTask`/`canRunCrossProviderChildTask` 归一化为 true（测试按全部实例可派子任务跑；该 flag 在实时目录里也会漂移）后写回该文件。
+
 ## 更新来源与标准
 
 ### 来源
@@ -81,8 +110,8 @@ opencode Go $10 档分模型月限（2026-10-10 核对官方文档）：$60/月�
 
 ### 流程
 
-1. 对比 `orchestrator_capabilities` 的模型列表和 `scripts/route-data.mjs` 的 entries，找出新增、下线和改名的模型。
-2. 按上面的来源核对新增模型与价格、额度变化。
+1. 对比 `orchestrator_capabilities` 的模型列表和 `scripts/route-data.mjs` 的 entries，找出新增、下线和改名的模型；选项规格变化后重新生成 `scripts/fixtures/caps-trimmed.json`。
+2. 按上面的来源核对新增模型与价格、额度变化；核对完跑 `route.mjs audit --caps-file <实时 caps>` 确认全部入口目录可查、选项合法。
 3. 运行 `scripts/t3-quota.mjs` 与 `scripts/t3-quota.mjs --json`，确认各额度查询仍然正常。
 4. 把建议的改动列成表（模型、原状态、新状态、理由、来源）交给用户确认。
 5. 用户确认后改 `scripts/route-data.mjs` 与本文件（画像表同步状态列），跑 `node --test scripts/route.test.mjs`，并更新调研日期。

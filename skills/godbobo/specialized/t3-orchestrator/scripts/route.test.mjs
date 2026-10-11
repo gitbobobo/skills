@@ -7,59 +7,17 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { applyExpiryDemote, expandRoute } from "./route.mjs";
-import { ROUTES, SWE2_FREE_UNTIL } from "./route-data.mjs";
+import { applyExpiryDemote, expandRoute, loadProviders, validateOptions, injectOptions, auditRouteData } from "./route.mjs";
+import { MODELS, ROUTES, SWE2_FREE_UNTIL, VERIFIED_OPTION_VALUES, EFFORT_STANDARD, EFFORT_OPTION_IDS, EFFORT_EXCEPTIONS } from "./route-data.mjs";
 
 const DIR = dirname(fileURLToPath(import.meta.url));
 const SCRIPT = join(DIR, "route.mjs");
+const CAPS_FILE = join(DIR, "fixtures", "caps-trimmed.json");
 
-// 全部实例可派子任务、模型齐全的最小 caps fixture
-const CAPS = {
-  providers: [
-    "codex",
-    "claudeAgent",
-    "cursor",
-    "opencode",
-    "acpRegistry_devin",
-    "acpRegistry_factory_droid",
-  ].map((id) => ({
-    providerInstanceId: id,
-    canRunChildTask: true,
-    canRunCrossProviderChildTask: true,
-    models: [
-      "gpt-6.1-sol",
-      "gpt-6-luna",
-      "gpt-6-astra",
-      "glm-5.3-flash[1m]",
-      "opencode-go/glm-5.3-flash",
-      "opencode-go/deepseek-v4.1-flash",
-      "grok-4.7",
-      "grok-4.6",
-      "claude-opus-5-5",
-      "claude-sonnet-5-5",
-      "claude-sonnet-5-5-medium",
-      "claude-opus-5-5-medium",
-      "claude-haiku-5-5",
-      "claude-haiku-5-5-medium",
-      "claude-fable-5-1",
-      "claude-fable-5-1-medium",
-      "claude-fable-5.1",
-      "swe-2-high",
-      "grok-4-7-medium",
-      "grok-4-6-medium",
-      "gpt-6-1-sol-medium",
-      "gpt-6-astra-medium",
-      "gpt-6-luna-medium",
-      "glm-5-3-flash-max",
-      "glm-5.3-flash",
-      "glm-5p3-flash",
-      "deepseek-v4.1-flash",
-      "deepseek-v4-1-flash-high",
-      "kimi-k3",
-      "kimi-k3-high",
-    ].map((mid) => ({ id: mid, options: mid.startsWith("grok") || mid.startsWith("claude") || mid.startsWith("glm-5p3") || mid.startsWith("kimi") ? [{ id: "fastMode" }] : [] })),
-  })),
-};
+// caps fixture：实时 orchestrator_capabilities 裁剪到 route-data 用到的 provider/模型，
+// canRunChildTask/canRunCrossProviderChildTask 归一化为 true（测试按全部实例可派子任务跑；
+// 实时目录里该 flag 也会漂移）。重新生成方法见 references/models.md「选项与档位」。
+const CAPS = JSON.parse(readFileSync(CAPS_FILE, "utf8"));
 
 const QUOTA_OK = [
   { key: "codex", windows: [{ label: "周", usedPercent: 10, resetMs: Date.now() + 5 * 864e5 }], extras: [] },
@@ -296,9 +254,106 @@ test("select: --vision 顾问提前视觉模型", () => {
     const r = run(["select", "--task", "advisor", "--vision", ...f.base]);
     const m = pick(r);
     if (m?.[1] !== "acpRegistry_devin" || m?.[2] !== "claude-opus-5-5-medium") throw new Error(`vision 顾问应选 devin opus: ${r.stdout}`);
+    if (!r.stdout.includes('"thought_level":"high"')) throw new Error(`devin 入口应输出 thought_level: ${r.stdout}`);
   } finally {
     f.cleanup();
   }
+});
+
+// devin 的 thought_level 实测只认 VERIFIED_OPTION_VALUES 里的收窄集（目录宣称五档是过度宣称），
+// 且 slug 后缀只是默认档。每个 devin 入口必须显式声明实测档，否则静默回落到 slug 默认。
+test("route-data: devin 入口都声明合法 thought_level", () => {
+  const allowed = VERIFIED_OPTION_VALUES.acpRegistry_devin.thought_level;
+  const bad = [];
+  for (const [key, m] of Object.entries(MODELS))
+    for (const e of m.entries)
+      if (e.provider === "acpRegistry_devin" && !allowed.includes(e.options?.thought_level))
+        bad.push(`${key}:${e.id}`);
+  if (bad.length) throw new Error(`devin 入口缺 thought_level 或档位非法: ${bad.join(", ")}`);
+});
+
+// 档位标准：主代理派发一律 EFFORT_STANDARD（high）。每个入口必须恰好声明一个档位选项；
+// 偏离只能经 EFFORT_EXCEPTIONS 登记（value 给定档位 + reason 必填，until 表期限）。
+test("route-data: 每个入口恰好一个档位选项且为 high（例外须登记 value/reason）", () => {
+  const bad = [];
+  for (const [id, exc] of Object.entries(EFFORT_EXCEPTIONS)) {
+    if (!exc.reason) bad.push(`例外 ${id} 缺 reason`);
+  }
+  for (const [key, m] of Object.entries(MODELS)) {
+    for (const e of m.entries) {
+      const id = `${e.provider}/${e.id}`;
+      const effortKeys = Object.keys(e.options ?? {}).filter((k) => EFFORT_OPTION_IDS.includes(k));
+      const exc = EFFORT_EXCEPTIONS[id];
+      if (exc && exc.value === undefined) {
+        if (effortKeys.length) bad.push(`${key}:${id} 例外登记为无档位可设却仍声明了 ${effortKeys.join(",")}`);
+        continue;
+      }
+      if (effortKeys.length !== 1) {
+        bad.push(`${key}:${id} ${effortKeys.length === 0 ? "未声明档位" : `声明了多个档位选项 ${effortKeys.join(",")}`}`);
+        continue;
+      }
+      const k = effortKeys[0];
+      const want = exc?.value ?? EFFORT_STANDARD;
+      if (e.options[k] !== want) bad.push(`${key}:${id} 选项 ${k}=${e.options[k]}，应为 ${want}`);
+    }
+  }
+  if (bad.length) throw new Error(`档位标准违规:\n${bad.join("\n")}`);
+});
+
+test("injectOptions: 带期限的档位例外到期自动回落 high", () => {
+  const { providers } = loadProviders(CAPS_FILE);
+  const before = Date.parse(SWE2_FREE_UNTIL) - 1000;
+  const after = Date.parse(SWE2_FREE_UNTIL) + 1000;
+  const entry = { provider: "acpRegistry_devin", id: "swe-2-high", options: { thought_level: "max" } };
+  const free = injectOptions(entry, providers, before);
+  if (free.thought_level !== "max") throw new Error(`免费期内应保持 max: ${JSON.stringify(free)}`);
+  const expired = injectOptions(entry, providers, after);
+  if (expired.thought_level !== "high") throw new Error(`到期后应回落 high: ${JSON.stringify(expired)}`);
+  // 无 until 的普通入口不受时间影响
+  const grok = injectOptions({ provider: "cursor", id: "grok-4.6", options: { effort: "high" } }, providers, after);
+  if (grok.effort !== "high") throw new Error(`无期限入口不应被改: ${JSON.stringify(grok)}`);
+});
+
+// fastMode 一律由 injectOptions 按目录注入，不得写死在路由数据里（曾因此给没有
+// fastMode 的模型传了不存在的选项）。
+test("route-data: 任何 entry 与 ROUTES 行内 options 都不得出现 fastMode", () => {
+  const bad = [];
+  for (const [key, m] of Object.entries(MODELS))
+    for (const e of m.entries) if ("fastMode" in (e.options ?? {})) bad.push(`MODELS.${key}:${e.provider}/${e.id}`);
+  for (const [task, cands] of Object.entries(ROUTES))
+    for (const c of cands) if ("fastMode" in (c.options ?? {})) bad.push(`ROUTES.${task}:${c.model}`);
+  if (bad.length) throw new Error(`fastMode 应由注入负责: ${bad.join(", ")}`);
+});
+
+test("audit: 裁剪夹具上 route-data 全部入口 0 问题", () => {
+  const { providers } = loadProviders(CAPS_FILE);
+  const problems = auditRouteData(providers);
+  if (problems.length) throw new Error(`audit 发现问题:\n${problems.join("\n")}`);
+});
+
+test("injectOptions: fastMode 只在目录规格存在时注入", () => {
+  const { providers } = loadProviders(CAPS_FILE);
+  const opus = injectOptions({ provider: "cursor", id: "claude-opus-5-5", options: { effort: "high" } }, providers);
+  if (opus.fastMode !== false) throw new Error(`cursor/claude-opus-5-5 有 fastMode，应注入 false: ${JSON.stringify(opus)}`);
+  const sonnet = injectOptions({ provider: "cursor", id: "claude-sonnet-5-5", options: {} }, providers);
+  if ("fastMode" in sonnet) throw new Error(`cursor/claude-sonnet-5-5 无 fastMode，不应注入: ${JSON.stringify(sonnet)}`);
+  const glm = injectOptions({ provider: "claudeAgent", id: "glm-5.3-flash[1m]", options: {} }, providers);
+  if ("fastMode" in glm) throw new Error(`claudeAgent/glm-5.3-flash[1m] 无任何选项，不应注入: ${JSON.stringify(glm)}`);
+});
+
+test("validateOptions: devin thought_level 按实测收窄集校验", () => {
+  const { providers } = loadProviders(CAPS_FILE);
+  // 模拟 2026-10-11 19:24 真实出现过的目录过度宣称：人为把取值集改回五档，
+  // 收窄集仍应把 xhigh 判为非法（若只靠目录集，此时 xhigh 会被误放行）
+  const spec = providers.get("acpRegistry_devin").optionSpecs.get("swe-2-high").get("thought_level");
+  spec.values = new Set(["low", "medium", "high", "xhigh", "max"]);
+  const bad = validateOptions("acpRegistry_devin", "swe-2-high", { thought_level: "xhigh" }, providers);
+  if (!bad.length) throw new Error("xhigh 应判非法（即使目录宣称有）");
+  const good = validateOptions("acpRegistry_devin", "swe-2-high", { thought_level: "high" }, providers);
+  if (good.length) throw new Error(`high 应合法: ${good.join("; ")}`);
+  // 模型规格未知时不误拦
+  const unknown = validateOptions("acpRegistry_devin", "不存在的模型", { thought_level: "xhigh" }, providers);
+  if (unknown.length) throw new Error(`规格未知应返回空: ${unknown.join("; ")}`);
 });
 
 test("select: --hard 输出顾问+实现两步", () => {

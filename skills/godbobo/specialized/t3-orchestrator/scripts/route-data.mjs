@@ -42,8 +42,8 @@ export const PROVIDER_RULES = {
     forceOptions: { autonomy_level: "auto-high" },
     note: "droid 选项名是 reasoning_effort（snake_case），不是 reasoningEffort",
   },
-  // 有 fastMode 选项的入口自动注入 fastMode:false；codex serviceTier 保持 default。
-  // 这两个不单独列 provider——由 route.mjs 按 capabilities 里的选项描述符自动判断。
+  // 有 fastMode 选项的入口由 route.mjs 按目录选项描述符自动注入 fastMode:false；
+  // codex serviceTier 保持 default。这两个不单独列 provider。
 };
 
 export const BANNED_PROVIDERS = {
@@ -58,6 +58,41 @@ export const MODEL_BANS = [
   { match: /minimax/i, reason: "MiniMax 系列不主动调用" },
 ];
 
+// 目录取值集会漂移，这里记录「实测收窄集」：校验时生效集 = 目录集 ∩ 本表（本表有的项才收窄）。
+// acpRegistry_devin.thought_level：2026-10-11 19:24 实时目录与本机缓存都把全部 122 个模型
+// 列成五档 low/medium/high/xhigh/max，19:29 两者都回落到三档 medium/high/max；服务端校验在
+// 两个时间点始终只收 medium/high/max。不能只信目录，本表钉住实测集。探测方法（2026-10-11）：delegate_task 同时传一个
+// 必然非法的 mode 值，请求被选项校验拦下、不起 agent，报错文本列出该模型真实允许集；
+// 覆盖 route-data 全部 13 个 devin 入口 + adaptive/swe-1-7-lightning-medium/swe-1-7-medium/
+// glm-5-2/一个 fusion 模型共 18 个，结果一致。low 一律被拒；xhigh 在无活跃会话时偶尔绕过
+// 校验返回成功，但不落 modelSelection，等于白传。已落库跑通（statev2.sqlite
+// orchestration_v2_projection_runs 的 modelSelection.options）：swe-2-high/max ×1054、
+// claude-opus-5-5-medium/high ×20、gpt-6-1-sol-medium/high ×1、deepseek-v4-1-flash-high/medium ×1。
+export const VERIFIED_OPTION_VALUES = {
+  acpRegistry_devin: { thought_level: ["medium", "high", "max"] },
+};
+
+// 档位标准：主代理派发一律 high。偏离必须登记到 EFFORT_EXCEPTIONS，写明 value + reason；
+// 有期限的优惠必须同时登记 until，到期由 route.mjs 的 injectOptions 自动回落 high。
+// route.test.mjs 会校验每个入口要么声明 high，要么在例外表里。
+export const EFFORT_STANDARD = "high";
+
+// 各 harness 的档位选项名（cursor 随模型而异，故按名字集合识别）
+export const EFFORT_OPTION_IDS = ["thought_level", "reasoningEffort", "reasoning_effort", "effort", "reasoning", "variant"];
+
+// key 是 `${provider}/${id}`。
+//   value  省略 = 该入口无档位选项可设；给值 = 允许偏离 EFFORT_STANDARD 的档位
+//   until  可选，ISO 日期；到期后该入口自动回落 EFFORT_STANDARD（由 route.mjs 的 injectOptions 执行）
+//   reason 必填
+export const EFFORT_EXCEPTIONS = {
+  "claudeAgent/glm-5.3-flash[1m]": { reason: "目录里该模型没有任何选项，无档位可设" },
+  "acpRegistry_devin/swe-2-high": {
+    value: "max",
+    until: SWE2_FREE_UNTIL,
+    reason: "免费期内不占 devin 额度，FrontierCode 实测 max 50.0% 是其最优档；到期后回落 high",
+  },
+};
+
 export const MODELS = {
   "opus-5.5": {
     label: "Opus 5.5",
@@ -66,9 +101,9 @@ export const MODELS = {
     vision: true,
     entries: [
       // claude 系 harness 优先级：devin > droid > cursor（cursor 走 API 价月池殿后）
-      { provider: "acpRegistry_devin", id: "claude-opus-5-5-medium", pool: "devin" },
+      { provider: "acpRegistry_devin", id: "claude-opus-5-5-medium", options: { thought_level: "high" }, pool: "devin" },
       { provider: "acpRegistry_factory_droid", id: "claude-opus-5-5", options: { reasoning_effort: "high" }, pool: "factory" },
-      { provider: "cursor", id: "claude-opus-5-5", options: { effort: "high", fastMode: false }, pool: "cursor-api" },
+      { provider: "cursor", id: "claude-opus-5-5", options: { effort: "high" }, pool: "cursor-api" },
     ],
   },
   "gpt-6.1-sol": {
@@ -77,7 +112,7 @@ export const MODELS = {
     status: "advisor",
     entries: [
       { provider: "codex", id: "gpt-6.1-sol", options: { reasoningEffort: "high" }, pool: "codex-pro" },
-      { provider: "acpRegistry_devin", id: "gpt-6-1-sol-medium", pool: "devin" },
+      { provider: "acpRegistry_devin", id: "gpt-6-1-sol-medium", options: { thought_level: "high" }, pool: "devin" },
       { provider: "acpRegistry_factory_droid", id: "gpt-6.1-sol", options: { reasoning_effort: "high" }, pool: "factory" },
     ],
   },
@@ -85,7 +120,7 @@ export const MODELS = {
     label: "SWE-2",
     family: "cognition",
     status: "auto",
-    entries: [{ provider: "acpRegistry_devin", id: "swe-2-high", pool: "devin" }],
+    entries: [{ provider: "acpRegistry_devin", id: "swe-2-high", options: { thought_level: "max" }, pool: "devin" }],
     // fusion-<主模型>-sidekick-swe-2-medium 是模型组合不是模型，不进自动路由；大量机械工作可人工用。
   },
   "grok-4.7": {
@@ -93,9 +128,9 @@ export const MODELS = {
     family: "xai",
     status: "auto",
     entries: [
-      { provider: "cursor", id: "grok-4.7", options: { fastMode: false }, pool: "cursor-grok" },
-      { provider: "acpRegistry_devin", id: "grok-4-7-medium", pool: "devin" },
-      { provider: "acpRegistry_factory_droid", id: "grok-4.7", pool: "factory" },
+      { provider: "cursor", id: "grok-4.7", options: { reasoning_effort: "high", contextWindow: "256k" }, pool: "cursor-grok" },
+      { provider: "acpRegistry_devin", id: "grok-4-7-medium", options: { thought_level: "high" }, pool: "devin" },
+      { provider: "acpRegistry_factory_droid", id: "grok-4.7", options: { reasoning_effort: "high" }, pool: "factory" },
     ],
   },
   "grok-4.6": {
@@ -103,9 +138,9 @@ export const MODELS = {
     family: "xai",
     status: "auto",
     entries: [
-      { provider: "cursor", id: "grok-4.6", options: { fastMode: false }, pool: "cursor-grok" },
-      { provider: "acpRegistry_devin", id: "grok-4-6-medium", pool: "devin" },
-      { provider: "acpRegistry_factory_droid", id: "grok-4.6", pool: "factory" },
+      { provider: "cursor", id: "grok-4.6", options: { effort: "high" }, pool: "cursor-grok" },
+      { provider: "acpRegistry_devin", id: "grok-4-6-medium", options: { thought_level: "high" }, pool: "devin" },
+      { provider: "acpRegistry_factory_droid", id: "grok-4.6", options: { reasoning_effort: "high" }, pool: "factory" },
     ],
   },
   "sonnet-5.5": {
@@ -113,9 +148,9 @@ export const MODELS = {
     family: "anthropic",
     status: "auto",
     entries: [
-      { provider: "acpRegistry_devin", id: "claude-sonnet-5-5-medium", pool: "devin" },
-      { provider: "acpRegistry_factory_droid", id: "claude-sonnet-5-5", pool: "factory" },
-      { provider: "cursor", id: "claude-sonnet-5-5", options: { fastMode: false }, pool: "cursor-api" },
+      { provider: "acpRegistry_devin", id: "claude-sonnet-5-5-medium", options: { thought_level: "high" }, pool: "devin" },
+      { provider: "acpRegistry_factory_droid", id: "claude-sonnet-5-5", options: { reasoning_effort: "high" }, pool: "factory" },
+      { provider: "cursor", id: "claude-sonnet-5-5", options: { reasoning_effort: "high" }, pool: "cursor-api" },
     ],
   },
   "haiku-5.5": {
@@ -123,8 +158,8 @@ export const MODELS = {
     family: "anthropic",
     status: "auto",
     entries: [
-      { provider: "acpRegistry_devin", id: "claude-haiku-5-5-medium", pool: "devin" },
-      { provider: "cursor", id: "claude-haiku-5-5", options: { fastMode: false }, pool: "cursor-api" },
+      { provider: "acpRegistry_devin", id: "claude-haiku-5-5-medium", options: { thought_level: "high" }, pool: "devin" },
+      { provider: "cursor", id: "claude-haiku-5-5", options: { reasoning_effort: "high" }, pool: "cursor-api" },
       // droid 没有 haiku-5-5
     ],
   },
@@ -136,10 +171,10 @@ export const MODELS = {
     entries: [
       // 入口顺序即用户定下的优先级：Coding Plan 额度最足 > Go $60 池 > Factory 池 > Devin > Cursor
       { provider: "claudeAgent", id: "glm-5.3-flash[1m]", pool: "glm-plan" },
-      { provider: "opencode", id: "opencode-go/glm-5.3-flash", pool: "opencode-go" },
-      { provider: "acpRegistry_factory_droid", id: "glm-5.3-flash", pool: "factory" },
-      { provider: "acpRegistry_devin", id: "glm-5-3-flash-max", pool: "devin" },
-      { provider: "cursor", id: "glm-5p3-flash", options: { fastMode: false }, pool: "cursor-api" },
+      { provider: "opencode", id: "opencode-go/glm-5.3-flash", options: { variant: "high" }, pool: "opencode-go" },
+      { provider: "acpRegistry_factory_droid", id: "glm-5.3-flash", options: { reasoning_effort: "high" }, pool: "factory" },
+      { provider: "acpRegistry_devin", id: "glm-5-3-flash-max", options: { thought_level: "high" }, pool: "devin" },
+      { provider: "cursor", id: "glm-5p3-flash", options: { reasoning: "high" }, pool: "cursor-api" },
     ],
   },
   "deepseek-v4.1-flash": {
@@ -147,9 +182,9 @@ export const MODELS = {
     family: "deepseek",
     status: "auto",
     entries: [
-      { provider: "opencode", id: "opencode-go/deepseek-v4.1-flash", pool: "opencode-go" },
-      { provider: "acpRegistry_factory_droid", id: "deepseek-v4.1-flash", pool: "factory" },
-      { provider: "acpRegistry_devin", id: "deepseek-v4-1-flash-high", pool: "devin" },
+      { provider: "opencode", id: "opencode-go/deepseek-v4.1-flash", options: { variant: "high" }, pool: "opencode-go" },
+      { provider: "acpRegistry_factory_droid", id: "deepseek-v4.1-flash", options: { reasoning_effort: "high" }, pool: "factory" },
+      { provider: "acpRegistry_devin", id: "deepseek-v4-1-flash-high", options: { thought_level: "high" }, pool: "devin" },
     ],
   },
   "gpt-6-luna": {
@@ -158,8 +193,8 @@ export const MODELS = {
     status: "auto",
     entries: [
       { provider: "codex", id: "gpt-6-luna", options: { reasoningEffort: "high" }, pool: "codex-pro" },
-      { provider: "acpRegistry_devin", id: "gpt-6-luna-medium", pool: "devin" },
-      { provider: "acpRegistry_factory_droid", id: "gpt-6-luna", pool: "factory" },
+      { provider: "acpRegistry_devin", id: "gpt-6-luna-medium", options: { thought_level: "high" }, pool: "devin" },
+      { provider: "acpRegistry_factory_droid", id: "gpt-6-luna", options: { reasoning_effort: "high" }, pool: "factory" },
     ],
   },
   "gpt-6-astra": {
@@ -167,9 +202,9 @@ export const MODELS = {
     family: "openai",
     status: "named",
     entries: [
-      { provider: "codex", id: "gpt-6-astra", pool: "codex-pro" },
-      { provider: "acpRegistry_devin", id: "gpt-6-astra-medium", pool: "devin" },
-      { provider: "acpRegistry_factory_droid", id: "gpt-6-astra", pool: "factory" },
+      { provider: "codex", id: "gpt-6-astra", options: { reasoningEffort: "high" }, pool: "codex-pro" },
+      { provider: "acpRegistry_devin", id: "gpt-6-astra-medium", options: { thought_level: "high" }, pool: "devin" },
+      { provider: "acpRegistry_factory_droid", id: "gpt-6-astra", options: { reasoning_effort: "high" }, pool: "factory" },
     ],
   },
   "fable-5.1": {
@@ -178,9 +213,9 @@ export const MODELS = {
     status: "named",
     vision: true,
     entries: [
-      { provider: "acpRegistry_devin", id: "claude-fable-5-1-medium", pool: "devin" },
-      { provider: "acpRegistry_factory_droid", id: "claude-fable-5.1", pool: "factory" },
-      { provider: "cursor", id: "claude-fable-5-1", options: { fastMode: false }, pool: "cursor-api" },
+      { provider: "acpRegistry_devin", id: "claude-fable-5-1-medium", options: { thought_level: "high" }, pool: "devin" },
+      { provider: "acpRegistry_factory_droid", id: "claude-fable-5.1", options: { reasoning_effort: "high" }, pool: "factory" },
+      { provider: "cursor", id: "claude-fable-5-1", options: { effort: "high" }, pool: "cursor-api" },
     ],
   },
   "kimi-k3": {
@@ -189,9 +224,9 @@ export const MODELS = {
     status: "named",
     vision: true,
     entries: [
-      { provider: "cursor", id: "kimi-k3", options: { fastMode: false }, pool: "cursor-api" },
-      { provider: "acpRegistry_devin", id: "kimi-k3-high", pool: "devin" },
-      { provider: "acpRegistry_factory_droid", id: "kimi-k3", pool: "factory" },
+      { provider: "cursor", id: "kimi-k3", options: { reasoning: "high" }, pool: "cursor-api" },
+      { provider: "acpRegistry_devin", id: "kimi-k3-high", options: { thought_level: "high" }, pool: "devin" },
+      { provider: "acpRegistry_factory_droid", id: "kimi-k3", options: { reasoning_effort: "high" }, pool: "factory" },
     ],
   },
 };
@@ -231,8 +266,9 @@ export const ROUTES = {
     { model: "glm-5.3-flash", provider: "claudeAgent" },
     { model: "glm-5.3-flash", provider: "opencode" },
   ],
-  // 顾问/审查一律高思考强度：codex reasoningEffort、cursor effort、droid reasoning_effort 均写 high；
-  // devin 的思考强度由模型 ID 后缀决定（sol/opus 只有 -medium 可用），不额外注入。
+  // 档位不在这里设：所有入口统一 high（见 EFFORT_STANDARD），各 harness 选项名不同
+  // （codex reasoningEffort、cursor effort/reasoning_effort/reasoning、droid
+  // reasoning_effort、devin thought_level、opencode variant），逐入口声明。
   advisor: [
     { model: "gpt-6.1-sol", provider: "codex" },
     { model: "opus-5.5", provider: "acpRegistry_devin" },
@@ -240,18 +276,18 @@ export const ROUTES = {
   ],
   review: [
     { model: "gpt-6.1-sol", provider: "codex" },
-    { model: "grok-4.7", provider: "cursor", options: { contextWindow: "256k", reasoning_effort: "high" } },
+    { model: "grok-4.7", provider: "cursor" },
     { model: "gpt-6.1-sol", provider: "acpRegistry_devin" },
     { model: "gpt-6.1-sol", provider: "acpRegistry_factory_droid" },
-    { model: "grok-4.7", provider: "acpRegistry_factory_droid", options: { reasoning_effort: "high" } },
+    { model: "grok-4.7", provider: "acpRegistry_factory_droid" },
     // --implementer 与实现者同家族的候选自动后移
   ],
   // 调研/写文档优先 GLM/DS 便宜档；不用 opus、sol 这类前沿模型；降档到 low 而非 review（避免 sol 经降档混回来）。
   research: [
     { model: "glm-5.3-flash" },
     { model: "deepseek-v4.1-flash" },
-    { model: "grok-4.6", provider: "cursor", options: { contextWindow: "256k" } },
-    { model: "grok-4.7", provider: "cursor", options: { contextWindow: "256k" } },
+    { model: "grok-4.6", provider: "cursor" },
+    { model: "grok-4.7", provider: "cursor" },
     { model: "haiku-5.5" },
   ],
   security: [
