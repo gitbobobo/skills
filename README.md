@@ -35,7 +35,7 @@ PR 推送并请求复审后，自动跟进审查 bot 与 CI、处理新意见、
 
 ### setup-env
 
-统一设置本机各 agent harness 的全局代理规则（唯一真源 `rules/AGENTS.md`）并做环境体检。仅限用户主动调用。
+统一设置本机各 agent harness 的全局代理规则（唯一真源 `rules/AGENTS.md`）并做环境体检；另向 devin hooks.v1.json 合并写入 exec 长 sleep 阻断 hook。仅限用户主动调用。
 
 详见 [skills/godbobo/general/setup-env/SKILL.md](skills/godbobo/general/setup-env/SKILL.md)。
 

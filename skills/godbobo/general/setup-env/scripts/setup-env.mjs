@@ -78,6 +78,18 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const BINDIR = join(HOME, ".local", "bin");
 const BINS = [{ name: "run-watch", src: join(SCRIPT_DIR, "run-watch.mjs") }];
 
+// 本机环境体检项：只报告不安装（本脚本边界不含装 CLI），缺失时给安装提示。
+const TOOLS = [
+  { name: "cargo-nextest", hint: "cargo install cargo-nextest --locked（musiver 官方测试首选 runner，缺失时回退串行模式）" },
+];
+
+// Devin PreToolUse hooks 配置（JSON 合并写入，不动已有其他条目）
+const DEVIN_HOOK_SCRIPT = join(SCRIPT_DIR, "devin-hook-exec-guard.mjs");
+const DEVIN_HOOKS_PATH = IS_WIN
+  ? join(APPDATA, "devin", "hooks.v1.json")
+  : join(HOME, ".config", "devin", "hooks.v1.json");
+const DEVIN_HOOK_COMMAND = `"${process.execPath}" "${realpathSync(DEVIN_HOOK_SCRIPT)}"`;
+
 const MDC_FRONT = "---\nalwaysApply: true\n---\n\n";
 const expectedFor = (t) => (t.transform === "mdc" ? MDC_FRONT + sourceText : sourceText);
 
@@ -213,6 +225,64 @@ if (IS_WIN) {
     if (state !== "linked") pending++;
     const label = { linked: "已链接", foreign: "有别的内容", absent: "缺失" }[state];
     console.log(`${label.padEnd(6)} tool:${b.name.padEnd(14)} ${dest}${action}`);
+  }
+}
+
+// ---- Devin hooks.v1.json：合并写入 exec 长 sleep 阻断 hook ----
+// 条目幂等判定：任一 hook command 含脚本文件名即视为已配置。文件是 JSON 合并
+// 语义不是整文件链接——其他 hook 条目原样保留；内容非法时备份后重写。
+{
+  const entry = {
+    matcher: "exec",
+    hooks: [{ type: "command", command: DEVIN_HOOK_COMMAND, timeout: 5 }],
+  };
+  let cfg = null;
+  if (existsSync(DEVIN_HOOKS_PATH)) {
+    try {
+      cfg = JSON.parse(readFileSync(DEVIN_HOOKS_PATH, "utf8"));
+    } catch {
+      cfg = undefined; // 非法 JSON：apply 时备份重写
+    }
+  }
+  const hasEntry = Array.isArray(cfg?.PreToolUse) && cfg.PreToolUse.some(
+    (m) => Array.isArray(m?.hooks) && m.hooks.some(
+      (h) => typeof h?.command === "string" && h.command.includes("devin-hook-exec-guard"),
+    ),
+  );
+  let state = cfg === null ? "absent" : hasEntry ? "linked" : "mergeable";
+  if (cfg === undefined) state = "foreign";
+  let action = "";
+  if (!checkOnly && state !== "linked") {
+    try {
+      mkdirSync(dirname(DEVIN_HOOKS_PATH), { recursive: true });
+      let note = "";
+      if (state === "foreign") {
+        const bak = `${DEVIN_HOOKS_PATH}.bak-${stamp}`;
+        renameSync(DEVIN_HOOKS_PATH, bak);
+        note = `备份到 ${bak}，`;
+      }
+      const next = state === "foreign" ? {} : (cfg ?? {});
+      next.PreToolUse = Array.isArray(next.PreToolUse) ? next.PreToolUse : [];
+      next.PreToolUse.push(entry);
+      writeFileSync(DEVIN_HOOKS_PATH, JSON.stringify(next, null, 2) + "\n");
+      action = ` → ${note}已写入 hook 条目`;
+      state = "linked";
+    } catch (e) {
+      action = ` → 失败：${e.message}`;
+    }
+  }
+  if (state !== "linked") pending++;
+  const label = { linked: "已配置", mergeable: "缺少条目", absent: "缺失", foreign: "内容非法" }[state];
+  console.log(`${label.padEnd(6)} devin:hooks       ${DEVIN_HOOKS_PATH}${action}`);
+}
+
+// ---- 本机工具体检：只报告不安装 ----
+for (const t of TOOLS) {
+  const p = which(t.name);
+  if (p) {
+    console.log(`已安装   tool:${t.name.padEnd(14)} ${p}`);
+  } else {
+    console.log(`未安装   tool:${t.name.padEnd(14)} ${t.hint}`);
   }
 }
 
