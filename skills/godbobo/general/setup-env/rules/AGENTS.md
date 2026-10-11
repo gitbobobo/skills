@@ -20,7 +20,7 @@
 
 ## macOS 环境
 
-- 没有 `setsid`、`timeout`；命令超时会连同整个进程组被杀。需要脱离会话存活的进程用 `nohup cmd >log 2>&1 & disown` 或工具自带的 detached 选项。
+- 没有 `setsid`、`timeout`；命令超时会连同整个进程组被杀——`nohup`、`disown` 都不脱离进程组，救不了。要存活过本轮的进程用终端工具自带的 detached/后台模式，或 `run-watch` 起任务。
 - exec 报 "terminal failed to create" / 目录不存在：会话 cwd（典型是被删除的 git worktree）失效后不可恢复——终端在命令运行前就失败，`cd` 救不回来。不要重试；结束本轮并向用户说明哪些收尾步骤没做（Fast Ship 状态、PR sync、分支清理、工作树回收），等用户在有效目录里开新会话接手。
 
 ## Windows 环境
