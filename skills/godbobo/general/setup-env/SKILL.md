@@ -5,9 +5,9 @@ description: 统一设置本机各 agent harness 的全局代理规则并做环�
 
 # setup-env
 
-把 `rules/AGENTS.md`（本技能目录下，唯一真源）链接到各 harness 的全局规则路径，让所有 CLI 代理在任何项目里都加载同一套约定；通用规则涵盖重命令遵守机器调度、单一最终验证负责人和原生事件优先的等待入口，具体编排流程留在对应技能。同步后仍以项目规则优先。同时把 `scripts/run-watch.mjs` 链接为 `~/.local/bin/run-watch`（后台长任务封装，POSIX），并报告各 harness CLI 与本机工具（如 cargo-nextest）是否安装——工具只报告不安装。
+把 `rules/AGENTS.md`（本技能目录下，唯一真源）链接到各 harness 的全局规则路径，让所有 CLI 代理在任何项目里都加载同一套约定；通用规则涵盖重命令遵守机器调度、单一最终验证负责人和原生事件优先的等待入口，具体编排流程留在对应技能。同步后仍以项目规则优先。同时把 `scripts/run-watch.mjs` 链接为 `~/.local/bin/run-watch`（后台长任务封装，POSIX），并报告各 harness CLI 与本机工具（如 cargo-nextest）是否可用——工具只报告不安装。cargo-nextest 不在 PATH 时再探测 CARGO_HOME 和默认 Cargo bin，区分「未安装」与「已安装但 PATH 不可见」；后者在实际代理启动环境补路径，再从新代理执行 `cargo nextest --version` 验证。
 
-另向 `~/.config/devin/hooks.v1.json`（Windows 为 `%APPDATA%\devin\hooks.v1.json`）合并写入一条 PreToolUse `exec` hook：`scripts/devin-hook-exec-guard.mjs` 阻断 ≥60 秒的前台 `sleep`（命令位出现、`&` 后台与 heredoc 内容放行），把「不用 sleep 轮询链」这条全局约定变成机械拦截；其他已有 hook 条目保留。
+另向 `~/.config/devin/hooks.v1.json`（Windows 为 `%APPDATA%\devin\hooks.v1.json`）合并写入一条 PreToolUse `exec` hook：`scripts/devin-hook-exec-guard.mjs` 阻断 ≥60 秒的前台 `sleep`（命令位出现、`&` 后台与 heredoc 内容放行），把「不用 sleep 轮询链」这条全局约定变成机械拦截。脚本核对 matcher、完整命令与超时，重跑会备份并替换旧路径，保留其他 hook；Node 使用 PATH 中的稳定链接路径，避免锁死 Homebrew 小版本目录。
 
 ## 步骤
 
@@ -15,6 +15,8 @@ description: 统一设置本机各 agent harness 的全局代理规则并做环�
 2. 执行：`node <技能目录>/scripts/setup-env.mjs`。Windows 或符号链接权限不足时用 `--copy`。
 3. 核对备份：脚本对已有非空内容会先备份成 `<文件>.bak-<时间戳>` 再替换。出现备份就提醒用户检查旧内容是否需要合并。
 4. 完成标准：脚本退出码为 0，且输出中每个 harness 显示「已链接」或「副本一致」。
+
+`run-watch wait <名>` 默认最多等待 30 秒；`--timeout <秒>` 可显式调整，0 表示立即查状态。时限到而任务仍运行时返回 2，后台任务继续，后续查同一份 status/log。需要更长等待时使用终端支持的后台/让出机制。
 
 ## 覆盖的 harness
 

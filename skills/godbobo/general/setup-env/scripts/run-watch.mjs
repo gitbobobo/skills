@@ -4,7 +4,7 @@
 // 用法：
 //   run-watch start <name> [--cwd <dir>] -- <cmd...>   后台启动；同名任务仍在跑则拒绝
 //   run-watch status <name>                            打印状态（running/exit=N/dead）+ 日志尾部
-//   run-watch wait <name> [--timeout 秒]                阻塞到任务结束（默认 30 分钟），替代 sleep 链
+//   run-watch wait <name> [--timeout 秒]                等待至完成或时限（默认 30 秒），超时仍运行返回 2
 //   run-watch tail <name> [行数]                       只打日志尾部（默认 30 行）
 //   run-watch stop <name>                              终止任务（杀整个进程组）
 //   run-watch list                                     列出全部任务
@@ -89,18 +89,19 @@ switch (action) {
   case "wait": {
     if (!validName(name)) die("需要任务名");
     const tIdx = rest.indexOf("--timeout");
-    const timeoutSec = tIdx !== -1 ? Number(rest[tIdx + 1]) : 1800;
+    const timeoutSec = tIdx !== -1 ? Number(rest[tIdx + 1]) : 30;
+    if (!Number.isFinite(timeoutSec) || timeoutSec < 0) die("--timeout 需要非负有限秒数");
     const deadline = Date.now() + timeoutSec * 1000;
     const buf = new Int32Array(new SharedArrayBuffer(4));
     let s = statusOf(name);
     while (s === "running" && Date.now() < deadline) {
-      Atomics.wait(buf, 0, 0, 5000);
+      Atomics.wait(buf, 0, 0, Math.min(5000, Math.max(0, deadline - Date.now())));
       s = statusOf(name);
     }
     const cmd = read(name, "cmd");
     console.log(`${name}：${s}${cmd ? `  cmd: ${cmd}` : ""}`);
     tail(name);
-    if (s === "running") process.exit(2); // 超时仍在跑：同 status 语义，可调大 --timeout 再等
+    if (s === "running") process.exit(2); // 不结束后台任务；后续仍查同一任务的 status/log。
     process.exit(s === "exit=0" ? 0 : 1);
   }
   case "tail": {

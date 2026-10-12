@@ -13,6 +13,8 @@
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
+  accessSync,
+  constants,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -21,6 +23,7 @@ import {
   realpathSync,
   renameSync,
   symlinkSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { homedir, platform } from "node:os";
@@ -80,7 +83,7 @@ const BINS = [{ name: "run-watch", src: join(SCRIPT_DIR, "run-watch.mjs") }];
 
 // 本机环境体检项：只报告不安装（本脚本边界不含装 CLI），缺失时给安装提示。
 const TOOLS = [
-  { name: "cargo-nextest", hint: "cargo install cargo-nextest --locked（musiver 官方测试首选 runner，缺失时回退串行模式）" },
+  { name: "cargo-nextest", hint: "cargo install cargo-nextest --locked" },
 ];
 
 // Devin PreToolUse hooks 配置（JSON 合并写入，不动已有其他条目）
@@ -88,7 +91,6 @@ const DEVIN_HOOK_SCRIPT = join(SCRIPT_DIR, "devin-hook-exec-guard.mjs");
 const DEVIN_HOOKS_PATH = IS_WIN
   ? join(APPDATA, "devin", "hooks.v1.json")
   : join(HOME, ".config", "devin", "hooks.v1.json");
-const DEVIN_HOOK_COMMAND = `"${process.execPath}" "${realpathSync(DEVIN_HOOK_SCRIPT)}"`;
 
 const MDC_FRONT = "---\nalwaysApply: true\n---\n\n";
 const expectedFor = (t) => (t.transform === "mdc" ? MDC_FRONT + sourceText : sourceText);
@@ -99,8 +101,7 @@ const sourceReal = realpathSync(SOURCE);
 const sourceText = readFileSync(SOURCE, "utf8");
 const stamp = new Date()
   .toISOString()
-  .replace(/[-:T]/g, "")
-  .slice(0, 12);
+  .replace(/\D/g, "");
 
 const which = (cmd) => {
   try {
@@ -111,6 +112,24 @@ const which = (cmd) => {
     return null;
   }
 };
+
+// 保留 PATH 中的稳定链接路径；process.execPath 会解析到 Homebrew 小版本目录。
+const DEVIN_HOOK_COMMAND = `"${which("node") || process.execPath}" "${realpathSync(DEVIN_HOOK_SCRIPT)}"`;
+
+function cargoToolOutsidePath(name) {
+  const roots = [...new Set([process.env.CARGO_HOME, join(HOME, ".cargo")].filter(Boolean))];
+  for (const root of roots) {
+    const path = join(root, "bin", `${name}${IS_WIN ? ".exe" : ""}`);
+    try {
+      if (!statSync(path).isFile()) continue;
+      accessSync(path, IS_WIN ? constants.F_OK : constants.X_OK);
+      return path;
+    } catch {
+      // 不可执行、悬空链接和不存在的候选均继续探测。
+    }
+  }
+  return null;
+}
 
 // 返回 { state, detail }；state: linked | copy-current | copy-stale | foreign-empty | foreign | absent
 function inspect(t) {
@@ -229,9 +248,10 @@ if (IS_WIN) {
 }
 
 // ---- Devin hooks.v1.json：合并写入 exec 长 sleep 阻断 hook ----
-// 条目幂等判定：任一 hook command 含脚本文件名即视为已配置。文件是 JSON 合并
-// 语义不是整文件链接——其他 hook 条目原样保留；内容非法时备份后重写。
+// 只管理本技能的 hook；核对 matcher 和完整配置，迁移时替换旧条目。
 {
+  const managedHook = (h) => typeof h?.command === "string"
+    && /(?:^|[/\\])devin-hook-exec-guard\.mjs(?:["'\s]|$)/.test(h.command);
   const entry = {
     matcher: "exec",
     hooks: [{ type: "command", command: DEVIN_HOOK_COMMAND, timeout: 5 }],
@@ -240,29 +260,36 @@ if (IS_WIN) {
   if (existsSync(DEVIN_HOOKS_PATH)) {
     try {
       cfg = JSON.parse(readFileSync(DEVIN_HOOKS_PATH, "utf8"));
+      if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)) cfg = undefined;
     } catch {
       cfg = undefined; // 非法 JSON：apply 时备份重写
     }
   }
-  const hasEntry = Array.isArray(cfg?.PreToolUse) && cfg.PreToolUse.some(
-    (m) => Array.isArray(m?.hooks) && m.hooks.some(
-      (h) => typeof h?.command === "string" && h.command.includes("devin-hook-exec-guard"),
-    ),
-  );
-  let state = cfg === null ? "absent" : hasEntry ? "linked" : "mergeable";
+  const matches = (Array.isArray(cfg?.PreToolUse) ? cfg.PreToolUse : [])
+    .flatMap((m) => Array.isArray(m?.hooks)
+      ? m.hooks.filter(managedHook).map((hook) => ({ matcher: m.matcher, hook })) : []);
+  const current = matches.length === 1 && matches[0].matcher === "exec"
+    && matches[0].hook.type === "command"
+    && matches[0].hook.command === DEVIN_HOOK_COMMAND
+    && matches[0].hook.timeout === 5;
+  let state = cfg === null ? "absent" : current ? "linked" : matches.length ? "stale" : "mergeable";
   if (cfg === undefined) state = "foreign";
   let action = "";
   if (!checkOnly && state !== "linked") {
     try {
       mkdirSync(dirname(DEVIN_HOOKS_PATH), { recursive: true });
       let note = "";
-      if (state === "foreign") {
+      if (cfg !== null) {
         const bak = `${DEVIN_HOOKS_PATH}.bak-${stamp}`;
-        renameSync(DEVIN_HOOKS_PATH, bak);
+        writeFileSync(bak, readFileSync(DEVIN_HOOKS_PATH), { mode: 0o600 });
         note = `备份到 ${bak}，`;
       }
       const next = state === "foreign" ? {} : (cfg ?? {});
-      next.PreToolUse = Array.isArray(next.PreToolUse) ? next.PreToolUse : [];
+      next.PreToolUse = (Array.isArray(next.PreToolUse) ? next.PreToolUse : []).flatMap((m) => {
+        if (!Array.isArray(m?.hooks) || !m.hooks.some(managedHook)) return [m];
+        const hooks = m.hooks.filter((h) => !managedHook(h));
+        return hooks.length ? [{ ...m, hooks }] : [];
+      });
       next.PreToolUse.push(entry);
       writeFileSync(DEVIN_HOOKS_PATH, JSON.stringify(next, null, 2) + "\n");
       action = ` → ${note}已写入 hook 条目`;
@@ -272,7 +299,7 @@ if (IS_WIN) {
     }
   }
   if (state !== "linked") pending++;
-  const label = { linked: "已配置", mergeable: "缺少条目", absent: "缺失", foreign: "内容非法" }[state];
+  const label = { linked: "已配置", stale: "配置过期", mergeable: "缺少条目", absent: "缺失", foreign: "内容非法" }[state];
   console.log(`${label.padEnd(6)} devin:hooks       ${DEVIN_HOOKS_PATH}${action}`);
 }
 
@@ -282,7 +309,10 @@ for (const t of TOOLS) {
   if (p) {
     console.log(`已安装   tool:${t.name.padEnd(14)} ${p}`);
   } else {
-    console.log(`未安装   tool:${t.name.padEnd(14)} ${t.hint}`);
+    const installed = cargoToolOutsidePath(t.name);
+    console.log(installed
+      ? `PATH不可见 tool:${t.name.padEnd(14)} 已安装：${installed}；将 ${dirname(installed)} 加入实际代理启动环境的 PATH`
+      : `未安装   tool:${t.name.padEnd(14)} ${t.hint}`);
   }
 }
 
