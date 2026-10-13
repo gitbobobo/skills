@@ -29,7 +29,7 @@ git 操作偏好：可审计粒度的规范提交、优先 rebase 的远程同�
 
 ### pr-review-loop
 
-PR 推送并请求复审后，持续跟进审查 bot 与 CI，每轮等所有审查者意见到齐后再修改并更新账本；同一子系统连续三轮仍有需修复的有效意见时，先调 `$code-review-panel` 做方向审计（不受 P 级标签限制），方向仍有分歧时咨询用户。轮次按受审提交计算，重复通知不另计轮次；自己的回复统一带 `<!-- pr-review-loop:reply -->` 标记排除。
+PR 推送并请求复审后，持续跟进审查 bot 与 CI，每轮等所有审查者意见到齐后再修改并更新账本；同一子系统连续三轮仍有需修复的有效意见时，先调 `$code-review-panel` 做方向审计（不受 P 级标签限制），方向仍有分歧时咨询用户。轮次按受审提交计算，重复通知不另计轮次；登记当前各审查者的触发方式与等待上限；自己的回复统一带 `<!-- pr-review-loop:reply -->` 标记排除。
 
 详见 [skills/godbobo/general/pr-review-loop/SKILL.md](skills/godbobo/general/pr-review-loop/SKILL.md)。
 
