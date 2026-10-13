@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { applyExpiryDemote, expandRoute, loadProviders, validateOptions, injectOptions, auditRouteData } from "./route.mjs";
 import { MODELS, ROUTES, SWE2_FREE_UNTIL, VERIFIED_OPTION_VALUES, EFFORT_STANDARD, EFFORT_OPTION_IDS, EFFORT_EXCEPTIONS } from "./route-data.mjs";
@@ -73,6 +73,18 @@ test("check: 快速模式恒红", () => {
   fail(["--provider", "cursor", "--model", "grok-4.7", "--options", '{"fastMode":true}'], "fastMode");
   fail(["--provider", "codex", "--model", "gpt-6.1-sol", "--options", '{"serviceTier":"priority"}'], "serviceTier");
   fail(["--provider", "cursor", "--model", "grok-4.7-fast"], "-fast");
+});
+
+test("入口：经符号链接调用（~/.config/devin/skills 形态）照常执行", { skip: process.platform === "win32" }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "route-link-"));
+  try {
+    const link = join(dir, "scripts");
+    symlinkSync(DIR, link);
+    const r = spawnSync(process.execPath, [join(link, "route.mjs"), "check", "--provider", "codex", "--model", "gpt-6-astra"], { encoding: "utf8" });
+    if (r.status !== 1 || !r.stdout.includes("点名")) throw new Error(`符号链接调用应拦下点名模型（exit=${r.status}）: ${r.stdout}${r.stderr}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("check: 点名/不主动调用/顾问不写实现", () => {

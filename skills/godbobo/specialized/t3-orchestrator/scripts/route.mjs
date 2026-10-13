@@ -22,9 +22,9 @@
 //   共享冷却状态  —— quota-state.mjs 的 status（--state-dir 仅供测试）
 //   额度窗口      —— t3-quota.mjs collect()（--quota-file 用文件代替实查；--no-quota 跳过）
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve, dirname } from "node:path";
+import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   SWE2_FREE_UNTIL,
@@ -694,7 +694,7 @@ function renderTable({ MODELS: ms, ROUTES: rs, DOWNGRADE: dg }) {
 
 // ---------- main ----------
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const KNOWN = new Set(["select", "named", "check", "audit", "table", "tasks"]);
   const [cmd, ...rest] = process.argv.slice(2);
   const isCmd = KNOWN.has(cmd);

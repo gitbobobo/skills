@@ -16,9 +16,9 @@
 //   - GLM Coding Plan：GET <host>/api/monitor/usage/quota/limit
 //   - Factory Droid：GET https://api.factory.ai/api/billing/limits
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const HOME = homedir();
@@ -462,7 +462,7 @@ function formatRow(row) {
   return `${name} ${parts.join(" | ")}`;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const rows = await collect();
   if (process.argv.includes("--json")) console.log(JSON.stringify(rows, null, 2));
   else console.log(rows.map(formatRow).join("\n"));

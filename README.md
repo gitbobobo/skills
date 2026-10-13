@@ -161,7 +161,7 @@ create-verification-skill 生成的验证技能的维护回路：逐功能核查
 
 ### check
 
-仓库一致性检查：AGENTS/CLAUDE 一致、技能 frontmatter 与 README 小节、分叉来源标注、scripts 登记、`disable-model-invocation` 标注。改动技能或 README 后运行。
+仓库一致性检查：AGENTS/CLAUDE 一致、技能 frontmatter 与 README 小节、分叉来源标注、scripts 登记、`disable-model-invocation` 标注、技能测试全绿、脚本主入口判断经 `realpathSync`（技能经符号链接安装时不静默空转）。改动技能或 README 后运行。
 
 ```bash
 node scripts/check.mjs

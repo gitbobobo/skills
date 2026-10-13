@@ -2,7 +2,8 @@
 // User-level failure cache. No credentials, workspace state, or raw error messages.
 import { mkdir, readFile, writeFile, rename, unlink, rmdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { realpathSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
@@ -113,7 +114,7 @@ export async function operate(dir, command, options = {}, now = Date.now()) {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   try {
     const args = process.argv.slice(2);
     const command = args.shift();

@@ -12,6 +12,7 @@
 //   5. scripts/ 下的 .mjs/.py 工具在 README 中有链接
 //   6. 带 disable-model-invocation: true 的技能，README 小节写明「仅限用户主动调用」（单向：反过来不强制）
 //   7. skills/**/*.test.mjs 全部通过（node --test）
+//   8. 技能脚本的主入口判断经 realpathSync 解析 argv[1]（技能常经符号链接安装，否则静默不执行）
 
 import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -92,25 +93,33 @@ for (const f of readdirSync(scriptsDir)) {
 }
 
 // 6. 技能脚本测试
-function* walkFiles(dir, depth = 0) {
+function* walkFiles(dir, accept, depth = 0) {
   if (depth > 6) return;
   for (const e of readdirSync(dir)) {
     if (e.startsWith(".") || e === "node_modules") continue;
     const p = join(dir, e);
     if (statSync(p).isDirectory()) {
-      yield* walkFiles(p, depth + 1);
+      yield* walkFiles(p, accept, depth + 1);
       continue;
     }
-    if (e.endsWith(".test.mjs")) yield p;
+    if (accept(e)) yield p;
   }
 }
-const testFiles = [...walkFiles(skillsDir)];
+const testFiles = [...walkFiles(skillsDir, (e) => e.endsWith(".test.mjs"))];
 if (testFiles.length) {
   const r = spawnSync(process.execPath, ["--test", ...testFiles], { encoding: "utf8" });
   if (r.status !== 0) {
     const out = `${r.stdout ?? ""}\n${r.stderr ?? ""}`.trim().split("\n").slice(-30).join("\n");
     fail(`脚本测试未通过（${testFiles.length} 个测试文件）：\n${out}`);
   }
+}
+
+// 8. 主入口判断：import.meta.url 是真实路径，argv[1] 可能是符号链接（~/.config/devin/skills/* → ~/.agents/skills/*）
+const MAIN_GUARD = /import\.meta\.url\s*===\s*pathToFileURL\(\s*(?!realpathSync\()/;
+for (const p of walkFiles(skillsDir, (e) => /\.m?js$/.test(e))) {
+  const lines = readFileSync(p, "utf8").split("\n");
+  const i = lines.findIndex((l) => MAIN_GUARD.test(l));
+  if (i >= 0) fail(`${relative(ROOT, p).split(sep).join("/")}:${i + 1}：主入口判断须写成 \`import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href\`（realpathSync 来自 node:fs），否则经符号链接调用时静默不执行`);
 }
 
 if (fails.length) {
