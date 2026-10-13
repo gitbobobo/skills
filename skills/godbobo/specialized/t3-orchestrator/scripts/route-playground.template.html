@@ -165,7 +165,7 @@ function gateEntry(item,named){
   if (item.status==='named'&&!named) reasons.push('仅限用户点名');
   if (BANNED_PROVIDERS[item.provider]) reasons.push(`${item.provider} ${BANNED_PROVIDERS[item.provider]}`);
   const rule=PROVIDER_RULES[item.provider];
-  if (rule?.allowModels && !rule.allowModels.includes(item.id) && !(named&&rule.namedExempt)) reasons.push(`${item.provider} 白名单仅 ${rule.allowModels.join(' / ')}`);
+  if (rule?.allowModels && !rule.allowModels.includes(item.id)) reasons.push(`${item.provider} 白名单仅 ${rule.allowModels.join(' / ')}`);
   const info=capsMap[item.provider];
   if (!info) reasons.push('实例不在 capabilities 清单');
   else if (S.provOff.has(item.provider)) reasons.push('实例不可派子任务'+(info.constraints?.length?`（${info.constraints.join('; ')}）`:''));

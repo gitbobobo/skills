@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { applyExpiryDemote, expandRoute, loadProviders, validateOptions, injectOptions, auditRouteData } from "./route.mjs";
+import { applyExpiryDemote, expandRoute, lockViolations, loadProviders, validateOptions, injectOptions, auditRouteData } from "./route.mjs";
 import { MODELS, ROUTES, SWE2_FREE_UNTIL, VERIFIED_OPTION_VALUES, EFFORT_STANDARD, EFFORT_OPTION_IDS, EFFORT_EXCEPTIONS } from "./route-data.mjs";
 
 const DIR = dirname(fileURLToPath(import.meta.url));
@@ -24,7 +24,6 @@ const QUOTA_OK = [
   { key: "cursor", windows: [{ label: "总额", usedPercent: 30, resetMs: Date.now() + 15 * 864e5 }, { label: "API", usedPercent: 20, resetMs: Date.now() + 15 * 864e5 }, { label: "Cursor 模型", usedPercent: 50, resetMs: Date.now() + 15 * 864e5 }], extras: [] },
   { key: "devin", windows: [{ label: "周", usedPercent: 40, resetMs: Date.now() + 4 * 864e5 }], extras: [] },
   { key: "glm", windows: [{ label: "周", usedPercent: 10, resetMs: Date.now() + 4 * 864e5 }], extras: [] },
-  { key: "opencode-go", windows: [{ label: "月", usedPercent: 30, resetMs: Date.now() + 20 * 864e5 }], extras: [] },
   { key: "droid", windows: [{ label: "月", usedPercent: 25, resetMs: Date.now() + 20 * 864e5 }], extras: [] },
 ];
 
@@ -61,12 +60,27 @@ test("check: claudeAgent 假名恒红", () => {
   ok(["--provider", "claudeAgent", "--model", "glm-5.3-flash[1m]"]);
 });
 
-test("check: opencode 白名单", () => {
-  ok(["--provider", "opencode", "--model", "opencode-go/glm-5.3-flash"]);
-  ok(["--provider", "opencode", "--model", "opencode-go/deepseek-v4.1-flash"]);
-  fail(["--provider", "opencode", "--model", "opencode-go/grok-4.7"], "$15");
-  fail(["--provider", "opencode", "--model", "opencode/claude-opus-5-5"]);
-  ok(["--provider", "opencode", "--model", "opencode-go/grok-4.7", "--user-named"]);
+test("check: cursor 只用 grok，三方模型恒红（用户点名也不豁免）", () => {
+  ok(["--provider", "cursor", "--model", "grok-4.6"]);
+  ok(["--provider", "cursor", "--model", "grok-4.7"]);
+  for (const model of ["claude-opus-5-5", "claude-sonnet-5-5", "kimi-k3", "glm-5p3-flash", "gpt-6.1-sol"]) {
+    fail(["--provider", "cursor", "--model", model], "三方模型");
+    fail(["--provider", "cursor", "--model", model, "--user-named"], "三方模型");
+  }
+});
+
+test("check: grok 只走 cursor、GLM 5.3 Flash 只走 claudeAgent（用户点名也不豁免）", () => {
+  fail(["--provider", "acpRegistry_devin", "--model", "grok-4-6-medium", "--user-named"], "只能走 cursor");
+  fail(["--provider", "acpRegistry_factory_droid", "--model", "grok-4.7", "--options", '{"autonomy_level":"auto-high"}', "--user-named"], "只能走 cursor");
+  fail(["--provider", "acpRegistry_devin", "--model", "glm-5-3-flash-max", "--user-named"], "只能走 claudeAgent");
+  fail(["--provider", "acpRegistry_factory_droid", "--model", "glm-5.3-flash", "--options", '{"autonomy_level":"auto-high"}', "--user-named"], "只能走 claudeAgent");
+});
+
+test("route-data: 全部入口满足 harness 白名单与模型锁定", () => {
+  const bad = [];
+  for (const [key, m] of Object.entries(MODELS))
+    for (const e of m.entries) for (const r of lockViolations(e.provider, e.id)) bad.push(`${key}: ${r}`);
+  if (bad.length) throw new Error(bad.join("\n"));
 });
 
 test("check: 快速模式恒红", () => {
@@ -89,19 +103,19 @@ test("入口：经符号链接调用（~/.config/devin/skills 形态）照常执
 
 test("check: 点名/不主动调用/顾问不写实现", () => {
   fail(["--provider", "codex", "--model", "gpt-6-astra"], "点名");
-  fail(["--provider", "cursor", "--model", "kimi-k3"]);
-  ok(["--provider", "cursor", "--model", "kimi-k3", "--user-named"]);
+  fail(["--provider", "acpRegistry_devin", "--model", "kimi-k3-high"], "点名");
+  ok(["--provider", "acpRegistry_devin", "--model", "kimi-k3-high", "--user-named"]);
   fail(["--provider", "claudeAgent_kimi", "--model", "kimi-k3"]);
   fail(["--provider", "claudeAgent_minimax", "--model", "minimax-m3"]);
   fail(["--provider", "acpRegistry_factory_droid", "--model", "glm-5.3", "--options", '{"autonomy_level":"auto-high"}']);
-  fail(["--provider", "cursor", "--model", "claude-opus-5-5", "--role", "implementation"], "顾问");
+  fail(["--provider", "acpRegistry_devin", "--model", "claude-opus-5-5-medium", "--role", "implementation"], "顾问");
   fail(["--provider", "codex", "--model", "gpt-6.1-sol", "--role", "implementation"], "顾问");
-  ok(["--provider", "cursor", "--model", "claude-opus-5-5", "--role", "review"]);
+  ok(["--provider", "acpRegistry_devin", "--model", "claude-opus-5-5-medium", "--role", "review"]);
 });
 
 test("check: 清单外组合红（用户点名降级为 warn）", () => {
-  fail(["--provider", "cursor", "--model", "gpt-6.1-sol"], "不在 route-data.mjs");
-  ok(["--provider", "cursor", "--model", "gpt-6.1-sol", "--user-named"]);
+  fail(["--provider", "codex", "--model", "gpt-5.6"], "不在 route-data.mjs");
+  ok(["--provider", "codex", "--model", "gpt-5.6", "--user-named"]);
 });
 
 test("check: droid 选项名", () => {
@@ -146,16 +160,16 @@ test("select: --exclude 按展开顺序递补（同模型入口先于下一行�
     ]);
     if (r.status !== 0) throw new Error(r.stdout + r.stderr);
     const m = pick(r);
-    if (m?.[1] !== "opencode" || m?.[2] !== "opencode-go/glm-5.3-flash") throw new Error(`同模型递补顺序错误: ${r.stdout}`);
+    if (m?.[1] !== "codex" || m?.[2] !== "gpt-6-luna") throw new Error(`应递补行内下一候选: ${r.stdout}`);
     const r2 = run([
       "select", "--task", "low",
       "--exclude", "claudeAgent/glm-5.3-flash[1m]",
-      "--exclude", "opencode/opencode-go/glm-5.3-flash",
+      "--exclude", "codex/gpt-6-luna",
       ...f.base,
     ]);
     const m2 = pick(r2);
-    // 同模型第三入口 droid 应先于行内下一候选 deepseek
-    if (m2?.[1] !== "acpRegistry_factory_droid" || m2?.[2] !== "glm-5.3-flash")
+    // luna 的 devin 入口应先于行内下一候选 swe-2
+    if (m2?.[1] !== "acpRegistry_devin" || m2?.[2] !== "gpt-6-luna-medium")
       throw new Error(`same-model 应优先于下一行候选: ${r2.stdout}`);
   } finally {
     f.cleanup();
@@ -170,7 +184,7 @@ test("select: 实例不可派子任务时整实例跳过", () => {
     writeFileSync(f.caps, JSON.stringify(caps));
     const r = run(["select", "--task", "low", ...f.base]);
     const m = pick(r);
-    if (m?.[1] !== "opencode") throw new Error(`应跳到 opencode: ${r.stdout}`);
+    if (m?.[1] !== "codex") throw new Error(`应跳到 codex luna: ${r.stdout}`);
     if (!r.stdout.includes("claudeAgent/glm-5.3-flash[1m]")) throw new Error(`skipped 应列出被跳过的首选: ${r.stdout}`);
   } finally {
     f.cleanup();
@@ -212,15 +226,12 @@ test(
           records: { "pool:devin": { kind: "quota", failures: 1, retryAt: Date.now() + 36e5, generation: "test-gen" } },
         }),
       );
-      // droid 不可派 + cursor 两池额度打满：ui 行只剩 swe-2 可用
+      // droid 不可派 + cursor 额度打满：ui 行只剩 swe-2 可用
       const caps = JSON.parse(JSON.stringify(CAPS));
       caps.providers.find((p) => p.providerInstanceId === "acpRegistry_factory_droid").canRunChildTask = false;
       writeFileSync(f.caps, JSON.stringify(caps));
       const quota = JSON.parse(JSON.stringify(QUOTA_OK));
-      quota.find((r) => r.key === "cursor").windows = [
-        { label: "API", usedPercent: 95, resetMs: Date.now() + 15 * 864e5 },
-        { label: "Cursor 模型", usedPercent: 95, resetMs: Date.now() + 15 * 864e5 },
-      ];
+      quota.find((r) => r.key === "cursor").windows = [{ label: "Cursor 模型", usedPercent: 95, resetMs: Date.now() + 15 * 864e5 }];
       writeFileSync(f.quota, JSON.stringify(quota));
       const r = run(["select", "--task", "ui", ...f.base]);
       const m = pick(r);
@@ -233,17 +244,14 @@ test(
   },
 );
 
-test("EXPIRY_DEMOTE: 免费期后 implementation 行 swe-2 降到 grok-4.6 之后", () => {
-  const expired = applyExpiryDemote("implementation", ROUTES.implementation, false).map((c) => c.model);
-  const want = ["glm-5.3-flash", "grok-4.6", "swe-2", "sonnet-5.5"];
-  if (JSON.stringify(expired) !== JSON.stringify(want)) throw new Error(`过期后行序错: ${expired.join(",")}`);
-  const free = applyExpiryDemote("implementation", ROUTES.implementation, true).map((c) => c.model);
-  if (free[1] !== "swe-2") throw new Error(`免费期内 swe-2 应紧随 glm: ${free.join(",")}`);
-  // 展开流层面：过期后 grok-4.6 全部入口排在 swe-2 之前
-  const ids = expandRoute("implementation", false).map((s) => `${s.provider}/${s.id}`);
-  const swe = ids.indexOf("acpRegistry_devin/swe-2-high");
-  const lastGrok = ids.lastIndexOf("acpRegistry_factory_droid/grok-4.6");
-  if (!(swe > -1 && lastGrok > -1 && swe > lastGrok)) throw new Error(`展开后 swe-2 应排在 grok-4.6 全部入口之后: ${ids.join(",")}`);
+test("implementation 行：GLM flash → SWE-2 → grok-4.6，免费期前后不变（用户定）", () => {
+  const want = ["glm-5.3-flash", "swe-2", "grok-4.6"];
+  for (const free of [true, false]) {
+    const row = applyExpiryDemote("implementation", ROUTES.implementation, free).map((c) => c.model);
+    if (JSON.stringify(row.slice(0, 3)) !== JSON.stringify(want)) throw new Error(`free=${free} 行序错: ${row.join(",")}`);
+    const ids = expandRoute("implementation", free).map((s) => `${s.provider}/${s.id}`);
+    if (!(ids.indexOf("acpRegistry_devin/swe-2-high") < ids.indexOf("cursor/grok-4.6"))) throw new Error(`free=${free} 展开后 swe-2 应在 grok-4.6 之前: ${ids.join(",")}`);
+  }
 });
 
 test("select: review + implementer 同家族后移", () => {
@@ -345,10 +353,10 @@ test("audit: 裁剪夹具上 route-data 全部入口 0 问题", () => {
 
 test("injectOptions: fastMode 只在目录规格存在时注入", () => {
   const { providers } = loadProviders(CAPS_FILE);
-  const opus = injectOptions({ provider: "cursor", id: "claude-opus-5-5", options: { effort: "high" } }, providers);
-  if (opus.fastMode !== false) throw new Error(`cursor/claude-opus-5-5 有 fastMode，应注入 false: ${JSON.stringify(opus)}`);
-  const sonnet = injectOptions({ provider: "cursor", id: "claude-sonnet-5-5", options: {} }, providers);
-  if ("fastMode" in sonnet) throw new Error(`cursor/claude-sonnet-5-5 无 fastMode，不应注入: ${JSON.stringify(sonnet)}`);
+  const grok = injectOptions({ provider: "cursor", id: "grok-4.6", options: { effort: "high" } }, providers);
+  if (grok.fastMode !== false) throw new Error(`cursor/grok-4.6 有 fastMode，应注入 false: ${JSON.stringify(grok)}`);
+  const sonnet = injectOptions({ provider: "acpRegistry_factory_droid", id: "claude-sonnet-5-5", options: {} }, providers);
+  if ("fastMode" in sonnet) throw new Error(`droid/claude-sonnet-5-5 无 fastMode，不应注入: ${JSON.stringify(sonnet)}`);
   const glm = injectOptions({ provider: "claudeAgent", id: "glm-5.3-flash[1m]", options: {} }, providers);
   if ("fastMode" in glm) throw new Error(`claudeAgent/glm-5.3-flash[1m] 无任何选项，不应注入: ${JSON.stringify(glm)}`);
 });
@@ -400,9 +408,9 @@ test("select: 超过 4 次尝试上限退出 1", () => {
     const r = run([
       "select", "--task", "low",
       "--exclude", "claudeAgent/glm-5.3-flash[1m]",
-      "--exclude", "opencode/opencode-go/glm-5.3-flash",
-      "--exclude", "acpRegistry_factory_droid/glm-5.3-flash",
-      "--exclude", "acpRegistry_devin/glm-5-3-flash-max",
+      "--exclude", "codex/gpt-6-luna",
+      "--exclude", "acpRegistry_devin/gpt-6-luna-medium",
+      "--exclude", "acpRegistry_factory_droid/gpt-6-luna",
       ...f.base,
     ]);
     if (r.status !== 1 || !r.stdout.includes("4 次")) throw new Error(`应拒绝第 5 次: ${r.status} ${r.stdout}`);

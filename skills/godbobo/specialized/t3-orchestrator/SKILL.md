@@ -15,7 +15,7 @@ description: T3 Code 多 harness 编排：主代理按任务难度和各 harness
 
 **选哪个 harness、哪个模型，不查文档、不自己判断，一律跑 `route.mjs`。** 固定输入固定输出：任务类型和已试入口进去，`PICK` 出来就是 `delegate_task` 的 `target`（`options` 已按规则注入好）。
 
-硬性规则（快速模式全禁、点名专用模型、不主动调用清单、顾问模型不写实现、各 harness 白名单、droid 选项名、单任务最多 4 次尝试）全部编码在 `scripts/route-data.mjs` 和 `route.mjs` 里，脚本能拦住的就别靠记忆；`route.mjs table` 可查看当前生效的全部规则数据。
+硬性规则（快速模式全禁、点名专用模型、不主动调用清单、顾问模型不写实现、各 harness 白名单与模型锁定入口、droid 选项名、单任务最多 4 次尝试）全部编码在 `scripts/route-data.mjs` 和 `route.mjs` 里，脚本能拦住的就别靠记忆；`route.mjs table` 可查看当前生效的全部规则数据。
 
 ```bash
 # 选目标：--task 分类进去，pick/alternatives/skipped 出来
@@ -44,7 +44,7 @@ node <技能目录>/scripts/route-playground.mjs [--caps-file ...] [--quota-file
 ## 开工前
 
 1. 调一次 `orchestrator_capabilities` 并把返回 JSON 落盘（例如 `/tmp/t3-caps.json`），route.mjs 的 `--caps-file` 用它判断 `canRunChildTask`、模型清单和选项名。MCP 工具没出现时，按 T3 注入的说明直接调用一次，或用 `acp-mcp-call` 兜底（具体语法见 `t3-code` 技能）输出重定向到文件。落盘后跑 `route.mjs audit --caps-file /tmp/t3-caps.json` 核对路由数据与目录一致（输出问题即按提示修 route-data.mjs）。
-2. 运行 `node ~/.agents/skills/t3-orchestrator/scripts/t3-quota.mjs` 查看额度（`--json` 给 route.mjs 用，它会自己调）。它用本机凭证直查所有 harness（Codex、Cursor、Devin、GLM、opencode go、Droid），不依赖 T3 缓存。
+2. 运行 `node ~/.agents/skills/t3-orchestrator/scripts/t3-quota.mjs` 查看额度（`--json` 给 route.mjs 用，它会自己调）。它用本机凭证直查所有 harness（Codex、Cursor、Devin、GLM、Droid），不依赖 T3 缓存。
 3. 读取共享失败状态：`node <技能目录>/scripts/quota-state.mjs status`。每次换路也读；用法与池边界见 [references/quota-state.md](references/quota-state.md)。
 4. 指定实现、独立审查和最终验证三类职责。最终验证默认由主代理负责，也可明确交给一个验证子代理；整个任务始终只有一个最终验证负责人，交接时先结束旧负责人的检查。
 

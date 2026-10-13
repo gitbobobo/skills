@@ -11,8 +11,6 @@
 //     → GET cursor.com/api/usage-summary
 //   - Devin：~/.local/share/devin/credentials.toml 的 windsurf_api_key
 //     → GET app.devin.ai/api/<org>/billing/quota/usage（org 取 ~/.config/devin/config.json）
-//   - opencode go：~/.local/share/opencode/auth.json 的 opencode-go key
-//     → GET opencode.ai/zen/go/v1/usage
 //   - GLM Coding Plan：GET <host>/api/monitor/usage/quota/limit
 //   - Factory Droid：GET https://api.factory.ai/api/billing/limits
 import { execFileSync } from "node:child_process";
@@ -257,34 +255,6 @@ async function devinRow() {
   }
 }
 
-// --- opencode go ---
-
-async function opencodeRow() {
-  const key = "opencode-go";
-  const authPath = join(process.env.XDG_DATA_HOME || join(HOME, ".local", "share"), "opencode", "auth.json");
-  const auth = readJson(authPath);
-  const apiKey = process.env.OPENCODE_API_KEY || auth?.["opencode-go"]?.key || auth?.opencode?.key;
-  if (!apiKey) return { key, note: `未找到 API key（${authPath} 的 opencode-go，或 OPENCODE_API_KEY）`, windows: [], extras: [] };
-  try {
-    const body = await getJson("https://opencode.ai/zen/go/v1/usage", {
-      authorization: `Bearer ${apiKey}`,
-      accept: "application/json",
-    });
-    const usage = body?.usage;
-    if (!usage?.rolling) return { key, note: "查询失败（返回格式无法识别）", windows: [], extras: [] };
-    const windows = [
-      ["rolling", "5h"],
-      ["weekly", "周"],
-      ["monthly", "月"],
-    ]
-      .filter(([field]) => usage[field] && Number.isFinite(usage[field].percent))
-      .map(([field, label]) => ({ label, usedPercent: usage[field].percent, resetMs: Date.parse(usage[field].resetsAt) }));
-    return { key, windows, extras: [], note: windows.length ? undefined : "无额度窗口" };
-  } catch (error) {
-    return { key, note: `查询失败（${error.message}）`, windows: [], extras: [] };
-  }
-}
-
 // --- GLM Coding Plan（claudeAgent 实例走的账号） ---
 
 function resolveGlmCredential() {
@@ -432,10 +402,10 @@ async function droidRow() {
   }
 }
 
-const DISPLAY = { codex: "codex", cursor: "cursor", devin: "devin", glm: "glm (claudeAgent)", "opencode-go": "opencode-go", droid: "droid (factory_droid)" };
+const DISPLAY = { codex: "codex", cursor: "cursor", devin: "devin", glm: "glm (claudeAgent)", droid: "droid (factory_droid)" };
 
 export async function collect() {
-  const jobs = [codexRow, cursorRow, devinRow, glmRow, opencodeRow, droidRow];
+  const jobs = [codexRow, cursorRow, devinRow, glmRow, droidRow];
   return Promise.all(
     jobs.map((fn) =>
       fn().catch((error) => ({ key: fn.name.replace(/Row$/, ""), note: `查询失败（${error.message}）`, windows: [], extras: [] })),

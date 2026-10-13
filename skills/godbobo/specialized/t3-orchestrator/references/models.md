@@ -10,16 +10,13 @@
 
 | 池 ID | 实例 | 额度怎么看 | 说明 |
 |---|---|---|---|
-| `cursor-grok` | `cursor` 上的 grok-4.x | 脚本可读（「Cursor 模型」月窗口 = Dashboard 的 Cursor Models，含 Composer；Grok Bot 周额度与此无关） | 包含用量明显多，主力池 |
-| `cursor-api` | `cursor` 上的 Opus、GPT、Gemini 等 | 脚本可读（API 月窗口） | 按 API 价扣费，各路由末位入口（claude 系 cursor 入口全走本池） |
+| `cursor-grok` | `cursor` 上的 grok-4.x | 脚本可读（「Cursor 模型」月窗口 = Dashboard 的 Cursor Models，含 Composer；Grok Bot 周额度与此无关） | 包含用量明显多，主力池；grok 系列只走这里 |
 | `codex-pro` | `codex` | 脚本可读（5h、周） | 更高推理档多耗额度；Astra 约是 Sol 的 3 倍，只限点名 |
 | `devin` | `acpRegistry_devin`（脚本里 `devin` 行的周额度是同一账号） | 脚本可读（周） | swe-2 免费期内不占额度（用户确认 10-15 截止，脚本常量 `SWE2_FREE_UNTIL`）；周额度 100% 时 swe-2 仍可用，其他模型不行。思考档用 `thought_level` 选项传入：服务端实测只收 medium/high/max；目录取值集会漂移（曾短暂列出五档），以 `VERIFIED_OPTION_VALUES` 为准，详见「选项与档位」；slug 的 `-medium/-high/-max` 后缀只是默认档；各入口统一 high，swe-2 免费期内例外用 max（见「选项与档位」） |
-| `glm-plan` | `claudeAgent` | 脚本直接查询（5h、MCP 月） | 只用 `glm-5.3-flash[1m]`；额度充足；闲时（含周末）半价 |
-| `opencode-go` | `opencode` 上的 `opencode-go/*` | 脚本可读（5h、周、月，聚合窗口） | $10 档按模型独立计月限（5h=20%、周=50%、月=100%）：只允许 `glm-5.3-flash` 与 `deepseek-v4.1-flash`（$60/月档）；其余 go 模型 $15–30/月不用，`opencode/` 前缀是 Zen 按量 |
+| `glm-plan` | `claudeAgent` | 脚本直接查询（5h、MCP 月） | 只用 `glm-5.3-flash[1m]`，也是 GLM 5.3 Flash 唯一入口；额度充足；闲时（含周末）半价 |
 | `factory` | `acpRegistry_factory_droid` | 脚本直接查询，需要 `FACTORY_API_KEY` | 模型最全，适合作为同模型的备用入口。需 droid ≥0.234.0（修复 acp-daemon `--mcp-servers`，[Factory-AI/factory#9](https://github.com/Factory-AI/factory/issues/9)）。选项名是 `reasoning_effort`（snake_case）和 `autonomy_level`（调度一律传 `auto-high`），不是 `reasoningEffort` |
 | — | `claudeAgent_kimi`（没有订阅）、`claudeAgent_minimax`（能力太差） | — | 不主动调用；用户点名也要先提醒 |
-
-opencode Go $10 档分模型月限（2026-10-10 核对官方文档）：$60/月档 = glm-5.3-flash、glm-5.2、kimi-k2.7-code、kimi-k2.6、longcat-2.0、mimo-v2.6-flash、mimo-v2.5、minimax-m3、minimax-m2.7、muse-spark 1.2/1.3、qwen3.7-plus、deepseek-v4.1-flash、hy3；$30/月档 = qwen3.8-flash、deepseek-v4-flash、hy4-preview、space-bunny；其余（grok-4.x、claude-haiku-5-5、gpt-*-luna、glm-5.3、kimi-k3、qwen3.8-max、deepseek-v4-pro、mimo-pro 等）仅 $15/月。限额耗尽后请求被拦；console「Use balance」开启时会回落到 Zen 余额扣真钱。分模型耗尽表现为入口级 429，聚合探针看不出是哪个模型。
+| — | `cursor` 上的三方模型（Opus、GPT、Gemini、Kimi、GLM 等） | — | 下月下线，任何情况都不调用（用户点名也不行） |
 
 ## 模型画像
 
@@ -33,9 +30,7 @@ opencode Go $10 档分模型月限（2026-10-10 核对官方文档）：$60/月�
 | Grok 4.7 | 自动 | 前沿，长任务 | FrontierCode high 47.6%（$6.65）；CursorBench xhigh 46.3% | 审查（用户实测适合）、长时程任务、自我验证、文档类知识工作 | 慢（小任务均 177s，Opus 34s），输出 token 约 4.5 倍；UI 口碑一般；500k 上下文双倍价 |
 | Grok 4.6 | 自动 | 前沿偏下 | FrontierCode high 48.0%（$2.88） | 同池里比 4.7 更省 | 长终端任务弱 |
 | Sonnet 5.5 | 自动 | 准前沿，性价比向 | FrontierCode xhigh 52.1%（max 46.2%，Anthropic 自报 max 跑法依赖 code-review 技能被扣 scope 分）；CursorBench xhigh 53.1%（$2.81）、high 47.8%（$1.20） | 实现兜底 | max 档不升反降 |
-| Haiku 5.5 | 自动，低难度优先 | 便宜档最强 | FrontierCode max 46.4%；CursorBench xhigh 44.3%（$0.56）、high 42.3%（$0.32） | 低难度、批量，分数远超同档 | droid 上没有；步数偏多 |
 | GLM 5.3 Flash | 自动，低难度优先 | 便宜，额度充足 | CursorBench max 36.8%，$0.39 | 低难度、批量；原生多模态，能看截图 | 能力有上限 |
-| DeepSeek V4.1 Flash | 自动，低难度优先 | 便宜，额度充足 | 厂商数据为主，未上第三方榜 | 低难度、批量 | 上一代在 FrontierCode 有违规联网记录 |
 | GPT-6 Luna | 自动，低难度优先 | 极便宜，额度充足 | FrontierCode max 42.4%，$0.10 | 低难度、批量 | 工具坏了时有 28.7% 不告诉用户，必须严格验收 |
 | GPT-6 Astra | 点名 | 旗舰 | FrontierCode max 53.3%；Frontend Arena 第 1 | 难 bug、前端 UI | 额度消耗太快 |
 | Fable 5.1 | 点名 | 顶级 | Frontend Arena 第 2；$10/$50 | UI、写作、超大问题 | 额度消耗太快；输出不稳定 |
@@ -60,13 +55,12 @@ opencode Go $10 档分模型月限（2026-10-10 核对官方文档）：$60/月�
 | devin | `thought_level` | 服务端只收 medium/high/max；目录取值集会漂移 |
 | codex | `reasoningEffort` | 另有 `serviceTier`，保持 default 不用 priority |
 | droid | `reasoning_effort` | snake_case；另有必传的 `autonomy_level`（调度一律 auto-high） |
-| cursor | `effort` / `reasoning_effort` / `reasoning` | 随模型而异，须逐模型看目录；部分模型还有 `fastMode`、`contextWindow`、`thinking` |
-| opencode | `variant` | 另有 `agent` |
+| cursor | `effort` / `reasoning_effort` | 随模型而异，须逐模型看目录；grok 还有 `fastMode`、`contextWindow` |
 | claudeAgent | 无 | `glm-5.3-flash[1m]` 一个选项都没有 |
 
 档位取值规则（用户定）：**主代理派发一律 `high`**。每个入口显式声明一个档位选项且值为 `high`，不依赖 slug 后缀和 harness 默认；偏离必须登记到 `route-data.mjs` 的 `EFFORT_EXCEPTIONS` 并写明 `reason`，由 `route.test.mjs` 强制校验。例外分两种：`claudeAgent/glm-5.3-flash[1m]` 目录里没有任何选项可设（无 `value`）；`acpRegistry_devin/swe-2-high` 免费期内用 `max`（FrontierCode 实测最优档，免费期不占额度），登记了 `until: SWE2_FREE_UNTIL`——有期限的优惠必须登记 `until`，到期由 `route.mjs` 的 `injectOptions` 自动回落 `high`，路由数据里声明的仍是真实意图值。
 
-目录取值集会漂移，不能只信目录：2026-10-11 19:24 实时目录与本机缓存都把 devin 全部 122 个模型的 `thought_level` 列成五档，19:29 两者都回落到三档；服务端校验在这两个时间点始终只收 medium/high/max。实测收窄集记录在 `route-data.mjs` 的 `VERIFIED_OPTION_VALUES`，校验时生效集 = 目录集 ∩ 收窄集。探测方法（2026-10-11）：`delegate_task` 同时传一个必然非法的 `mode` 值，请求被选项校验拦下、不起 agent，报错文本列出该模型真实允许集；覆盖 18 个模型（route-data 全部 13 个 devin 入口 + adaptive/swe-1-7-lightning-medium/swe-1-7-medium/glm-5-2/一个 fusion），结果一致 `medium, high, max`。`low` 一律被拒；`xhigh` 在无活跃会话时偶尔绕过校验返回成功，但不落 `modelSelection`，等于白传。已落库跑通的组合（`orchestration_v2_projection_runs`）：swe-2-high/max、claude-opus-5-5-medium/high、gpt-6-1-sol-medium/high、deepseek-v4-1-flash-high/medium。
+目录取值集会漂移，不能只信目录：devin 目录曾短暂把全部模型的 `thought_level` 列成五档，服务端校验始终只收 medium/high/max。实测收窄集记录在 `route-data.mjs` 的 `VERIFIED_OPTION_VALUES`，校验时生效集 = 目录集 ∩ 收窄集；探测方法见该常量的注释。
 
 `fastMode` 不写进路由数据：`route.mjs` 只在目录规格里确实存在该选项时自动注入 `fastMode:false`（曾按 provider 名猜测，给没有该选项的 cursor 模型传了 `fastMode`，被服务端拒掉）。
 
@@ -88,14 +82,14 @@ node scripts/route.mjs audit --caps-file /tmp/t3-caps.json   # 有问题逐条�
 |---|---|
 | 实际可用的模型 ID 与选项 | `orchestrator_capabilities`；或 `~/.t3/caches/<实例>.json` 的 `models` |
 | 第三方统一榜（排序主依据） | FrontierCode：https://cognition.com/frontiercode；CursorBench：https://cursor.com/cursorbench |
-| 厂商发布与系统卡 | OpenAI https://openai.com/news 与 https://deploymentsafety.openai.com；Anthropic https://www.anthropic.com/news；xAI https://x.ai/news；Cognition https://cognition.com/blog；智谱 https://docs.z.ai；DeepSeek https://api-docs.deepseek.com |
-| 价格与额度规则 | Cursor https://cursor.com/docs/models-and-pricing；Devin https://docs.devin.ai/desktop/models；Codex https://help.openai.com（搜 Codex usage limits）；GLM Coding Plan https://docs.z.ai/devpack/overview；opencode go https://opencode.ai/docs/go/；Factory https://factory.ai/pricing |
+| 厂商发布与系统卡 | OpenAI https://openai.com/news 与 https://deploymentsafety.openai.com；Anthropic https://www.anthropic.com/news；xAI https://x.ai/news；Cognition https://cognition.com/blog；智谱 https://docs.z.ai |
+| 价格与额度规则 | Cursor https://cursor.com/docs/models-and-pricing；Devin https://docs.devin.ai/desktop/models；Codex https://help.openai.com（搜 Codex usage limits）；GLM Coding Plan https://docs.z.ai/devpack/overview；Factory https://factory.ai/pricing |
 | 额度查询接口（脚本失效时对照） | https://github.com/steipete/CodexBar 的 `docs/providers.md`、`docs/zai.md`、`docs/factory.md` |
 | 本机实际表现 | `~/.t3/userdata/statev2.sqlite`，必须以只读方式打开（`sqlite3 "file:...?mode=ro"`），统计 `projection_thread_activities` 中 `runtime.error` 的按 provider 分布 |
 
 ### 标准
 
-1. **只有用户能改的规则**：快速模式、点名专用（`status:"named"`）、不主动调用（`status:"banned"`、`BANNED_PROVIDERS`、白名单）、顾问定位（`status:"advisor"` 不写实现）这四类限制由用户决定。更新时可以提出建议，不能自行改动。
+1. **只有用户能改的规则**：快速模式、点名专用（`status:"named"`）、不主动调用（`status:"banned"`、`BANNED_PROVIDERS`、白名单与模型锁定 `PROVIDER_RULES`/`MODEL_LOCKS`）、顾问定位（`status:"advisor"` 不写实现）这四类限制由用户决定。更新时可以提出建议，不能自行改动。
 2. **排序依据**：先看 FrontierCode 和 CursorBench 的分数和每任务成本；厂商自报数字只用来在第三方数据缺失或分数接近时参考，并在表里注明「厂商」。
 3. **加入自动路由**，须同时满足：
    - 用户现有订阅里至少一个 harness 能用（在 `MODELS` 加 entries，顺序即用户认可的 harness 优先级）；

@@ -31,6 +31,7 @@ import {
   PROVIDER_RULES,
   BANNED_PROVIDERS,
   MODEL_BANS,
+  MODEL_LOCKS,
   MODELS,
   TASKS,
   ROUTES,
@@ -259,6 +260,15 @@ function validateOptions(provider, modelId, options = {}, providers) {
   return problems;
 }
 
+// harness 白名单（PROVIDER_RULES.allowModels）与模型锁定（MODEL_LOCKS）：硬性规则，用户点名也不豁免。
+function lockViolations(provider, model) {
+  const reasons = [];
+  const rule = PROVIDER_RULES[provider];
+  if (rule?.allowModels && !rule.allowModels.includes(model)) reasons.push(`${provider} 只允许 ${rule.allowModels.join(" / ")}（${rule.note}）`);
+  for (const l of MODEL_LOCKS) if (l.match.test(model) && provider !== l.provider) reasons.push(`${model} 只能走 ${l.provider}（${l.reason}）`);
+  return reasons;
+}
+
 // check 子命令用的全部硬性规则；select 对生成的组合也跑一遍兜底。
 // providers 可选：传了才做目录取值校验（check --caps-file），不传维持原有行为。
 function gateCheck({ provider, model, role, options = {}, userNamed = false }, providers) {
@@ -267,14 +277,11 @@ function gateCheck({ provider, model, role, options = {}, userNamed = false }, p
   const resolved = findModel(provider, model);
   const status = resolved?.status;
 
-  // 永远生效：快速模式、claudeAgent 假名、droid 选项
+  // 永远生效：快速模式、harness 白名单与模型锁定、droid 选项
   if (options.fastMode === true || options.fastMode === "true") fails.push("fastMode 必须为 false");
   if (options.serviceTier === "priority") fails.push("codex serviceTier 保持 default，不用 priority");
   if (/-fast\b/i.test(model)) fails.push(`模型名带 -fast（${model}）`);
-  const claudeRule = PROVIDER_RULES.claudeAgent;
-  if (provider === "claudeAgent" && !claudeRule.allowModels.includes(model)) {
-    fails.push(`claudeAgent 只允许 ${claudeRule.allowModels.join(" / ")}；claude-* 是智谱假名，真入口见 route-data.mjs MODELS`);
-  }
+  fails.push(...lockViolations(provider, model));
   if (provider === "acpRegistry_factory_droid") {
     if (options.autonomy_level === undefined) fails.push('factory_droid 任务 options 必须带 {"autonomy_level":"auto-high"}');
     else if (options.autonomy_level !== "auto-high") warns.push(`autonomy_level=${options.autonomy_level}，非 auto-high——确认是用户指定`);
@@ -288,8 +295,6 @@ function gateCheck({ provider, model, role, options = {}, userNamed = false }, p
     if (BANNED_PROVIDERS[provider]) fails.push(`${provider} 不主动调用（${BANNED_PROVIDERS[provider]}）`);
     const ban = MODEL_BANS.find((b) => b.match.test(model));
     if (status === "banned" || ban) fails.push(`${model} 不主动调用（${resolved?.label ?? ""} ${ban?.reason ?? ""}）`.trim());
-    const oc = PROVIDER_RULES.opencode;
-    if (provider === "opencode" && !oc.allowModels.includes(model)) fails.push(`opencode 只允许 ${oc.allowModels.join(" / ")}；${oc.note}`);
     if (status === "advisor" && role === "implementation") fails.push(`${resolved.label} 是顾问/审查专用，不承担 implementation 任务`);
     if (!resolved) fails.push(`${provider}/${model} 不在 route-data.mjs 任何模型的入口清单内，自动调度不得选用`);
   } else {
@@ -376,10 +381,7 @@ function gateEntry(item, ctx, opts) {
   const reasons = [];
   if (item.status === "named") reasons.push("仅限用户点名");
   if (BANNED_PROVIDERS[item.provider]) reasons.push(`${item.provider} ${BANNED_PROVIDERS[item.provider]}`);
-  const rule = PROVIDER_RULES[item.provider];
-  if (rule?.allowModels && !rule.allowModels.includes(item.id) && !(rule.namedExempt && opts["user-named"])) {
-    reasons.push(`${item.provider} 白名单仅 ${rule.allowModels.join(" / ")}`);
-  }
+  reasons.push(...lockViolations(item.provider, item.id));
   const info = ctx.providers.get(item.provider);
   if (!info) reasons.push("实例不在 capabilities/缓存清单");
   else if (!info.runnable) reasons.push(`实例不可派子任务${info.reason ? `（${info.reason}）` : ""}`);
@@ -566,8 +568,7 @@ async function namedCmd(opts) {
     const item = { model: m.key ?? query, family: m.family, status: m.status, vision: m.vision === true, provider: e.provider, id: e.id, options: { ...(e.options ?? {}), ...extraOptions }, pool: e.pool, via: "named" };
     const reasons = [];
     if (BANNED_PROVIDERS[item.provider]) reasons.push(`${item.provider} ${BANNED_PROVIDERS[item.provider]}`);
-    const rule = PROVIDER_RULES[item.provider];
-    if (rule?.allowModels && !rule.allowModels.includes(item.id) && !rule.namedExempt) reasons.push(`${item.provider} 白名单仅 ${rule.allowModels.join(" / ")}（${rule.note ?? ""}）`);
+    reasons.push(...lockViolations(item.provider, item.id));
     const info = ctx.providers.get(item.provider);
     if (!info) reasons.push("实例不在 capabilities/缓存清单");
     else if (!info.runnable) reasons.push(`实例不可派子任务${info.reason ? `（${info.reason}）` : ""}`);
@@ -675,7 +676,7 @@ function auditCmd(opts) {
 // ---------- table / tasks ----------
 
 function tableCmd(opts) {
-  const data = { SWE2_FREE_UNTIL, swe2FreeNow: swe2Free, PROVIDER_RULES, BANNED_PROVIDERS, MODEL_BANS, MODELS, TASKS, ROUTES, DOWNGRADE, POOLS, QUOTA_BLOCK_PERCENT, QUOTA_BLOCK_RESET_MS, MAX_ATTEMPTS };
+  const data = { SWE2_FREE_UNTIL, swe2FreeNow: swe2Free, PROVIDER_RULES, BANNED_PROVIDERS, MODEL_BANS, MODEL_LOCKS, MODELS, TASKS, ROUTES, DOWNGRADE, POOLS, QUOTA_BLOCK_PERCENT, QUOTA_BLOCK_RESET_MS, MAX_ATTEMPTS };
   console.log(opts.json ? JSON.stringify(data, null, 2) : renderTable(data));
 }
 
@@ -716,4 +717,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
   }
 }
 
-export { gateCheck, expandRoute, expandCandidates, applyExpiryDemote, loadProviders, quotaBlock, resolveModel, findModel, validateOptions, injectOptions, auditRouteData };
+export { gateCheck, lockViolations, expandRoute, expandCandidates, applyExpiryDemote, loadProviders, quotaBlock, resolveModel, findModel, validateOptions, injectOptions, auditRouteData };
