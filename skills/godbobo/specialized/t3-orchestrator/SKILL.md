@@ -54,7 +54,7 @@ node <技能目录>/scripts/route-playground.mjs [--caps-file ...] [--quota-file
 
 - `target`：用 route.mjs 输出的 `providerInstanceId`、`model`、`options`，不自行增减选项。
 - `role`：按任务填 `implementation`、`review`、`research`、`design`、`test` 之一。
-- `mode`：委派任务用 `async`，靠完成事件唤醒。派完处理剩余独立工作，然后结束本轮等待事件；不另起监视任务。预计跑 30 分钟以上的任务，派发时同时用 `schedule_task` interval（30–45 分钟，绑定回本线程）挂活性心跳——提示词写「核对在飞子代理活性：`t3_thread_read` 子线程尾部与 provider 日志 mtime 是否仍在增长，零进展按『子代理失败时』处理」；完成事件到达即 `delete_scheduled_task` 撤掉对应心跳。追加修复和复审也新建 `delegate_task`，不能用子线程的 `t3_thread_send` 代替委派。
+- `mode`：委派任务用 `async`，靠完成事件唤醒。派完处理剩余独立工作，然后结束本轮等待事件；不另起监视任务。追加修复和复审也新建 `delegate_task`，不能用子线程的 `t3_thread_send` 代替委派。
 - 保存每轮的 `taskId`、`childThreadId`、`clientRequestId`。taskId 用于 `task_status` / `task_cancel`；childThreadId 只用于读原始证据。每轮 clientRequestId 不同，同一轮工具重试沿用原值，换路增加尝试序号。
 - `runtimeMode`、`interactionMode` 保持继承，不能升级权限。
 
