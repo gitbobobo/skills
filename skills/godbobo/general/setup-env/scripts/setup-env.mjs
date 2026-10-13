@@ -54,11 +54,6 @@ const TARGETS = [
     cli: "claude",
   },
   {
-    harness: "opencode",
-    path: IS_WIN ? join(APPDATA, "opencode", "AGENTS.md") : join(HOME, ".config", "opencode", "AGENTS.md"),
-    cli: "opencode",
-  },
-  {
     // cursor-agent 扫描 ~/.cursor/rules 下的 .mdc；alwaysApply 前置元数据让它始终生效。
     // 不能符号链接到 AGENTS.md——内容需要包裹 frontmatter，只能写派生文件。
     harness: "cursor",

@@ -21,7 +21,6 @@ description: 统一设置本机各 agent harness 的全局代理规则并做环�
 | devin | `~/.config/devin/AGENTS.md` | `%APPDATA%\devin\AGENTS.md` |
 | codex | `~/.codex/AGENTS.md` | `~/.codex/AGENTS.md` |
 | claude / claudeAgent | `~/.claude/CLAUDE.md` | `~/.claude/CLAUDE.md` |
-| opencode | `~/.config/opencode/AGENTS.md` | `%APPDATA%\opencode\AGENTS.md` |
 | cursor | `~/.cursor/rules/global.mdc` | `~\.cursor\rules\global.mdc` |
 | factory droid | `~/.factory/AGENTS.md` | `~\.factory\AGENTS.md` |
 
