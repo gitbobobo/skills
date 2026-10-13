@@ -21,7 +21,7 @@ const CAPS = JSON.parse(readFileSync(CAPS_FILE, "utf8"));
 
 const QUOTA_OK = [
   { key: "codex", windows: [{ label: "周", usedPercent: 10, resetMs: Date.now() + 5 * 864e5 }], extras: [] },
-  { key: "cursor", windows: [{ label: "总额", usedPercent: 30, resetMs: Date.now() + 15 * 864e5 }, { label: "API", usedPercent: 20, resetMs: Date.now() + 15 * 864e5 }, { label: "Grok 周", usedPercent: 50, resetMs: Date.now() + 3 * 864e5 }], extras: [] },
+  { key: "cursor", windows: [{ label: "总额", usedPercent: 30, resetMs: Date.now() + 15 * 864e5 }, { label: "API", usedPercent: 20, resetMs: Date.now() + 15 * 864e5 }, { label: "Cursor 模型", usedPercent: 50, resetMs: Date.now() + 15 * 864e5 }], extras: [] },
   { key: "devin", windows: [{ label: "周", usedPercent: 40, resetMs: Date.now() + 4 * 864e5 }], extras: [] },
   { key: "glm", windows: [{ label: "周", usedPercent: 10, resetMs: Date.now() + 4 * 864e5 }], extras: [] },
   { key: "opencode-go", windows: [{ label: "月", usedPercent: 30, resetMs: Date.now() + 20 * 864e5 }], extras: [] },
@@ -219,7 +219,7 @@ test(
       const quota = JSON.parse(JSON.stringify(QUOTA_OK));
       quota.find((r) => r.key === "cursor").windows = [
         { label: "API", usedPercent: 95, resetMs: Date.now() + 15 * 864e5 },
-        { label: "Grok 周", usedPercent: 95, resetMs: Date.now() + 3 * 864e5 },
+        { label: "Cursor 模型", usedPercent: 95, resetMs: Date.now() + 15 * 864e5 },
       ];
       writeFileSync(f.quota, JSON.stringify(quota));
       const r = run(["select", "--task", "ui", ...f.base]);

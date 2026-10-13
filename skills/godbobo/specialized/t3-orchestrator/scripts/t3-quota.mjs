@@ -8,7 +8,7 @@
 //     → GET <chatgpt_base_url>/backend-api/wham/usage（默认 chatgpt.com）
 //   - Cursor：Cursor.app state.vscdb 的 cursorAuth/accessToken 拼
 //     WorkosCursorSessionToken cookie
-//     → GET cursor.com/api/usage-summary、POST cursor.com/api/dashboard/get-sand-usage-status
+//     → GET cursor.com/api/usage-summary
 //   - Devin：~/.local/share/devin/credentials.toml 的 windsurf_api_key
 //     → GET app.devin.ai/api/<org>/billing/quota/usage（org 取 ~/.config/devin/config.json）
 //   - opencode go：~/.local/share/opencode/auth.json 的 opencode-go key
@@ -212,24 +212,13 @@ async function cursorRow() {
       : plan.limit > 0
         ? (plan.used / plan.limit) * 100
         : Number.NaN;
+    // Dashboard「Cursor Models」= autoPercentUsed（auto 桶含 Composer 与 cursor 上的 grok-4.x），「Other Models」= apiPercentUsed。
+    // get-sand-usage-status 是 Grok Bot 的周额度，Cursor 里用不上，不读。
     const windows = [
       { label: "总额", usedPercent: total, resetMs: cycleEnd },
+      { label: "Cursor 模型", usedPercent: plan.autoPercentUsed, resetMs: cycleEnd },
       { label: "API", usedPercent: plan.apiPercentUsed, resetMs: cycleEnd },
     ];
-    // Grok Bot（Sand）是 Grok 模型的周额度池；失败不影响主结果。
-    try {
-      const sand = await getJson(
-        "https://cursor.com/api/dashboard/get-sand-usage-status",
-        { cookie, origin: "https://cursor.com", "content-type": "application/json", accept: "application/json" },
-        { method: "POST", body: "{}" },
-      );
-      const hasLimit = sand?.includedLimitZero === false || sand?.hasNonZeroIncludedLimit === true;
-      const trialEnd = Date.parse(sand?.sandTrialExpiresAt);
-      const hasTrial = !hasLimit && Number.isFinite(trialEnd) && trialEnd > now;
-      if ((hasLimit || hasTrial) && Number.isFinite(sand?.usagePercent)) {
-        windows.push({ label: "Grok 周", usedPercent: sand.usagePercent, resetMs: hasLimit ? Date.parse(sand.nextResetTimestampUtc) : Number.NaN });
-      }
-    } catch {}
     return { key, windows, extras: [] };
   } catch (error) {
     return { key, note: `查询失败（${error.message}）`, windows: [], extras: [] };

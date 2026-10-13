@@ -316,7 +316,7 @@ export const EXPIRY_DEMOTE = [{ task: "implementation", model: "swe-2", below: "
 // pool 为 null 的入口不查额度（理论上不该出现）。
 export const POOLS = {
   "codex-pro": { quotaKey: "codex", windows: ["周", "月"] }, // 5h 窗口重置必 <24h，不参与拦截
-  "cursor-grok": { quotaKey: "cursor", windows: ["Grok 周"] },
+  "cursor-grok": { quotaKey: "cursor", windows: ["Cursor 模型"] },
   "cursor-api": { quotaKey: "cursor", windows: ["API", "总额"] },
   devin: { quotaKey: "devin", windows: ["日", "周", "月"] },
   "glm-plan": { quotaKey: "glm", windows: ["周", "月", "MCP"] },

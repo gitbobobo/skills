@@ -10,7 +10,7 @@
 
 | 池 ID | 实例 | 额度怎么看 | 说明 |
 |---|---|---|---|
-| `cursor-grok` | `cursor` 上的 grok-4.x | 脚本可读（Grok 周窗口） | 包含用量明显多，主力池 |
+| `cursor-grok` | `cursor` 上的 grok-4.x | 脚本可读（「Cursor 模型」月窗口 = Dashboard 的 Cursor Models，含 Composer；Grok Bot 周额度与此无关） | 包含用量明显多，主力池 |
 | `cursor-api` | `cursor` 上的 Opus、GPT、Gemini 等 | 脚本可读（API 月窗口） | 按 API 价扣费，各路由末位入口（claude 系 cursor 入口全走本池） |
 | `codex-pro` | `codex` | 脚本可读（5h、周） | 更高推理档多耗额度；Astra 约是 Sol 的 3 倍，只限点名 |
 | `devin` | `acpRegistry_devin`（脚本里 `devin` 行的周额度是同一账号） | 脚本可读（周） | swe-2 免费期内不占额度（用户确认 10-15 截止，脚本常量 `SWE2_FREE_UNTIL`）；周额度 100% 时 swe-2 仍可用，其他模型不行。思考档用 `thought_level` 选项传入：服务端实测只收 medium/high/max；目录取值集会漂移（曾短暂列出五档），以 `VERIFIED_OPTION_VALUES` 为准，详见「选项与档位」；slug 的 `-medium/-high/-max` 后缀只是默认档；各入口统一 high，swe-2 免费期内例外用 max（见「选项与档位」） |
