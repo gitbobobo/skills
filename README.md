@@ -35,7 +35,7 @@ PR 推送并请求复审后，持续跟进审查 bot 与 CI，每轮更新账本
 
 ### setup-env
 
-统一设置本机各 agent harness 的全局代理规则（唯一真源 `rules/AGENTS.md`）并做环境体检；区分 Cargo 工具未安装与 PATH 不可见，自动更新过期的 devin exec hook；run-watch 默认有界等待 30 秒，超时保留后台任务。仅限用户主动调用。
+统一设置本机各 agent harness 的全局代理规则（唯一真源 `rules/AGENTS.md`）并做环境体检；区分 Cargo 工具未安装与 PATH 不可见。仅限用户主动调用。
 
 详见 [skills/godbobo/general/setup-env/SKILL.md](skills/godbobo/general/setup-env/SKILL.md)。
 
