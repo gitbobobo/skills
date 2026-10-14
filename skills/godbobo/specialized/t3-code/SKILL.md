@@ -51,7 +51,7 @@ sqlite3 $DB "SELECT type, COUNT(*) FROM orchestration_v2_projection_turn_items G
 派活的策略与操作流程（选模型、写任务模板、换路、验收）是 `$t3-orchestrator` 技能的职责；这里只记工具层面的机制事实。
 
 - `orchestrator_capabilities` 返回活的 provider/模型目录（含自定义模型）；harness 自带的模型清单不是全集。
-- `delegate_task` 参数面：`task`、`target:{providerInstanceId, model}`、`mode`、`clientRequestId`。返回 `taskId`（配 `task_status`/`task_cancel` 管理）和 `childThreadId`（子代理存储线程，可 `t3_thread_read`）。
+- `delegate_task` 参数面：`task`、`target:{providerInstanceId, model}`、`mode`、`clientRequestId`。返回 `taskId`（配 `task_status`/`task_cancel` 管理）和 `childThreadId`（子代理存储线程，可 `t3_thread_read`）。实际派活的规则——`target` 模型选型、`runtimeMode`/`interactionMode` 处理——在 `$t3-orchestrator` 的「派活」段，调用前先读它。
 - 线程与工作区绑定只能在 `t3_thread_launch` 的 `workspaceStrategy` 里设（`worktree`/`existing_worktree`/`root`）；让 agent 自己跑 `git worktree add` 不改变绑定。
 - ACP 通道兜底：T3 MCP 工具缺席且环境有 `T3_ACP_MCP_NODE` 时，走终端
   `ELECTRON_RUN_AS_NODE=1 "$T3_ACP_MCP_NODE" ${T3_ACP_MCP_ENTRYPOINT:+"$T3_ACP_MCP_ENTRYPOINT"} acp-mcp-call <tool> '<json>'`。
@@ -94,7 +94,7 @@ node <技能目录>/scripts/t3-worktree-gc.mjs --root <dir>  # 单独指定扫�
 
 - 少数 ACP 代理收了 MCP 注入但不暴露工具——先用上面的 `acp-mcp-call` 兜底验证一次再下结论。
 - delegated 子代理偶发静默丢失，主代理要做好降级自审。
-- `subagents`/`runs` 投影偶发停在 `running`：子线程实际已完工，`task_status` 却一直返回 running。别只信状态轮询，用 `t3_thread_read` 读 `childThreadId` 尾部判断真实进度。
+- `subagents`/`runs` 投影停在 `running` 有两种真因：子线程实际已完工（投影滞留）；或子代理卡在授权等待——子线程尾部是 `approval_request`/`waiting` 事件，`approval-required` 模式的后台子代理没人批授权就永久挂起，`task_status` 却一直 running。别只信状态轮询，用 `t3_thread_read` 读 `childThreadId` 尾部判断真实进度；授权挂起时批准放行或 `task_cancel` 后按继承模式重派。
 - `mcp__t3-code__*` 偶发报 "Failed to connect to MCP server 't3-code'"，重试即恢复；不行再走 ACP 兜底。
 - `watch_pull_request` 不会在「自己 GitHub 账号发表的评论」上唤醒线程：借用户 token 发结论的 bot 署名就是本账号（已实测确认：watch 注册成功、结论到达后依然无唤醒）；只有真 bot 账号的评论会触发。所以挂 watch 的同时，用 `schedule_task`（`{"type":"interval","everyMs":1800000}`，回到当前线程）挂一个兜底定时任务：到点按 `$pr-review-loop`「意见识别不看作者」重读全部评论，本轮审查者到齐或按无响应规则放弃等待后删除它。
 - `mcp_list_tools` 每次会话都重查完整目录，token 开销不小。

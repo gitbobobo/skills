@@ -1,6 +1,6 @@
 ---
 name: t3-orchestrator
-description: T3 Code 多 harness 编排：主代理按任务难度和各 harness 额度选择子代理模型，通过 t3-code MCP 的 delegate_task 跨 harness 派活、验收，并在子代理遇到限流、额度用尽、服务过载时自动换路续跑。仅限用户主动调用。
+description: T3 Code 多 harness 编排：主代理按任务难度和各 harness 额度选择子代理模型，通过 t3-code MCP 的 delegate_task 跨 harness 派活、验收，并在子代理遇到限流、额度用尽、服务过载时自动换路续跑。仅限用户或技能点名时调用。
 ---
 
 用户调用本技能后，本线程余下的工作都按这里的规则进行。
@@ -56,7 +56,7 @@ node <技能目录>/scripts/route-playground.mjs [--caps-file ...] [--quota-file
 - `role`：按任务填 `implementation`、`review`、`research`、`design`、`test` 之一。
 - `mode`：委派任务用 `async`，靠完成事件唤醒。派完处理剩余独立工作，然后结束本轮等待事件；不另起监视任务。追加修复和复审也新建 `delegate_task`，不能用子线程的 `t3_thread_send` 代替委派。
 - 保存每轮的 `taskId`、`childThreadId`、`clientRequestId`。taskId 用于 `task_status` / `task_cancel`；childThreadId 只用于读原始证据。每轮 clientRequestId 不同，同一轮工具重试沿用原值，换路增加尝试序号。
-- `runtimeMode`、`interactionMode` 保持继承，不能升级权限。
+- `runtimeMode`、`interactionMode` 一律继承，不主动设置——降级同样不行：`approval-required` 的后台子代理每次工具调用都弹人工授权，没人批就永久挂起，而 `task_status` 仍显示 running。「只读审查」这类意图写进任务「范围」，不靠权限模式实现。
 
 规则：
 
