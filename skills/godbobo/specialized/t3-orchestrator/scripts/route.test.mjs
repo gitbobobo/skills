@@ -464,7 +464,7 @@ test("playground: 生成的 HTML 自包含且 JSON 块可解析", () => {
     if (blobs.length !== 3) throw new Error(`应有 3 个 JSON 块: ${blobs.length}`);
     for (const [, , json] of blobs) JSON.parse(json);
     const table = JSON.parse(blobs[0][2]);
-    if (table.SWE2_FREE_UNTIL !== "2026-10-15" || table.MAX_ATTEMPTS !== 4) throw new Error("路由数据注入不完整");
+    if (table.SWE2_FREE_UNTIL !== "2026-11-01" || table.MAX_ATTEMPTS !== 4) throw new Error("路由数据注入不完整");
     const caps = JSON.parse(blobs[1][2]);
     if (!caps.providers.every((p) => p.canRunChildTask === true)) throw new Error("caps 未按 fixture 初始化");
     if (!h.includes("SELFTEST")) throw new Error("沙盒自测块缺失");

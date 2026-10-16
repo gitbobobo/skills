@@ -21,10 +21,11 @@
 //   - MODEL_LOCKS        模型只能走指定 harness
 //   白名单与模型锁定都是硬性规则，用户点名也不豁免。
 
-// SWE-2 免费期：官方写 10-10 或 10-15 截止，用户确认 10-15（2026-10-11 仍在免费期内）。
+// SWE-2 免费期：官方写 10-10 或 10-15 截止，后延长到本月底；2026-10-16 用户确认延至 10-31。
+// UNTIL 是排他边界（now < UNTIL 为免费期），取 2026-11-01 使 10-31 全天仍在免费期内。
 // 免费期内：devin 额度窗口与 devin 池的 quota 冷却都不拦 swe-2（其他 devin 模型照常拦）。
 // 过期后：不再豁免额度拦截，档位回落 high；implementation 行位置不变（见 EXPIRY_DEMOTE）。
-export const SWE2_FREE_UNTIL = "2026-10-15";
+export const SWE2_FREE_UNTIL = "2026-11-01";
 
 export const PROVIDER_RULES = {
   claudeAgent: {

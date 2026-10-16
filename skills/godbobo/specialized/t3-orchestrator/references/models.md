@@ -12,7 +12,7 @@
 |---|---|---|---|
 | `cursor-grok` | `cursor` 上的 grok-4.x | 脚本可读（「Cursor 模型」月窗口 = Dashboard 的 Cursor Models，含 Composer；Grok Bot 周额度与此无关） | 包含用量明显多，主力池；grok 系列只走这里 |
 | `codex-pro` | `codex` | 脚本可读（5h、周） | 更高推理档多耗额度；Astra 约是 Sol 的 3 倍，只限点名 |
-| `devin` | `acpRegistry_devin`（脚本里 `devin` 行的周额度是同一账号） | 脚本可读（周） | swe-2 免费期内不占额度（用户确认 10-15 截止，脚本常量 `SWE2_FREE_UNTIL`）；周额度 100% 时 swe-2 仍可用，其他模型不行。思考档用 `thought_level` 选项传入：服务端实测只收 medium/high/max；目录取值集会漂移（曾短暂列出五档），以 `VERIFIED_OPTION_VALUES` 为准，详见「选项与档位」；slug 的 `-medium/-high/-max` 后缀只是默认档；各入口统一 high，swe-2 免费期内例外用 max（见「选项与档位」） |
+| `devin` | `acpRegistry_devin`（脚本里 `devin` 行的周额度是同一账号） | 脚本可读（周） | swe-2 免费期内不占额度（用户确认延至 10-31 本月底，脚本常量 `SWE2_FREE_UNTIL` 为排他边界 2026-11-01）；周额度 100% 时 swe-2 仍可用，其他模型不行。思考档用 `thought_level` 选项传入：服务端实测只收 medium/high/max；目录取值集会漂移（曾短暂列出五档），以 `VERIFIED_OPTION_VALUES` 为准，详见「选项与档位」；slug 的 `-medium/-high/-max` 后缀只是默认档；各入口统一 high，swe-2 免费期内例外用 max（见「选项与档位」） |
 | `glm-plan` | `claudeAgent` | 脚本直接查询（5h、MCP 月） | 只用 `glm-5.3-flash[1m]`，也是 GLM 5.3 Flash 唯一入口；额度充足；闲时（含周末）半价 |
 | `factory` | `acpRegistry_factory_droid` | 脚本直接查询，需要 `FACTORY_API_KEY` | 模型最全，适合作为同模型的备用入口。需 droid ≥0.234.0（修复 acp-daemon `--mcp-servers`，[Factory-AI/factory#9](https://github.com/Factory-AI/factory/issues/9)）。选项名是 `reasoning_effort`（snake_case）和 `autonomy_level`（调度一律传 `auto-high`），不是 `reasoningEffort` |
 | — | `claudeAgent_kimi`（没有订阅）、`claudeAgent_minimax`（能力太差） | — | 不主动调用；用户点名也要先提醒 |
