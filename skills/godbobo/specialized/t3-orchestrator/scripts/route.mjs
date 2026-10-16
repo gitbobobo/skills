@@ -17,13 +17,15 @@
 // 退出码：0 选出/校验通过；1 无可用候选或校验违规；2 参数错误。
 //
 // 输入来源（脚本自取，不靠模型转述）：
-//   capabilities  —— --caps-file 传 orchestrator_capabilities 的 JSON；缺省读
-//                    ${T3_CACHE_DIR:-~/.t3/caches}/<provider>.json（无法验证 canRunChildTask，只降级告警）
+//   capabilities  —— --caps-file 传 orchestrator_capabilities 的 JSON；文件 mtime 超
+//                    CAPS_FILE_TTL_MS 时告警，并在「不可派/无此模型」类判定上标注过期；
+//                    缺省读 ${T3_CACHE_DIR:-~/.t3/caches}/<provider>.json
+//                    （无法验证 canRunChildTask，只降级告警）
 //   共享冷却状态  —— quota-state.mjs 的 status（--state-dir 仅供测试）
 //   额度窗口      —— t3-quota.mjs collectCached()：<state-dir>/quota.json 快照 ≤TTL 直接复用，
 //                    过期才实查并写回（--quota-file 用文件代替；--no-quota 跳过；--refresh-quota 强制实查）
 
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -53,6 +55,10 @@ import { collectCached as collectQuotaCached, quotaCachePath } from "./t3-quota.
 const DIR = dirname(fileURLToPath(import.meta.url));
 const now = Date.now();
 const swe2Free = now < Date.parse(SWE2_FREE_UNTIL);
+// caps 文件时效：provider 可派性/模型清单会随安装与刷新漂移，手工落盘的快照没有 TTL 概念
+// （曾因此按 3 小时前的 canRunChildTask=false 跳过首选入口）。超阈值不拒用——该文件可能
+// 仍是最佳数据源——但告警并给「不可派」类判定标过期，提示刷新后复核。
+const CAPS_FILE_TTL_MS = 30 * 60 * 1000;
 
 // ---------- 参数 ----------
 
@@ -102,7 +108,17 @@ function loadProviders(capsFile) {
         optionIds: new Map([...optionSpecs].map(([k, v]) => [k, new Set(v.keys())])),
       });
     }
-    return { providers, warnings, live: true };
+    let capsStaleMin;
+    try {
+      const ageMs = now - statSync(capsFile).mtimeMs;
+      if (ageMs > CAPS_FILE_TTL_MS) {
+        capsStaleMin = Math.round(ageMs / 60000);
+        warnings.push(
+          `--caps-file 是 ${capsStaleMin} 分钟前的快照（阈值 ${CAPS_FILE_TTL_MS / 60000} 分钟）：canRunChildTask、模型清单与选项取值可能已过期——重新调 orchestrator_capabilities 落盘后再选；无法刷新时去掉 --caps-file 走 ~/.t3/caches 降级判断`,
+        );
+      }
+    } catch {}
+    return { providers, warnings, live: true, capsStaleMin };
   }
   const cacheDir = process.env.T3_CACHE_DIR || join(homedir(), ".t3", "caches");
   const wanted = new Set();
@@ -377,11 +393,11 @@ function expandRoute(taskKey, free = swe2Free) {
 // ---------- select ----------
 
 async function buildContext(opts) {
-  const { providers, warnings: w1 } = loadProviders(opts["caps-file"]);
+  const { providers, warnings: w1, capsStaleMin } = loadProviders(opts["caps-file"]);
   const { blockedEntries, blockedPools, recoveryEntries, recoveryPools, warnings: w2 } = await loadBlocked(opts["state-dir"]);
   const { rows: quotaRows, warnings: w3, meta: quotaMeta } = await loadQuota(opts);
   const quotaWarnings = new Set();
-  return { providers, blockedEntries, blockedPools, recoveryEntries, recoveryPools, quotaRows, quotaMeta, quotaWarnings, warnings: [...w1, ...w2, ...w3] };
+  return { providers, capsStaleMin, blockedEntries, blockedPools, recoveryEntries, recoveryPools, quotaRows, quotaMeta, quotaWarnings, warnings: [...w1, ...w2, ...w3] };
 }
 
 // 额度快照来源说明：让读输出的人知道数据多新、是不是缓存，不据此自行裁决
@@ -398,10 +414,12 @@ function gateEntry(item, ctx, opts) {
   if (item.status === "named") reasons.push("仅限用户点名");
   if (BANNED_PROVIDERS[item.provider]) reasons.push(`${item.provider} ${BANNED_PROVIDERS[item.provider]}`);
   reasons.push(...lockViolations(item.provider, item.id));
+  // caps 快照过期时，这三条由它得出的拦截原因都可能失效，逐条标注逼出复核而不是默默照单全收
+  const staleNote = ctx.capsStaleMin !== undefined ? `；caps 快照 ${ctx.capsStaleMin} 分钟前生成，此判定可能已过期` : "";
   const info = ctx.providers.get(item.provider);
-  if (!info) reasons.push("实例不在 capabilities/缓存清单");
-  else if (!info.runnable) reasons.push(`实例不可派子任务${info.reason ? `（${info.reason}）` : ""}`);
-  else if (!info.models.has(item.id)) reasons.push("该实例模型清单无此 ID");
+  if (!info) reasons.push(`实例不在 capabilities/缓存清单${staleNote}`);
+  else if (!info.runnable) reasons.push(`实例不可派子任务${info.reason ? `（${info.reason}）` : ""}${staleNote}`);
+  else if (!info.models.has(item.id)) reasons.push(`该实例模型清单无此 ID${staleNote}`);
   if (ctx.blockedEntries.has(entryId(item))) {
     const b = ctx.blockedEntries.get(entryId(item));
     reasons.push(`入口冷却（${b.kind}，至 ${new Date(b.until).toISOString().slice(0, 16)}Z）`);
@@ -601,10 +619,11 @@ async function namedCmd(opts) {
     const reasons = [];
     if (BANNED_PROVIDERS[item.provider]) reasons.push(`${item.provider} ${BANNED_PROVIDERS[item.provider]}`);
     reasons.push(...lockViolations(item.provider, item.id));
+    const staleNote = ctx.capsStaleMin !== undefined ? `；caps 快照 ${ctx.capsStaleMin} 分钟前生成，此判定可能已过期` : "";
     const info = ctx.providers.get(item.provider);
-    if (!info) reasons.push("实例不在 capabilities/缓存清单");
-    else if (!info.runnable) reasons.push(`实例不可派子任务${info.reason ? `（${info.reason}）` : ""}`);
-    else if (!info.models.has(item.id)) reasons.push("该实例模型清单无此 ID");
+    if (!info) reasons.push(`实例不在 capabilities/缓存清单${staleNote}`);
+    else if (!info.runnable) reasons.push(`实例不可派子任务${info.reason ? `（${info.reason}）` : ""}${staleNote}`);
+    else if (!info.models.has(item.id)) reasons.push(`该实例模型清单无此 ID${staleNote}`);
     if (ctx.blockedEntries.has(entryId(item))) reasons.push("入口冷却中");
     if (item.pool && ctx.blockedPools.has(item.pool)) {
       const b = ctx.blockedPools.get(item.pool);
@@ -640,7 +659,8 @@ function checkCmd(opts) {
       process.exit(2);
     }
   }
-  const providers = opts["caps-file"] ? loadProviders(opts["caps-file"]).providers : undefined;
+  const { providers, warnings: capsWarnings } = opts["caps-file"] ? loadProviders(opts["caps-file"]) : { providers: undefined, warnings: [] };
+  for (const w of capsWarnings) console.log(`WARN ${w}`);
   const { fails, warns } = gateCheck({ provider, model, role: opts.role, options, userNamed: opts["user-named"] }, providers);
   for (const w of warns) console.log(`WARN ${w}`);
   if (fails.length) {

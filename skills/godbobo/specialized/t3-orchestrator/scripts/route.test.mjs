@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { applyExpiryDemote, expandRoute, lockViolations, loadProviders, validateOptions, injectOptions, auditRouteData } from "./route.mjs";
 import { MODELS, ROUTES, SWE2_FREE_UNTIL, VERIFIED_OPTION_VALUES, EFFORT_STANDARD, EFFORT_OPTION_IDS, EFFORT_EXCEPTIONS } from "./route-data.mjs";
@@ -187,6 +187,32 @@ test("select: 实例不可派子任务时整实例跳过", () => {
     const m = pick(r);
     if (m?.[1] !== "codex") throw new Error(`应跳到 codex luna: ${r.stdout}`);
     if (!r.stdout.includes("claudeAgent/glm-5.3-flash[1m]")) throw new Error(`skipped 应列出被跳过的首选: ${r.stdout}`);
+  } finally {
+    f.cleanup();
+  }
+});
+
+// caps 文件没有 TTL 机制：只能靠 mtime 检查告警。过期不拒用，但「不可派/无此模型」
+// 判定要逐条标注，否则旧 canRunChildTask=false 会被当作实时事实（真实事故：devin
+// 二进制在快照后装好，路由却按 3 小时前的不可派标记跳过了首选入口）。
+test("select: caps 文件超 30 分钟 → 告警且不可派判定标注过期", () => {
+  const f = fixture();
+  try {
+    const caps = JSON.parse(JSON.stringify(CAPS));
+    caps.providers.find((p) => p.providerInstanceId === "claudeAgent").canRunChildTask = false;
+    writeFileSync(f.caps, JSON.stringify(caps));
+    const old = new Date(Date.now() - 31 * 60 * 1000);
+    utimesSync(f.caps, old, old);
+    const r = run(["select", "--task", "low", ...f.base]);
+    const m = pick(r);
+    if (m?.[1] !== "codex") throw new Error(`过期不拒用，仍应跳到 codex luna: ${r.stdout}`);
+    if (!/--caps-file 是 \d+ 分钟前的快照/.test(r.stdout)) throw new Error(`应有快照过期告警: ${r.stdout}`);
+    if (!/claudeAgent\/glm-5\.3-flash\[1m\].*此判定可能已过期/s.test(r.stdout)) throw new Error(`不可派判定应标注过期: ${r.stdout}`);
+    // 重写文件刷新 mtime 后不再告警
+    writeFileSync(f.caps, JSON.stringify(caps));
+    const r2 = run(["select", "--task", "low", ...f.base]);
+    if (/--caps-file 是 \d+ 分钟前的快照/.test(r2.stdout)) throw new Error(`新鲜 caps 不应告警: ${r2.stdout}`);
+    if (/此判定可能已过期/.test(r2.stdout)) throw new Error(`新鲜 caps 的 skip 原因不应带过期标注: ${r2.stdout}`);
   } finally {
     f.cleanup();
   }
