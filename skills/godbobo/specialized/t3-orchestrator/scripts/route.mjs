@@ -5,7 +5,7 @@
 // 子命令：
 //   route.mjs select --task <key> [--hard] [--vision] [--implementer <model>]
 //                    [--exclude <provider/model>]... [--caps-file <path>]
-//                    [--state-dir <path>] [--quota-file <path> | --no-quota] [--json]
+//                    [--state-dir <path>] [--quota-file <path> | --no-quota | --refresh-quota] [--json]
 //   route.mjs named <模型> [--provider <id>] [--caps-file ...] [--json]
 //   route.mjs check --provider <id> --model <id> [--role <role>] [--options '<json>'] [--user-named]
 //   route.mjs audit [--caps-file <path>] [--json]
@@ -20,7 +20,8 @@
 //   capabilities  —— --caps-file 传 orchestrator_capabilities 的 JSON；缺省读
 //                    ${T3_CACHE_DIR:-~/.t3/caches}/<provider>.json（无法验证 canRunChildTask，只降级告警）
 //   共享冷却状态  —— quota-state.mjs 的 status（--state-dir 仅供测试）
-//   额度窗口      —— t3-quota.mjs collect()（--quota-file 用文件代替实查；--no-quota 跳过）
+//   额度窗口      —— t3-quota.mjs collectCached()：<state-dir>/quota.json 快照 ≤TTL 直接复用，
+//                    过期才实查并写回（--quota-file 用文件代替；--no-quota 跳过；--refresh-quota 强制实查）
 
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
@@ -47,7 +48,7 @@ import {
   EFFORT_EXCEPTIONS,
 } from "./route-data.mjs";
 import { operate, defaultCache } from "./quota-state.mjs";
-import { collect as collectQuota } from "./t3-quota.mjs";
+import { collectCached as collectQuotaCached, quotaCachePath } from "./t3-quota.mjs";
 
 const DIR = dirname(fileURLToPath(import.meta.url));
 const now = Date.now();
@@ -61,7 +62,7 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a.startsWith("--")) {
       const key = a.slice(2);
-      if (["hard", "vision", "json", "no-quota", "user-named"].includes(key)) args[key] = true;
+      if (["hard", "vision", "json", "no-quota", "refresh-quota", "user-named"].includes(key)) args[key] = true;
       else if (key === "exclude") args.exclude.push(argv[++i]);
       else args[key] = argv[++i];
     } else if (args._ === undefined) args._ = a;
@@ -158,20 +159,26 @@ async function loadBlocked(stateDir) {
 }
 
 async function loadQuota(opts) {
-  if (opts["no-quota"]) return { rows: null, warnings: ["--no-quota：跳过额度窗口检查"] };
+  if (opts["no-quota"]) return { rows: null, warnings: ["--no-quota：跳过额度窗口检查"], meta: null };
   try {
-    const rows = opts["quota-file"] ? JSON.parse(readFileSync(opts["quota-file"], "utf8")) : await collectQuota();
-    return { rows, warnings: [] };
+    if (opts["quota-file"]) {
+      return { rows: JSON.parse(readFileSync(opts["quota-file"], "utf8")), warnings: [], meta: { source: "--quota-file" } };
+    }
+    const meta = await collectQuotaCached({
+      cachePath: quotaCachePath(opts["state-dir"] || defaultCache()),
+      refresh: opts["refresh-quota"] === true,
+    });
+    return { rows: meta.rows, warnings: [], meta };
   } catch (e) {
-    return { rows: null, warnings: [`额度查询失败（${e.message}），跳过额度拦截`] };
+    return { rows: null, warnings: [`额度查询失败（${e.message}），跳过额度拦截`], meta: null };
   }
 }
 
 // 返回 null（放行）或拦截原因字符串
-function quotaBlock(entry, quotaRows, warnings) {
+function quotaBlock(entry, quotaRows, warnings, { freeExempt = true } = {}) {
   const pool = POOLS[entry.pool];
   if (!pool || !quotaRows) return null;
-  if (entry.model === "swe-2" && swe2Free) return null; // 免费期内 devin 额度不拦 swe-2
+  if (freeExempt && entry.model === "swe-2" && swe2Free) return null; // 免费期内 devin 额度不拦 swe-2
   const row = quotaRows.find((r) => r.key === pool.quotaKey);
   if (!row) return null;
   if (!row.windows?.length) {
@@ -372,9 +379,18 @@ function expandRoute(taskKey, free = swe2Free) {
 async function buildContext(opts) {
   const { providers, warnings: w1 } = loadProviders(opts["caps-file"]);
   const { blockedEntries, blockedPools, recoveryEntries, recoveryPools, warnings: w2 } = await loadBlocked(opts["state-dir"]);
-  const { rows: quotaRows, warnings: w3 } = await loadQuota(opts);
+  const { rows: quotaRows, warnings: w3, meta: quotaMeta } = await loadQuota(opts);
   const quotaWarnings = new Set();
-  return { providers, blockedEntries, blockedPools, recoveryEntries, recoveryPools, quotaRows, quotaWarnings, warnings: [...w1, ...w2, ...w3] };
+  return { providers, blockedEntries, blockedPools, recoveryEntries, recoveryPools, quotaRows, quotaMeta, quotaWarnings, warnings: [...w1, ...w2, ...w3] };
+}
+
+// 额度快照来源说明：让读输出的人知道数据多新、是不是缓存，不据此自行裁决
+function quotaNote(meta) {
+  if (!meta) return null;
+  if (meta.source === "--quota-file") return null; // 测试/显式文件不注明
+  const ageMin = Math.max(0, Math.round((now - meta.fetchedAt) / 60000));
+  const src = meta.stale ? `实查失败，用 ${ageMin} 分钟前的旧快照` : meta.fromCache ? `${ageMin} 分钟前缓存` : "刚实查";
+  return `额度快照：${src}（--refresh-quota 强制实查；明细跑 t3-quota.mjs）`;
 }
 
 function gateEntry(item, ctx, opts) {
@@ -407,6 +423,17 @@ function gateEntry(item, ctx, opts) {
 function finalize(item, ctx) {
   const options = injectOptions(item, ctx.providers);
   const recovery = ctx.recoveryEntries.has(entryId(item)) || (item.pool != null && ctx.recoveryPools.has(item.pool));
+  // 豁免只在「本来真会被拦」时标注：所在池额度超限或已有 quota 冷却。
+  // 不标的话 PICK 落在「池 100%」的池上，容易被误读成脚本漏判而被人工推翻。
+  let exempt;
+  if (item.model === "swe-2" && swe2Free) {
+    const waived = [];
+    const qb = quotaBlock(item, ctx.quotaRows, new Set(), { freeExempt: false });
+    if (qb) waived.push(qb);
+    const pb = item.pool ? ctx.blockedPools.get(item.pool) : null;
+    if (pb?.kind === "quota") waived.push(`池 quota 冷却至 ${new Date(pb.until).toISOString().slice(0, 16)}Z`);
+    if (waived.length) exempt = `swe-2 免费期至 ${SWE2_FREE_UNTIL.slice(0, 10)}，豁免：${waived.join("；")}`;
+  }
   return {
     providerInstanceId: item.provider,
     model: item.id,
@@ -417,6 +444,7 @@ function finalize(item, ctx) {
     via: item.via,
     needsRecovery: recovery,
     swe2FreeExempt: (item.model === "swe-2" && swe2Free) || undefined,
+    exempt,
   };
 }
 
@@ -460,6 +488,8 @@ async function selectCmd(opts) {
   }
   const ctx = await buildContext(opts);
   out.warnings.push(...ctx.warnings, ...ctx.quotaWarnings);
+  const qn = quotaNote(ctx.quotaMeta);
+  if (qn) out.notes.push(qn);
 
   const pickFrom = (stream, leg) => {
     const avail = [];
@@ -507,7 +537,7 @@ function printSelect(out, opts) {
     console.log(JSON.stringify(out, null, 2));
     return;
   }
-  const fmt = (p) => (p ? `${p.providerInstanceId} / ${p.model}  options=${JSON.stringify(p.options)}` : "无");
+  const fmt = (p) => (p ? `${p.providerInstanceId} / ${p.model}  options=${JSON.stringify(p.options)}${p.exempt ? `（${p.exempt}）` : ""}` : "无");
   for (const n of out.notes) console.log(`# ${n}`);
   for (const w of out.warnings) console.log(`WARN ${w}`);
   if (out.error) console.log(`ERROR ${out.error}`);
@@ -554,6 +584,8 @@ async function namedCmd(opts) {
   }
   const ctx = await buildContext(opts);
   out.warnings.push(...ctx.warnings, ...ctx.quotaWarnings);
+  const qn2 = quotaNote(ctx.quotaMeta);
+  if (qn2) out.notes.push(qn2);
   let extraOptions = {};
   if (opts.options) {
     try {

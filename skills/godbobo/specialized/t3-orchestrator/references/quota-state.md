@@ -1,6 +1,6 @@
 # 跨线程失败状态
 
-`scripts/quota-state.mjs` 记录本机实际失败，不代替 `t3-quota.mjs` 的实时额度查询。默认写入 `${XDG_CACHE_HOME:-~/.cache}/t3-orchestrator/`，不写工作树，不记录密钥或原始错误文本。`--cache-dir` 仅用于隔离测试/专门配置。
+`scripts/quota-state.mjs` 记录本机实际失败，不代替 `t3-quota.mjs` 的实时额度查询。默认写入 `${XDG_CACHE_HOME:-~/.cache}/t3-orchestrator/`，不写工作树，不记录密钥或原始错误文本。`--cache-dir` 仅用于隔离测试/专门配置。同目录的 `quota.json` 是 `select` 复用的额度快照（≤10 分钟），可安全删除——下次 `select` 会实查重建；`t3-quota.mjs` 每次实查也会刷新它。
 
 入口 ID 用 `<providerInstanceId>/<model>`；池 ID 取 `models.md`「额度池」表的池 ID 列（与 `route-data.mjs` 的 `POOLS` 一致），结合本机账号事实确认，跨线程保持一致。同模型的不同服务商通常不是同一个池；同一 provider 的不同模型也可能分池。池关系未确认时只记录入口。
 

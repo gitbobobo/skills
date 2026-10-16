@@ -29,8 +29,9 @@ node <技能目录>/scripts/route.mjs check --provider <id> --model <id> [--role
 ```
 
 - `PICK` 为空时看 `SKIPPED` 的原因，不要绕开脚本自己挑；`ALTERNATIVES` 已按换路顺序排好（同模型其他入口 → 行内下一候选 → 降档行）。
+- `PICK` 是额度裁决的终点：`select` 自己读共享冷却和各池额度窗口（≤10 分钟快照，输出注明新鲜度），免费期等豁免生效时 PICK 行自带「豁免」标注。`t3-quota.mjs` 的原始读数只用于摸底与汇报，不是第二意见——不要凭「某池显示 100%」否决 PICK 或给它补 `--exclude`；输出与认知矛盾时先找豁免标注，确属脚本数据陈旧或豁免未登记，向用户报告或修 `route-data.mjs`。
 - `--task` 取值跑 `route.mjs tasks` 查看：low（小改动、机械修改、批量）、implementation（实现、修 bug、架构；难题加 `--hard` 自动输出「顾问→实现」两步）、ui、ui-minor（只按截图做小调整）、advisor（视觉/长时程规划/要第二意见时加 `--vision`）、review（带 `--implementer <实现者模型>` 自动避开同家族）、research、security（输出先审查后交叉复核两腿）。拿不准任务是否属于 low 时按 implementation。
-- 脚本自行读取共享冷却状态和各池额度窗口；`--caps-file` 给的是 `orchestrator_capabilities` 的实时 JSON（开工前落盘一次即可），不给时退化为 `~/.t3/caches` 快照并告警。
+- 脚本自行读取共享冷却状态和各池额度窗口（≤10 分钟快照复用，输出注明快照时间与来源；`--refresh-quota` 强制实查）；`--caps-file` 给的是 `orchestrator_capabilities` 的实时 JSON（开工前落盘一次即可），不给时退化为 `~/.t3/caches` 快照并告警。
 - 点名清单外模型时 `named` 不识别，用 `check --user-named` 验证后手工指定 target。
 - `needsRecovery: true` 的 pick 表示该入口/池有未清除的失败记录：派发前先 `claim` 并做恢复探测（见「子代理失败时」）。
 
@@ -44,7 +45,7 @@ node <技能目录>/scripts/route-playground.mjs [--caps-file ...] [--quota-file
 ## 开工前
 
 1. 调一次 `orchestrator_capabilities` 并把返回 JSON 落盘（例如 `/tmp/t3-caps.json`），route.mjs 的 `--caps-file` 用它判断 `canRunChildTask`、模型清单和选项名。MCP 工具没出现时，按 T3 注入的说明直接调用一次，或用 `acp-mcp-call` 兜底（具体语法见 `t3-code` 技能）输出重定向到文件。落盘后跑 `route.mjs audit --caps-file /tmp/t3-caps.json` 核对路由数据与目录一致（输出问题即按提示修 route-data.mjs）。
-2. 运行 `node ~/.agents/skills/t3-orchestrator/scripts/t3-quota.mjs` 查看额度（`--json` 给 route.mjs 用，它会自己调）。它用本机凭证直查所有 harness（Codex、Cursor、Devin、GLM、Droid），不依赖 T3 缓存。
+2. 运行 `node ~/.agents/skills/t3-orchestrator/scripts/t3-quota.mjs` 摸底额度：本机凭证直查所有 harness（Codex、Cursor、Devin、GLM、Droid），并写穿快照供随后的 `select` 复用（`--cached` 只读快照不触网）。读数只作摸底与汇报——`select` 自己管额度数据的新鲜度，复核 `PICK` 以 `select` 输出为准。
 3. 读取共享失败状态：`node <技能目录>/scripts/quota-state.mjs status`。每次换路也读；用法与池边界见 [references/quota-state.md](references/quota-state.md)。
 4. 指定实现、独立审查和最终验证三类职责。最终验证默认由主代理负责，也可明确交给一个验证子代理；整个任务始终只有一个最终验证负责人，交接时先结束旧负责人的检查。
 

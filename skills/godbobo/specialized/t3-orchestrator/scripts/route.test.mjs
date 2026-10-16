@@ -9,6 +9,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSyn
 import { tmpdir } from "node:os";
 import { applyExpiryDemote, expandRoute, lockViolations, loadProviders, validateOptions, injectOptions, auditRouteData } from "./route.mjs";
 import { MODELS, ROUTES, SWE2_FREE_UNTIL, VERIFIED_OPTION_VALUES, EFFORT_STANDARD, EFFORT_OPTION_IDS, EFFORT_EXCEPTIONS } from "./route-data.mjs";
+import { collectCached, quotaCachePath, QUOTA_CACHE_TTL_MS } from "./t3-quota.mjs";
 
 const DIR = dirname(fileURLToPath(import.meta.url));
 const SCRIPT = join(DIR, "route.mjs");
@@ -226,16 +227,19 @@ test(
           records: { "pool:devin": { kind: "quota", failures: 1, retryAt: Date.now() + 36e5, generation: "test-gen" } },
         }),
       );
-      // droid 不可派 + cursor 额度打满：ui 行只剩 swe-2 可用
+      // droid 不可派 + cursor 额度打满 + devin 周窗口打满：ui 行只剩 swe-2 可用
       const caps = JSON.parse(JSON.stringify(CAPS));
       caps.providers.find((p) => p.providerInstanceId === "acpRegistry_factory_droid").canRunChildTask = false;
       writeFileSync(f.caps, JSON.stringify(caps));
       const quota = JSON.parse(JSON.stringify(QUOTA_OK));
       quota.find((r) => r.key === "cursor").windows = [{ label: "Cursor 模型", usedPercent: 95, resetMs: Date.now() + 15 * 864e5 }];
+      quota.find((r) => r.key === "devin").windows = [{ label: "周", usedPercent: 100, resetMs: Date.now() + 4 * 864e5 }];
       writeFileSync(f.quota, JSON.stringify(quota));
       const r = run(["select", "--task", "ui", ...f.base]);
       const m = pick(r);
       if (m?.[1] !== "acpRegistry_devin" || m?.[2] !== "swe-2-high") throw new Error(`应选豁免的 swe-2: ${r.stdout}`);
+      // 豁免生效时必须标注（额度超限 + 池冷却都算），否则 PICK 落在「池 100%」上易被误读推翻
+      if (!/swe-2-high.*豁免：/s.test(r.stdout)) throw new Error(`swe-2 豁免应在输出标注理由: ${r.stdout}`);
       // 其他 devin 模型照常拦：sonnet 的 devin 入口必须出现在 skipped 且原因是池冷却
       if (!/acpRegistry_devin\/claude-sonnet-5-5-medium.*池冷却/s.test(r.stdout)) throw new Error(`sonnet devin 入口应仍被池冷却拦下: ${r.stdout}`);
     } finally {
@@ -243,6 +247,65 @@ test(
     }
   },
 );
+
+test("quota 快照缓存：新鲜复用、过期刷新、实查失败回退旧快照", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "quota-cache-"));
+  const cachePath = join(dir, "quota.json");
+  try {
+    const sentinel = [{ key: "x", windows: [], extras: [] }];
+    let calls = 0;
+    const fake = async () => (calls++, [{ key: "y", windows: [], extras: [] }]);
+
+    // 新鲜缓存：不打实查
+    writeFileSync(cachePath, JSON.stringify({ fetchedAt: Date.now() - 1000, rows: sentinel }));
+    const r1 = await collectCached({ cachePath, collectImpl: fake });
+    if (!r1.fromCache || r1.rows[0].key !== "x" || calls !== 0) throw new Error(`新鲜缓存应直接复用: ${JSON.stringify(r1)} calls=${calls}`);
+
+    // 过期缓存：实查并写回
+    writeFileSync(cachePath, JSON.stringify({ fetchedAt: Date.now() - QUOTA_CACHE_TTL_MS - 1000, rows: sentinel }));
+    const r2 = await collectCached({ cachePath, collectImpl: fake });
+    if (r2.fromCache || r2.rows[0].key !== "y" || calls !== 1) throw new Error(`过期应实查: ${JSON.stringify(r2)} calls=${calls}`);
+    const wrote = JSON.parse(readFileSync(cachePath, "utf8"));
+    if (wrote.rows[0].key !== "y") throw new Error("实查后应写回快照");
+
+    // 实查失败 + 旧快照：stale 回退
+    const boom = async () => { throw new Error("net down"); };
+    writeFileSync(cachePath, JSON.stringify({ fetchedAt: Date.now() - QUOTA_CACHE_TTL_MS - 1000, rows: sentinel }));
+    const r3 = await collectCached({ cachePath, collectImpl: boom });
+    if (!r3.stale || r3.rows[0].key !== "x") throw new Error(`应回退旧快照: ${JSON.stringify(r3)}`);
+
+    // 实查失败 + 无缓存：抛错
+    rmSync(cachePath, { force: true });
+    let threw = false;
+    try { await collectCached({ cachePath, collectImpl: boom }); } catch { threw = true; }
+    if (!threw) throw new Error("无快照且实查失败应抛错");
+
+    // refresh=true 跳过新鲜缓存
+    writeFileSync(cachePath, JSON.stringify({ fetchedAt: Date.now(), rows: sentinel }));
+    const r5 = await collectCached({ cachePath, refresh: true, collectImpl: fake });
+    if (r5.fromCache || calls !== 2) throw new Error(`refresh 应跳过缓存: ${JSON.stringify(r5)}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("select: 不传 --quota-file 时用 <state-dir>/quota.json 快照，不刷新文件", () => {
+  const f = fixture();
+  try {
+    mkdirSync(f.state, { recursive: true });
+    // 哨兵：glm 月窗口打满 → claudeAgent 被拦、luna 递补。实查拿不到这个组合，可证走缓存
+    const snap = { fetchedAt: Date.now(), rows: [{ key: "glm", windows: [{ label: "月", usedPercent: 95, resetMs: Date.now() + 20 * 864e5 }], extras: [] }] };
+    const cacheFile = quotaCachePath(f.state);
+    writeFileSync(cacheFile, JSON.stringify(snap));
+    const r = run(["select", "--task", "low", "--caps-file", f.caps, "--state-dir", f.state]);
+    const m = pick(r);
+    if (m?.[1] !== "codex" || m?.[2] !== "gpt-6-luna") throw new Error(`应按快照拦下 glm 递补 luna: ${r.stdout}`);
+    if (!/额度快照：.*缓存/.test(r.stdout)) throw new Error(`应注明快照来源: ${r.stdout}`);
+    if (JSON.parse(readFileSync(cacheFile, "utf8")).fetchedAt !== snap.fetchedAt) throw new Error("新鲜快照不应被覆写");
+  } finally {
+    f.cleanup();
+  }
+});
 
 test("implementation 行：GLM flash → SWE-2 → grok-4.6，免费期前后不变（用户定）", () => {
   const want = ["glm-5.3-flash", "swe-2", "grok-4.6"];

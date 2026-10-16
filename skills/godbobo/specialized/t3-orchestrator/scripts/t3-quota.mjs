@@ -2,6 +2,11 @@
 // 打印各 harness 的额度窗口。只读，不打印账号与密钥。
 // 默认输出人类可读文本；--json 输出结构化窗口供 route.mjs 消费。
 // 每行结构：{ key, note?, windows: [{label, usedPercent, resetMs}], extras: [] }
+//
+// 快照缓存：collect() 的结果写到 ${XDG_CACHE_HOME:-~/.cache}/t3-orchestrator/quota.json，
+// route.mjs 经 collectCached() 复用 ≤TTL 的快照（--refresh-quota 强制实查）。
+// CLI 默认实查并写穿缓存（顺带为随后的 select 预热）：它是 quota-state 恢复探测
+// 用的工具，必须给活体数据；--cached 只打印现有快照，不触网。
 // 全部用本机凭证直查服务商接口（查询方式参考 steipete/CodexBar 的
 // docs/providers.md 与各 provider 文档）：
 //   - Codex：~/.codex/auth.json 的 OAuth token
@@ -14,10 +19,12 @@
 //   - GLM Coding Plan：GET <host>/api/monitor/usage/quota/limit
 //   - Factory Droid：GET https://api.factory.ai/api/billing/limits
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { SWE2_FREE_UNTIL } from "./route-data.mjs";
+import { defaultCache } from "./quota-state.mjs";
 
 const HOME = homedir();
 const TIMEOUT_MS = 10_000;
@@ -249,6 +256,8 @@ async function devinRow() {
     const extras = [];
     const overage = Number(body.overage_balance);
     if (Number.isFinite(overage) && overage !== 0) extras.push(`超额余额 $${overage.toFixed(2)}`);
+    // 免费期是账单事实：不标注的话「本池 100%」容易被误读成 swe-2 也不可用
+    if (now < Date.parse(SWE2_FREE_UNTIL)) extras.push(`swe-2 免费期至 ${SWE2_FREE_UNTIL.slice(0, 10)}，不耗本池`);
     return { key, windows, extras };
   } catch (error) {
     return { key, note: `查询失败（${error.message}）`, windows: [], extras: [] };
@@ -413,6 +422,43 @@ export async function collect() {
   );
 }
 
+// 额度快照缓存：窗口移动慢，TTL 内复用；真实失败另有 quota-state 冷却兜底，
+// 路由不要求逐次实查。快照是缓存不是权威状态：原子 rename 写入，坏了当缺失。
+export const QUOTA_CACHE_TTL_MS = 10 * 60 * 1000;
+export const quotaCachePath = (dir = defaultCache()) => join(dir, "quota.json");
+
+function writeQuotaCache(cachePath, rows) {
+  try {
+    mkdirSync(dirname(cachePath), { recursive: true, mode: 0o700 });
+    const tmp = `${cachePath}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify({ fetchedAt: Date.now(), rows }), { mode: 0o600 });
+    renameSync(tmp, cachePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// 返回 { rows, fetchedAt, fromCache, stale?, error? }。refresh=true 跳过缓存直接实查；
+// 实查失败且存在旧快照时返回旧快照（stale: true）；collectImpl 仅供测试注入。
+export async function collectCached({ ttlMs = QUOTA_CACHE_TTL_MS, cachePath = quotaCachePath(), refresh = false, collectImpl = collect } = {}) {
+  const cached = refresh ? null : readJson(cachePath);
+  if (cached && Number.isFinite(cached.fetchedAt) && Array.isArray(cached.rows) && Date.now() - cached.fetchedAt <= ttlMs) {
+    return { rows: cached.rows, fetchedAt: cached.fetchedAt, fromCache: true };
+  }
+  try {
+    const rows = await collectImpl();
+    const fetchedAt = Date.now();
+    writeQuotaCache(cachePath, rows);
+    return { rows, fetchedAt, fromCache: false };
+  } catch (e) {
+    if (cached?.rows) return { rows: cached.rows, fetchedAt: cached.fetchedAt, fromCache: true, stale: true, error: e.message };
+    const fallback = refresh ? readJson(cachePath) : null;
+    if (fallback?.rows) return { rows: fallback.rows, fetchedAt: fallback.fetchedAt, fromCache: true, stale: true, error: e.message };
+    throw e;
+  }
+}
+
 function formatRow(row) {
   const name = (DISPLAY[row.key] ?? row.key).padEnd(28);
   const parts = (row.windows ?? []).map((w) => formatWindow(w.label, w.usedPercent, w.resetMs)).concat(row.extras ?? []);
@@ -422,7 +468,22 @@ function formatRow(row) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
-  const rows = await collect();
-  if (process.argv.includes("--json")) console.log(JSON.stringify(rows, null, 2));
-  else console.log(rows.map(formatRow).join("\n"));
+  const cachePath = quotaCachePath();
+  let result;
+  if (process.argv.includes("--cached")) {
+    const snap = readJson(cachePath);
+    if (!snap?.rows) {
+      console.error(`无额度快照（${cachePath}）——去掉 --cached 实查一次`);
+      process.exit(1);
+    }
+    result = { rows: snap.rows, fetchedAt: snap.fetchedAt, fromCache: true };
+  } else {
+    // 默认实查（恢复探测要用活体数据），并写穿缓存为随后的 select 预热
+    result = await collectCached({ cachePath, refresh: true });
+  }
+  if (process.argv.includes("--json")) console.log(JSON.stringify(result.rows, null, 2));
+  else {
+    console.log(result.rows.map(formatRow).join("\n"));
+    console.error(`# 快照 ${Math.round((Date.now() - result.fetchedAt) / 1000)}s 前${result.fromCache ? `（缓存 ${cachePath}）` : "（实查）"}`);
+  }
 }
