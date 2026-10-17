@@ -13,11 +13,38 @@ description: 通过 Fast Ship REST API 完成 Issue 的创建、更新与查询�
 | 开始做了 | `PUT /api/issues/:iid/internal-meta` 置 `in_progress` |
 | 记录共识/决策 | `PUT /api/issues/:iid/collab/consensus` |
 | 按 `INT-xxx` 找 issue | `GET /api/projects/:pid/issues?q=INT-56` 换 UUID（路径参数只认 UUID） |
+| 查 Fast Ship 自身日志 | `GET /api/self-logs`（列表）、`/aggregate`、`/trace`（`request_id` 或 `run_id` 二选一）；与项目日志 `/projects/:id/logs` 无关；fsr_ 令牌 40301 |
 | 把 PR 挂到 issue | `POST /api/issues/:iid/pull-requests`，body `{"url":"<PR链接>"}` |
 | 刷新 PR 状态 | `POST /api/issues/:iid/pull-requests/sync`（合并后调，逐行失败看 `failures[]`） |
 | 摘掉某个 PR | `DELETE /api/issues/:iid/pull-requests/:lid`（`:lid` 是关联行 id，即 api.md 里的 `{id}`） |
 
 **调用任何写接口前先读 `references/api.md` 对应小节，不要凭记忆构造请求体。**
+
+## Fast Ship 附加块（提示词尾部的引用块）
+
+Fast Ship「启动线程」生成的提示词 = 用户模板正文 + 结尾的 `>` 引用块。看到引用块里带
+`项目ID` / `问题ID`，就按这两个 ID 用技能查询并处理该问题，不需要再追问是哪条 issue：
+
+```
+> 以下信息由 Fast Ship 附加。请使用 fast-ship 技能查询并处理该问题。
+> 若当前环境未安装 fast-ship 技能，先征得用户同意，再执行：
+> `npx skills add https://github.com/gitbobobo/fast_ship --skill fast-ship`
+> 项目ID：<project_id>
+> 问题ID：<issue_id>
+> 推荐理由：<reason>   ← 可能出现
+```
+
+当前环境未安装本技能时，先征得用户同意，再执行 `npx skills add https://github.com/gitbobobo/fast_ship --skill fast-ship`。
+
+## T3 绑定（Agent 辅助配置）
+
+Fast Ship 项目与 T3 项目是显式绑定，Agent 可辅助完成「发现 → 比对 → 绑定」：
+
+1. `GET /api/environments/t3-projects`：列出各环境及其 T3 项目（含 `workspace_root`）。
+2. 用自身仓库路径比对各项目的 `workspace_root`，确定自己对应哪个 T3 项目。
+3. `PUT /api/projects/{id}/t3-bindings/{environmentId}`，body `{"t3_project_id":"..."}` 完成绑定；解绑用 `DELETE` 同路径。
+
+这四个接口是对 API Key 开放的 T3 只读面（不含凭证、不含线程内容）；线程相关端点仍仅 JWT。字段细节见 `references/api.md`。
 
 上表的 `:pid` 在 api.md 里是 `{id}`，`:iid` 是 `{iid}`；`:lid` 是 PR 关联行 id（api.md 里 `pull-requests` 路径下的 `{id}`）。
 
@@ -83,29 +110,29 @@ Content-Type: application/json; charset=utf-8
 
 ## 截图标注（AI 评审闭环）
 
-截图页画布上的矩形框选标注挂在**具体截图版本**上，供人/AI 交换评审意见。API Key 可读全部标注、拉裁剪图、标为已解决；不能创建/删除标注（40301），改文字/关联 Issue/重开也要 JWT。
+截图页画布上的矩形框选标注挂在**具体截图**上，供人/AI 交换评审意见。API Key 可读全部标注、拉裁剪图、标为已解决；不能创建/删除标注或批量处理（40301），改文字/关联 Issue/重开也要 JWT。
 
-- 列表：`GET /api/projects/{id}/screenshot-annotations` → `{items:[...]}`，query 可按 `status`（open/resolved）、`issue_id`、`screen_id` 过滤。
+- 列表：`GET /api/projects/{id}/screenshot-annotations` → `{items:[...]}`，query 可按 `status`（open/resolved）、`outdated`（true/false）、`issue_id`、`screen_id`、`platform`/`locale`/`theme`（逗号多值，`__none__` = 未标注桶）过滤。
 - Issue 维度：`GET /api/issues/{iid}` 的 `screenshot_annotations[]` 内嵌关联到该 Issue 的标注（无则缺省）。
-- 每条标注带：`image_url`（所在版本原图）、`crop_url`（框选区域裁剪图，PNG，四周带外边距）、比例坐标 `x/y/width/height`（0~1）、像素坐标 `pixel_rect`（尺寸未知时为 null）、`screen_key`/`screen_title`/`screen_group`、`is_latest_version`、`status`。
+- 每条标注带：`image_url`（所在截图原图）、`crop_url`（框选区域裁剪图，PNG，四周带外边距）、比例坐标 `x/y/width/height`（0~1）、像素坐标 `pixel_rect`（尺寸未知时为 null）、`screen_key`/`screen_title`/`screen_platform`/`screen_locale`/`screen_theme`、`outdated`（截图被覆盖更新后待确认）、`status`。
 - `crop_url`/`image_url` 是 `<img>` 直链路径：脚本调用带 Authorization 头即可，Web 端 `<img>` 才需要 `?token=<jwt>`。
 - 标已解决：`PUT /api/screenshot-annotations/{aid}`，body 整包只传 `{"status":"resolved"}`——带其他字段或 `open` 会被 40301。
 - 原图超过解码像素上限（约 64MP）时 crop 返回 40004（`尺寸超出可处理范围`），此时用 `image_url` 拉原图自行缩放。
 
 AI 评审闭环（字段细节见 api.md screenshots 章）：
 
-1. `GET /api/issues/{iid}` 读 `screenshot_annotations`，或按 `issue_id`/`status=open` 过滤项目标注。
+1. `GET /api/issues/{iid}` 读 `screenshot_annotations`，或按维度过滤 + `status=open` 拉项目标注。
 2. 按 `crop_url` 拉裁剪图，看用户框选了哪块区域、写了什么意见。
-3. 修改 UI 后，`POST /api/projects/{id}/screenshots` 以**同一 `screen_key`** 上传新截图（自动归入同一界面成为新版本；旧标注挂在旧版本上保留，`is_latest_version` 变 false）。
-4. 逐条 `PUT {"status":"resolved"}` 标已解决。
+3. 修改 UI 后，`POST /api/projects/{id}/screenshots` 以**同一 `screen_key` + 同一组 platform/locale/theme** 上传新截图（同变体即覆盖更新，文件与宽高/上传时间被替换；该截图上全部 open 标注置 `outdated=true`，等待人工「确认保留」或你确认修完后置 resolved）。
+4. 逐条 `PUT {"status":"resolved"}` 标已解决（JWT 批量场景可用 `POST /api/projects/{id}/screenshot-annotations/batch`，API Key 无此能力）。
 
-删 Issue 只清空标注的 `issue_id`（标注保留）；删截图版本/界面会级联删标注。
+删 Issue 只清空标注的 `issue_id`（标注保留）；删截图会级联删标注。
 
 ## Issue 关联 PR
 
 一个 Issue 可挂多个 PR（跨仓库也可以）。**时机**：建完 PR 立刻 attach，让 Issue 页能看到实现进度；PR 合并后调一次 sync 刷新状态。
 
-- attach：body 只传 `{"url":"https://github.com/<owner>/<repo>/pull/<n>"}`，支持 `/files`、query 等后缀。服务端自行去 GitHub 拉标题/状态/作者，拉取失败不落记录（502）。重复 attach 幂等，不产生第二行。
+- attach：body 只传 `{"url":"https://github.com/<owner>/<repo>/pull/<n>"}`，支持 `/files`、query 等后缀。服务端自行去 GitHub 拉标题/状态/作者，拉取失败不落记录（502）。重复 attach 幂等，不产生第二行。**attach 必须读回确认**：加 `--verify /api/issues/{iid}` 或紧接一次 GET，确认 `pull_requests[]` 里出现该 PR 才算挂上——502/超时会留下「以为挂上了、实际没落记录」的窟窿，只看退出码不够。
 - 读：详情 `GET /api/issues/:iid` 的 `pull_requests[]` 是全量列表；列表项带 `pull_request_summary {total, open, merged}`（closed = total - open - merged）。
 - sync：返回 `{items, failures}`，每条 PR 是独立失败域——某条拉不到（404/限流）只进 `failures[]`，其余照常刷新；`failures[].id` 是关联行 id。
 - detach：`DELETE /api/issues/:iid/pull-requests/:lid`；不存在的关联返回 40412（非幂等，重复调用会报错）。
@@ -131,6 +158,10 @@ spec 的 security 经常同时写 JWT 和 API Key，真正的拒绝在 handler �
 - `PUT /api/issues/{iid}/collab/consensus`、`PUT /api/issues/{iid}/collab/summary`、`PUT /api/issues/{iid}/recommendation` 只接受 API Key。JWT 调用返回 403（40303）。
 - 推荐被用户延后后，`PUT recommendation` 返回 409（40911）——不要重试再推荐，也不要试图 DELETE（同样 40911）。`PUT`/`DELETE /api/issues/{iid}/recommendation/defer` 是延后/恢复，仅 JWT（API Key 40301）。彻底移除延后项只能由 JWT 用户做。
 - `POST /api/projects/{id}/logs` 只接受 API Key。JWT 调用返回 403（40303）。
+
+### 自身日志不是项目日志
+
+`GET /api/self-logs`、`/aggregate`、`/trace` 查的是 Fast Ship 服务端自己的 slog（INT-94）。项目运行日志仍走 `/api/projects/{id}/logs`。`fsr_` 令牌查自身日志返回 40301。失败请求用响应头 `X-Request-Id` 调 `/trace?request_id=`；自动化用 `run_id`。
 
 ### checklist 是整组替换
 
