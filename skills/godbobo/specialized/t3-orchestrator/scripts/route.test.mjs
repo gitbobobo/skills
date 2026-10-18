@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { applyExpiryDemote, expandRoute, lockViolations, loadProviders, validateOptions, injectOptions, auditRouteData } from "./route.mjs";
+import { applyExpiryDemote, expandRoute, expandCandidates, whitelistCands, allowlistViolations, loadProviders, validateOptions, injectOptions, auditRouteData } from "./route.mjs";
 import { MODELS, ROUTES, SWE2_FREE_UNTIL, VERIFIED_OPTION_VALUES, EFFORT_STANDARD, EFFORT_OPTION_IDS, EFFORT_EXCEPTIONS } from "./route-data.mjs";
 import { collectCached, quotaCachePath, QUOTA_CACHE_TTL_MS } from "./t3-quota.mjs";
 
@@ -62,7 +62,6 @@ test("check: claudeAgent 假名恒红", () => {
 });
 
 test("check: cursor 只用 grok，三方模型恒红（用户点名也不豁免）", () => {
-  ok(["--provider", "cursor", "--model", "grok-4.6"]);
   ok(["--provider", "cursor", "--model", "grok-4.7"]);
   for (const model of ["claude-opus-5-5", "claude-sonnet-5-5", "kimi-k3", "glm-5p3-flash", "gpt-6.1-sol"]) {
     fail(["--provider", "cursor", "--model", model], "三方模型");
@@ -70,17 +69,21 @@ test("check: cursor 只用 grok，三方模型恒红（用户点名也不豁免�
   }
 });
 
-test("check: grok 只走 cursor、GLM 5.3 Flash 只走 claudeAgent（用户点名也不豁免）", () => {
-  fail(["--provider", "acpRegistry_devin", "--model", "grok-4-6-medium", "--user-named"], "只能走 cursor");
-  fail(["--provider", "acpRegistry_factory_droid", "--model", "grok-4.7", "--options", '{"autonomy_level":"auto-high"}', "--user-named"], "只能走 cursor");
-  fail(["--provider", "acpRegistry_devin", "--model", "glm-5-3-flash-max", "--user-named"], "只能走 claudeAgent");
-  fail(["--provider", "acpRegistry_factory_droid", "--model", "glm-5.3-flash", "--options", '{"autonomy_level":"auto-high"}', "--user-named"], "只能走 claudeAgent");
+test("check: 清单外组合非点名恒红、用户点名降级 warn", () => {
+  // grok 只登记了 cursor 入口、glm-5.3-flash 只登记了 claudeAgent——其他 provider 上的同名/变体都是清单外组合
+  fail(["--provider", "acpRegistry_devin", "--model", "grok-4-6-medium"], "入口清单");
+  fail(["--provider", "acpRegistry_factory_droid", "--model", "grok-4.7", "--options", '{"autonomy_level":"auto-high"}'], "入口清单");
+  fail(["--provider", "acpRegistry_devin", "--model", "glm-5-3-flash-max"], "入口清单");
+  fail(["--provider", "acpRegistry_factory_droid", "--model", "glm-5.3-flash", "--options", '{"autonomy_level":"auto-high"}'], "入口清单");
+  fail(["--provider", "acpRegistry_factory_droid", "--model", "glm-5.3", "--options", '{"autonomy_level":"auto-high"}'], "入口清单");
+  ok(["--provider", "acpRegistry_devin", "--model", "grok-4-6-medium", "--user-named"]);
+  ok(["--provider", "acpRegistry_factory_droid", "--model", "glm-5.3-flash", "--options", '{"autonomy_level":"auto-high"}', "--user-named"]);
 });
 
-test("route-data: 全部入口满足 harness 白名单与模型锁定", () => {
+test("route-data: 全部入口满足 harness 白名单", () => {
   const bad = [];
   for (const [key, m] of Object.entries(MODELS))
-    for (const e of m.entries) for (const r of lockViolations(e.provider, e.id)) bad.push(`${key}: ${r}`);
+    for (const e of m.entries) for (const r of allowlistViolations(e.provider, e.id)) bad.push(`${key}: ${r}`);
   if (bad.length) throw new Error(bad.join("\n"));
 });
 
@@ -96,19 +99,13 @@ test("入口：经符号链接调用（~/.config/devin/skills 形态）照常执
     const link = join(dir, "scripts");
     symlinkSync(DIR, link);
     const r = spawnSync(process.execPath, [join(link, "route.mjs"), "check", "--provider", "codex", "--model", "gpt-6-astra"], { encoding: "utf8" });
-    if (r.status !== 1 || !r.stdout.includes("点名")) throw new Error(`符号链接调用应拦下点名模型（exit=${r.status}）: ${r.stdout}${r.stderr}`);
+    if (r.status !== 1 || !r.stdout.includes("入口清单")) throw new Error(`符号链接调用应拦下清单外模型（exit=${r.status}）: ${r.stdout}${r.stderr}`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("check: 点名/不主动调用/顾问不写实现", () => {
-  fail(["--provider", "codex", "--model", "gpt-6-astra"], "点名");
-  fail(["--provider", "acpRegistry_devin", "--model", "kimi-k3-high"], "点名");
-  ok(["--provider", "acpRegistry_devin", "--model", "kimi-k3-high", "--user-named"]);
-  fail(["--provider", "claudeAgent_kimi", "--model", "kimi-k3"]);
-  fail(["--provider", "claudeAgent_minimax", "--model", "minimax-m3"]);
-  fail(["--provider", "acpRegistry_factory_droid", "--model", "glm-5.3", "--options", '{"autonomy_level":"auto-high"}']);
+test("check: 顾问不写实现", () => {
   fail(["--provider", "acpRegistry_devin", "--model", "claude-opus-5-5-medium", "--role", "implementation"], "顾问");
   fail(["--provider", "codex", "--model", "gpt-6.1-sol", "--role", "implementation"], "顾问");
   ok(["--provider", "acpRegistry_devin", "--model", "claude-opus-5-5-medium", "--role", "review"]);
@@ -120,17 +117,17 @@ test("check: 清单外组合红（用户点名降级为 warn）", () => {
 });
 
 test("check: droid 选项名", () => {
-  fail(["--provider", "acpRegistry_factory_droid", "--model", "claude-sonnet-5-5"], "auto-high");
-  fail(["--provider", "acpRegistry_factory_droid", "--model", "claude-sonnet-5-5", "--options", '{"autonomy_level":"auto-high","reasoningEffort":"high"}'], "reasoning_effort");
-  ok(["--provider", "acpRegistry_factory_droid", "--model", "claude-sonnet-5-5", "--options", '{"autonomy_level":"auto-high","reasoning_effort":"high"}']);
+  fail(["--provider", "acpRegistry_factory_droid", "--model", "claude-opus-5-5"], "auto-high");
+  fail(["--provider", "acpRegistry_factory_droid", "--model", "claude-opus-5-5", "--options", '{"autonomy_level":"auto-high","reasoningEffort":"high"}'], "reasoning_effort");
+  ok(["--provider", "acpRegistry_factory_droid", "--model", "claude-opus-5-5", "--options", '{"autonomy_level":"auto-high","reasoning_effort":"high"}']);
 });
 
 // ============ select ============
 
-test("select: low 行首选 claudeAgent GLM", () => {
+test("select: general 行首选 claudeAgent GLM（用户确认）", () => {
   const f = fixture();
   try {
-    const r = run(["select", "--task", "low", ...f.base]);
+    const r = run(["select", "--task", "general", ...f.base]);
     if (r.status !== 0) throw new Error(r.stdout + r.stderr);
     const m = pick(r);
     if (m?.[1] !== "claudeAgent" || m?.[2] !== "glm-5.3-flash[1m]") throw new Error(`pick 错误: ${r.stdout}`);
@@ -139,39 +136,26 @@ test("select: low 行首选 claudeAgent GLM", () => {
   }
 });
 
-test("select: implementation 行首选 claudeAgent GLM（用户确认）", () => {
-  const f = fixture();
-  try {
-    const r = run(["select", "--task", "implementation", ...f.base]);
-    if (r.status !== 0) throw new Error(r.stdout + r.stderr);
-    const m = pick(r);
-    if (m?.[1] !== "claudeAgent" || m?.[2] !== "glm-5.3-flash[1m]") throw new Error(`pick 错误: ${r.stdout}`);
-  } finally {
-    f.cleanup();
-  }
-});
-
-test("select: --exclude 按展开顺序递补（同模型入口先于下一行候选）", () => {
+test("select: --exclude 按行内组合顺序递补", () => {
   const f = fixture();
   try {
     const r = run([
-      "select", "--task", "low",
+      "select", "--task", "general",
       "--exclude", "claudeAgent/glm-5.3-flash[1m]",
       ...f.base,
     ]);
     if (r.status !== 0) throw new Error(r.stdout + r.stderr);
     const m = pick(r);
-    if (m?.[1] !== "codex" || m?.[2] !== "gpt-6-luna") throw new Error(`应递补行内下一候选: ${r.stdout}`);
+    if (m?.[1] !== "acpRegistry_devin" || m?.[2] !== "swe-2-high") throw new Error(`应递补行内下一组合: ${r.stdout}`);
+    // 组合是固定单元：advisor 排除 sol@codex 后按行序给 opus@devin，同模型备用入口排在原钉位
     const r2 = run([
-      "select", "--task", "low",
-      "--exclude", "claudeAgent/glm-5.3-flash[1m]",
-      "--exclude", "codex/gpt-6-luna",
+      "select", "--task", "advisor",
+      "--exclude", "codex/gpt-6.1-sol",
       ...f.base,
     ]);
     const m2 = pick(r2);
-    // luna 的 devin 入口应先于行内下一候选 swe-2
-    if (m2?.[1] !== "acpRegistry_devin" || m2?.[2] !== "gpt-6-luna-medium")
-      throw new Error(`same-model 应优先于下一行候选: ${r2.stdout}`);
+    if (m2?.[1] !== "acpRegistry_devin" || m2?.[2] !== "claude-opus-5-5-medium")
+      throw new Error(`应给行内下一组合 opus@devin: ${r2.stdout}`);
   } finally {
     f.cleanup();
   }
@@ -183,9 +167,9 @@ test("select: 实例不可派子任务时整实例跳过", () => {
     const caps = JSON.parse(JSON.stringify(CAPS));
     caps.providers.find((p) => p.providerInstanceId === "claudeAgent").canRunChildTask = false;
     writeFileSync(f.caps, JSON.stringify(caps));
-    const r = run(["select", "--task", "low", ...f.base]);
+    const r = run(["select", "--task", "general", ...f.base]);
     const m = pick(r);
-    if (m?.[1] !== "codex") throw new Error(`应跳到 codex luna: ${r.stdout}`);
+    if (m?.[1] !== "acpRegistry_devin" || m?.[2] !== "swe-2-high") throw new Error(`应跳到 devin swe-2: ${r.stdout}`);
     if (!r.stdout.includes("claudeAgent/glm-5.3-flash[1m]")) throw new Error(`skipped 应列出被跳过的首选: ${r.stdout}`);
   } finally {
     f.cleanup();
@@ -203,14 +187,14 @@ test("select: caps 文件超 30 分钟 → 告警且不可派判定标注过期"
     writeFileSync(f.caps, JSON.stringify(caps));
     const old = new Date(Date.now() - 31 * 60 * 1000);
     utimesSync(f.caps, old, old);
-    const r = run(["select", "--task", "low", ...f.base]);
+    const r = run(["select", "--task", "general", ...f.base]);
     const m = pick(r);
-    if (m?.[1] !== "codex") throw new Error(`过期不拒用，仍应跳到 codex luna: ${r.stdout}`);
+    if (m?.[1] !== "acpRegistry_devin") throw new Error(`过期不拒用，仍应跳到 devin swe-2: ${r.stdout}`);
     if (!/--caps-file 是 \d+ 分钟前的快照/.test(r.stdout)) throw new Error(`应有快照过期告警: ${r.stdout}`);
     if (!/claudeAgent\/glm-5\.3-flash\[1m\].*此判定可能已过期/s.test(r.stdout)) throw new Error(`不可派判定应标注过期: ${r.stdout}`);
     // 重写文件刷新 mtime 后不再告警
     writeFileSync(f.caps, JSON.stringify(caps));
-    const r2 = run(["select", "--task", "low", ...f.base]);
+    const r2 = run(["select", "--task", "general", ...f.base]);
     if (/--caps-file 是 \d+ 分钟前的快照/.test(r2.stdout)) throw new Error(`新鲜 caps 不应告警: ${r2.stdout}`);
     if (/此判定可能已过期/.test(r2.stdout)) throw new Error(`新鲜 caps 的 skip 原因不应带过期标注: ${r2.stdout}`);
   } finally {
@@ -224,14 +208,14 @@ test("select: 额度窗口 ≥90% 且 >24h 重置 → 该池入口全拦", () =>
     const quota = JSON.parse(JSON.stringify(QUOTA_OK));
     quota.find((r) => r.key === "glm").windows = [{ label: "月", usedPercent: 95, resetMs: Date.now() + 20 * 864e5 }];
     writeFileSync(f.quota, JSON.stringify(quota));
-    const r = run(["select", "--task", "low", ...f.base]);
+    const r = run(["select", "--task", "general", ...f.base]);
     const m = pick(r);
     if (m?.[1] === "claudeAgent") throw new Error(`glm 池 95% 应拦 claudeAgent: ${r.stdout}`);
     if (!/glm-plan/.test(r.stdout)) throw new Error(`skipped 应注明 glm-plan 拦截: ${r.stdout}`);
     // 额度将重置（<24h）则不拦
     quota.find((r) => r.key === "glm").windows = [{ label: "5h", usedPercent: 99, resetMs: Date.now() + 3 * 36e5 }];
     writeFileSync(f.quota, JSON.stringify(quota));
-    const r2 = run(["select", "--task", "low", ...f.base]);
+    const r2 = run(["select", "--task", "general", ...f.base]);
     const m2 = pick(r2);
     if (m2?.[1] !== "claudeAgent") throw new Error(`短窗口快重置不应拦: ${r2.stdout}`);
   } finally {
@@ -253,21 +237,21 @@ test(
           records: { "pool:devin": { kind: "quota", failures: 1, retryAt: Date.now() + 36e5, generation: "test-gen" } },
         }),
       );
-      // droid 不可派 + cursor 额度打满 + devin 周窗口打满：ui 行只剩 swe-2 可用
+      // 只留 devin/cursor 可派 + cursor 额度打满 + devin 周窗口打满：advisor 行内组合全被拦，递补 swe-2（白名单）可用
       const caps = JSON.parse(JSON.stringify(CAPS));
-      caps.providers.find((p) => p.providerInstanceId === "acpRegistry_factory_droid").canRunChildTask = false;
+      for (const p of caps.providers) if (!["acpRegistry_devin", "cursor"].includes(p.providerInstanceId)) p.canRunChildTask = false;
       writeFileSync(f.caps, JSON.stringify(caps));
       const quota = JSON.parse(JSON.stringify(QUOTA_OK));
       quota.find((r) => r.key === "cursor").windows = [{ label: "Cursor 模型", usedPercent: 95, resetMs: Date.now() + 15 * 864e5 }];
       quota.find((r) => r.key === "devin").windows = [{ label: "周", usedPercent: 100, resetMs: Date.now() + 4 * 864e5 }];
       writeFileSync(f.quota, JSON.stringify(quota));
-      const r = run(["select", "--task", "ui", ...f.base]);
+      const r = run(["select", "--task", "advisor", ...f.base]);
       const m = pick(r);
       if (m?.[1] !== "acpRegistry_devin" || m?.[2] !== "swe-2-high") throw new Error(`应选豁免的 swe-2: ${r.stdout}`);
       // 豁免生效时必须标注（额度超限 + 池冷却都算），否则 PICK 落在「池 100%」上易被误读推翻
       if (!/swe-2-high.*豁免：/s.test(r.stdout)) throw new Error(`swe-2 豁免应在输出标注理由: ${r.stdout}`);
-      // 其他 devin 模型照常拦：sonnet 的 devin 入口必须出现在 skipped 且原因是池冷却
-      if (!/acpRegistry_devin\/claude-sonnet-5-5-medium.*池冷却/s.test(r.stdout)) throw new Error(`sonnet devin 入口应仍被池冷却拦下: ${r.stdout}`);
+      // 其他 devin 模型照常拦：opus 的 devin 入口必须出现在 skipped 且原因是池冷却
+      if (!/acpRegistry_devin\/claude-opus-5-5-medium.*池冷却/s.test(r.stdout)) throw new Error(`opus devin 入口应仍被池冷却拦下: ${r.stdout}`);
     } finally {
       f.cleanup();
     }
@@ -319,13 +303,13 @@ test("select: 不传 --quota-file 时用 <state-dir>/quota.json 快照，不刷�
   const f = fixture();
   try {
     mkdirSync(f.state, { recursive: true });
-    // 哨兵：glm 月窗口打满 → claudeAgent 被拦、luna 递补。实查拿不到这个组合，可证走缓存
+    // 哨兵：glm 月窗口打满 → claudeAgent 被拦、swe-2 递补。实查拿不到这个组合，可证走缓存
     const snap = { fetchedAt: Date.now(), rows: [{ key: "glm", windows: [{ label: "月", usedPercent: 95, resetMs: Date.now() + 20 * 864e5 }], extras: [] }] };
     const cacheFile = quotaCachePath(f.state);
     writeFileSync(cacheFile, JSON.stringify(snap));
-    const r = run(["select", "--task", "low", "--caps-file", f.caps, "--state-dir", f.state]);
+    const r = run(["select", "--task", "general", "--caps-file", f.caps, "--state-dir", f.state]);
     const m = pick(r);
-    if (m?.[1] !== "codex" || m?.[2] !== "gpt-6-luna") throw new Error(`应按快照拦下 glm 递补 luna: ${r.stdout}`);
+    if (m?.[1] !== "acpRegistry_devin" || m?.[2] !== "swe-2-high") throw new Error(`应按快照拦下 glm 递补 swe-2: ${r.stdout}`);
     if (!/额度快照：.*缓存/.test(r.stdout)) throw new Error(`应注明快照来源: ${r.stdout}`);
     if (JSON.parse(readFileSync(cacheFile, "utf8")).fetchedAt !== snap.fetchedAt) throw new Error("新鲜快照不应被覆写");
   } finally {
@@ -333,25 +317,99 @@ test("select: 不传 --quota-file 时用 <state-dir>/quota.json 快照，不刷�
   }
 });
 
-test("implementation 行：GLM flash → SWE-2 → grok-4.6，免费期前后不变（用户定）", () => {
-  const want = ["glm-5.3-flash", "swe-2", "grok-4.6"];
+test("general 行：GLM flash → SWE-2 → deepseek，免费期前后不变（用户定）", () => {
+  const want = ["glm-5.3-flash", "swe-2", "deepseek-v4.1-flash"];
   for (const free of [true, false]) {
-    const row = applyExpiryDemote("implementation", ROUTES.implementation, free).map((c) => c.model);
+    const row = applyExpiryDemote("general", ROUTES.general, free).map((c) => c.model);
     if (JSON.stringify(row.slice(0, 3)) !== JSON.stringify(want)) throw new Error(`free=${free} 行序错: ${row.join(",")}`);
-    const ids = expandRoute("implementation", free).map((s) => `${s.provider}/${s.id}`);
-    if (!(ids.indexOf("acpRegistry_devin/swe-2-high") < ids.indexOf("cursor/grok-4.6"))) throw new Error(`free=${free} 展开后 swe-2 应在 grok-4.6 之前: ${ids.join(",")}`);
+    const ids = expandRoute("general", free).map((s) => `${s.provider}/${s.id}`);
+    if (!(ids.indexOf("acpRegistry_devin/swe-2-high") < ids.indexOf("pi/commandcode/deepseek/deepseek-v4.1-flash"))) throw new Error(`free=${free} 展开后 swe-2 应在 deepseek 之前: ${ids.join(",")}`);
   }
 });
 
-test("select: review + implementer 同家族后移", () => {
+// 白名单递补：行内没点名的 status:"auto" 模型按 MODELS 声明顺序补在流尾，
+// 任何任务都能用；advisor 模型只进 advisor 任务；named 永不进自动流。
+test("expandRoute: 全部 auto 模型都在流内，行尾按 MODELS 顺序递补", () => {
+  // general 行已钉全部 auto 组合（glm/swe-2/deepseek），递补段为空
+  const impl = expandRoute("general");
+  const models = impl.map((i) => i.model);
+  const autos = Object.keys(MODELS).filter((k) => MODELS[k].status === "auto");
+  for (const k of autos) if (!models.includes(k)) throw new Error(`缺 auto 模型 ${k}`);
+  // 顾问模型不进 general；named 永不进自动流
+  for (const t of ["general"]) {
+    const ms = expandRoute(t).map((i) => i.model);
+    for (const k of ["opus-5.5", "gpt-6.1-sol", "grok-4.7"])
+      if (ms.includes(k)) throw new Error(`${k} 不应出现在 ${t} 流`);
+  }
+  // advisor 行内全是顾问组合，auto 模型按 MODELS 声明顺序补在行尾
+  const tail = expandRoute("advisor").filter((i) => i.via === "whitelist");
+  if (tail.map((i) => i.model).join(",") !== "swe-2,glm-5.3-flash,deepseek-v4.1-flash")
+    throw new Error(`递补应为 swe-2,glm,deepseek: ${JSON.stringify(tail.map((i) => i.model))}`);
+});
+
+test("expandRoute: 行内是「模型@harness」固定组合，顺序即声明顺序", () => {
+  // advisor 行：各模型首选 harness 在前，同模型备用 harness 排在各自钉位（不再连着展开）
+  const adv = expandRoute("advisor").filter((i) => i.via === "route").map((i) => `${i.provider}/${i.id}`);
+  const want = [
+    "codex/gpt-6.1-sol",
+    "acpRegistry_devin/claude-opus-5-5-medium",
+    "cursor/grok-4.7",
+    "acpRegistry_devin/gpt-6-1-sol-medium",
+    "acpRegistry_factory_droid/claude-opus-5-5",
+    "acpRegistry_factory_droid/gpt-6.1-sol",
+  ];
+  if (JSON.stringify(adv) !== JSON.stringify(want)) throw new Error(`advisor 行组合顺序错: ${adv.join(",")}`);
+  // 不带 provider 的候选（白名单递补）仍展开该模型全部入口并按 entries 顺序标 same-model
+  const m = MODELS["gpt-6.1-sol"];
+  const stream = [];
+  expandCandidates([{ model: "gpt-6.1-sol" }], stream, new Set(), "whitelist");
+  if (stream.map((i) => i.provider).join(",") !== "codex,acpRegistry_devin,acpRegistry_factory_droid")
+    throw new Error(`裸模型候选应展开全部入口: ${JSON.stringify(stream.map((i) => i.provider))}`);
+  if (stream[0].via !== "whitelist" || stream[1].via !== "same-model") throw new Error(`via 标记错: ${stream.map((i) => i.via)}`);
+  if (m.entries.length !== 3) throw new Error("夹具假设 sol 三个入口");
+});
+
+test("expandRoute: advisor 白名单含顾问模型，general 不含", () => {
+  const keys = whitelistCands("advisor").map((c) => c.model);
+  for (const k of ["opus-5.5", "gpt-6.1-sol", "grok-4.7"]) if (!keys.includes(k)) throw new Error(`advisor 白名单应含顾问模型 ${k}`);
+  if (!keys.includes("swe-2")) throw new Error("advisor 白名单应含 auto 模型");
+  for (const t of ["general"]) {
+    const tk = whitelistCands(t).map((c) => c.model);
+    for (const k of ["opus-5.5", "gpt-6.1-sol", "grok-4.7"]) if (tk.includes(k)) throw new Error(`${t} 白名单不应含顾问模型 ${k}`);
+  }
+  // 非 auto/advisor 状态永不进任何任务的白名单（当前 MODELS 没有 named 条目，此断言防未来误加）
+  const nonAuto = Object.keys(MODELS).filter((k) => !["auto", "advisor"].includes(MODELS[k].status));
+  for (const t of Object.keys(ROUTES)) {
+    const ks = whitelistCands(t).map((c) => c.model);
+    for (const k of nonAuto) if (ks.includes(k)) throw new Error(`${t} 白名单不应含 ${MODELS[k].status} 模型 ${k}`);
+  }
+});
+
+test("select: 路由行全不可用时白名单递补出 PICK 并注明", () => {
   const f = fixture();
   try {
-    const r = run(["select", "--task", "review", "--implementer", "gpt-6.1-sol", ...f.base]);
+    const caps = JSON.parse(JSON.stringify(CAPS));
+    for (const p of caps.providers) if (p.providerInstanceId !== "claudeAgent") p.canRunChildTask = false;
+    writeFileSync(f.caps, JSON.stringify(caps));
+    // advisor 行内全是顾问组合（codex/devin/droid/cursor 均不可派），递补到 auto 里的 glm
+    const r = run(["select", "--task", "advisor", ...f.base]);
+    if (r.status !== 0) throw new Error(r.stdout + r.stderr);
     const m = pick(r);
-    if (m?.[2] !== "grok-4.7") throw new Error(`openai 实现应选 grok 审查: ${r.stdout}`);
-    const r2 = run(["select", "--task", "review", "--implementer", "swe-2-high", ...f.base]);
-    const m2 = pick(r2);
-    if (m2?.[2] !== "gpt-6.1-sol") throw new Error(`非 openai 实现按默认顺序应选 sol: ${r2.stdout}`);
+    if (m?.[1] !== "claudeAgent" || m?.[2] !== "glm-5.3-flash[1m]") throw new Error(`应递补 glm: ${r.stdout}`);
+    if (!r.stdout.includes("白名单递补")) throw new Error(`应注明 PICK 来自递补: ${r.stdout}`);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("select: general --vision 按视觉分数降序（SWE-2 → GLM → DeepSeek）", () => {
+  const f = fixture();
+  try {
+    const r = run(["select", "--task", "general", "--vision", "--json", ...f.base]);
+    const out = JSON.parse(r.stdout);
+    const order = [out.pick, ...out.alternatives].map((p) => p.model).join(",");
+    const want = "swe-2-high,glm-5.3-flash[1m],commandcode/deepseek/deepseek-v4.1-flash,opendesign/deepseek-v4.1-flash";
+    if (order !== want) throw new Error(`vision 顺序不对: ${order}`);
   } finally {
     f.cleanup();
   }
@@ -419,8 +477,8 @@ test("injectOptions: 带期限的档位例外到期自动回落 high", () => {
   const expired = injectOptions(entry, providers, after);
   if (expired.thought_level !== "high") throw new Error(`到期后应回落 high: ${JSON.stringify(expired)}`);
   // 无 until 的普通入口不受时间影响
-  const grok = injectOptions({ provider: "cursor", id: "grok-4.6", options: { effort: "high" } }, providers, after);
-  if (grok.effort !== "high") throw new Error(`无期限入口不应被改: ${JSON.stringify(grok)}`);
+  const grok = injectOptions({ provider: "cursor", id: "grok-4.7", options: { reasoning_effort: "high" } }, providers, after);
+  if (grok.reasoning_effort !== "high") throw new Error(`无期限入口不应被改: ${JSON.stringify(grok)}`);
 });
 
 // fastMode 一律由 injectOptions 按目录注入，不得写死在路由数据里（曾因此给没有
@@ -442,10 +500,10 @@ test("audit: 裁剪夹具上 route-data 全部入口 0 问题", () => {
 
 test("injectOptions: fastMode 只在目录规格存在时注入", () => {
   const { providers } = loadProviders(CAPS_FILE);
-  const grok = injectOptions({ provider: "cursor", id: "grok-4.6", options: { effort: "high" } }, providers);
-  if (grok.fastMode !== false) throw new Error(`cursor/grok-4.6 有 fastMode，应注入 false: ${JSON.stringify(grok)}`);
-  const sonnet = injectOptions({ provider: "acpRegistry_factory_droid", id: "claude-sonnet-5-5", options: {} }, providers);
-  if ("fastMode" in sonnet) throw new Error(`droid/claude-sonnet-5-5 无 fastMode，不应注入: ${JSON.stringify(sonnet)}`);
+  const grok = injectOptions({ provider: "cursor", id: "grok-4.7", options: { reasoning_effort: "high" } }, providers);
+  if (grok.fastMode !== false) throw new Error(`cursor/grok-4.7 有 fastMode，应注入 false: ${JSON.stringify(grok)}`);
+  const opus = injectOptions({ provider: "acpRegistry_factory_droid", id: "claude-opus-5-5", options: {} }, providers);
+  if ("fastMode" in opus) throw new Error(`droid/claude-opus-5-5 无 fastMode，不应注入: ${JSON.stringify(opus)}`);
   const glm = injectOptions({ provider: "claudeAgent", id: "glm-5.3-flash[1m]", options: {} }, providers);
   if ("fastMode" in glm) throw new Error(`claudeAgent/glm-5.3-flash[1m] 无任何选项，不应注入: ${JSON.stringify(glm)}`);
 });
@@ -468,7 +526,7 @@ test("validateOptions: devin thought_level 按实测收窄集校验", () => {
 test("select: --hard 输出顾问+实现两步", () => {
   const f = fixture();
   try {
-    const r = run(["select", "--task", "implementation", "--hard", "--json", ...f.base]);
+    const r = run(["select", "--task", "general", "--hard", "--json", ...f.base]);
     const out = JSON.parse(r.stdout);
     if (out.steps?.[0]?.role !== "design" || out.steps?.[1]?.role !== "implementation") throw new Error(`steps 结构错: ${r.stdout}`);
     if (out.steps[0].pick?.model !== "gpt-6.1-sol") throw new Error(`顾问步应选 sol: ${r.stdout}`);
@@ -478,14 +536,16 @@ test("select: --hard 输出顾问+实现两步", () => {
   }
 });
 
-test("select: security 两腿各自出 pick", () => {
+test("select: 已移除的任务类型退出 2，tasks 只列两个任务", () => {
   const f = fixture();
   try {
-    const r = run(["select", "--task", "security", "--json", ...f.base]);
-    const out = JSON.parse(r.stdout);
-    if (out.steps?.length !== 2) throw new Error(`security 应两腿: ${r.stdout}`);
-    if (out.steps[0].pick?.model !== "claude-opus-5-5-medium" || out.steps[0].pick?.providerInstanceId !== "acpRegistry_devin") throw new Error(`审查腿应 devin opus: ${r.stdout}`);
-    if (out.steps[1].pick?.model !== "gpt-6.1-sol") throw new Error(`复核腿应 sol: ${r.stdout}`);
+    for (const t of ["low", "ui-minor", "research", "review", "security", "implementation", "ui"]) {
+      const r = run(["select", "--task", t, ...f.base]);
+      if (r.status !== 2) throw new Error(`${t} 应退出 2: ${r.status} ${r.stdout}${r.stderr}`);
+    }
+    const tasks = run(["tasks"]);
+    for (const t of ["general", "advisor"]) if (!new RegExp(`^${t}\\s`, "m").test(tasks.stdout)) throw new Error(`tasks 缺 ${t}: ${tasks.stdout}`);
+    for (const t of ["low", "ui-minor", "research", "review", "security", "implementation", "ui"]) if (new RegExp(`^${t}\\s`, "m").test(tasks.stdout)) throw new Error(`tasks 不应再含 ${t}`);
   } finally {
     f.cleanup();
   }
@@ -495,11 +555,11 @@ test("select: 超过 4 次尝试上限退出 1", () => {
   const f = fixture();
   try {
     const r = run([
-      "select", "--task", "low",
+      "select", "--task", "general",
       "--exclude", "claudeAgent/glm-5.3-flash[1m]",
-      "--exclude", "codex/gpt-6-luna",
-      "--exclude", "acpRegistry_devin/gpt-6-luna-medium",
-      "--exclude", "acpRegistry_factory_droid/gpt-6-luna",
+      "--exclude", "acpRegistry_devin/swe-2-high",
+      "--exclude", "pi/commandcode/deepseek/deepseek-v4.1-flash",
+      "--exclude", "codex/gpt-6.1-sol",
       ...f.base,
     ]);
     if (r.status !== 1 || !r.stdout.includes("4 次")) throw new Error(`应拒绝第 5 次: ${r.status} ${r.stdout}`);
@@ -508,15 +568,17 @@ test("select: 超过 4 次尝试上限退出 1", () => {
   }
 });
 
-test("named: 点名模型按入口优先级出列", () => {
+test("named: 点名模型按入口优先级出列并对非 named 状态告警", () => {
   const f = fixture();
   try {
-    const r = run(["named", "astra", ...f.base]);
+    // 当前 MODELS 没有 named 条目；用 sol 验证 named 子命令的解析、入口顺序与状态告警
+    const r = run(["named", "sol", ...f.base]);
     const m = pick(r);
-    if (m?.[1] !== "codex" || m?.[2] !== "gpt-6-astra") throw new Error(`astra 首选应 codex: ${r.stdout}`);
-    const r2 = run(["named", "astra", "--provider", "acpRegistry_devin", ...f.base]);
+    if (m?.[1] !== "codex" || m?.[2] !== "gpt-6.1-sol") throw new Error(`sol 首选应 codex: ${r.stdout}`);
+    if (!r.stdout.includes("不是点名专用")) throw new Error(`应对 advisor 状态告警: ${r.stdout}`);
+    const r2 = run(["named", "sol", "--provider", "acpRegistry_devin", ...f.base]);
     const m2 = pick(r2);
-    if (m2?.[2] !== "gpt-6-astra-medium") throw new Error(`点名定 harness 应过滤: ${r2.stdout}`);
+    if (m2?.[2] !== "gpt-6-1-sol-medium") throw new Error(`点名定 harness 应过滤: ${r2.stdout}`);
     const bad = run(["named", "不存在的模型", ...f.base]);
     if (bad.status !== 2) throw new Error(`未知模型应退出 2: ${bad.stdout}`);
   } finally {
@@ -532,7 +594,7 @@ test("select: 无 caps-file 时读 T3_CACHE_DIR 缓存并告警", () => {
     const caches = join(dir, "caches");
     mkdirSync(caches);
     writeFileSync(join(caches, "acpRegistry_devin.json"), JSON.stringify({ enabled: true, status: "ready", auth: { status: "authenticated" }, models: [{ slug: "swe-2-high" }] }));
-    const r = run(["select", "--task", "implementation", "--state-dir", join(dir, "state"), "--quota-file", quota], { env: { ...process.env, T3_CACHE_DIR: caches } });
+    const r = run(["select", "--task", "general", "--state-dir", join(dir, "state"), "--quota-file", quota], { env: { ...process.env, T3_CACHE_DIR: caches } });
     if (!r.stdout.includes("无法验证 canRunChildTask")) throw new Error(`应告警缓存降级: ${r.stdout}`);
   } finally {
     rmSync(dir, { recursive: true, force: true });

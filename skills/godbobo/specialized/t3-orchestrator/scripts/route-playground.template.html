@@ -69,8 +69,7 @@
       <h3>任务 --task</h3>
       <select id="task"></select>
       <label><input type="checkbox" id="hard"> 难题 --hard（顾问→实现）</label>
-      <label><input type="checkbox" id="vision"> --vision（视觉类顾问）</label>
-      <div class="ctl"><h3>审查 --implementer</h3><select id="implementer"><option value="">（不指定）</option></select></div>
+      <label><input type="checkbox" id="vision"> --vision（按视觉分数降序）</label>
     </div>
     <div class="ctl" id="namedCtl" style="display:none">
       <h3>点名模型</h3>
@@ -97,12 +96,12 @@
 const DATA = JSON.parse(document.getElementById('route-data').textContent);
 const CAPS = JSON.parse(document.getElementById('caps-data').textContent);
 const QUOTA = JSON.parse(document.getElementById('quota-data').textContent);
-const {MODELS, ROUTES, DOWNGRADE, EXPIRY_DEMOTE, POOLS, PROVIDER_RULES, BANNED_PROVIDERS, MODEL_BANS, TASKS, QUOTA_BLOCK_PERCENT, QUOTA_BLOCK_RESET_MS, MAX_ATTEMPTS} = DATA;
+const {MODELS, ROUTES, EXPIRY_DEMOTE, POOLS, PROVIDER_RULES, TASKS, ADVISOR_TASKS, QUOTA_BLOCK_PERCENT, QUOTA_BLOCK_RESET_MS, MAX_ATTEMPTS} = DATA;
 const NOW = Date.now();
 
 // ---------- UI 状态 ----------
 const S = {
-  mode: 'auto', task: 'implementation', hard: false, vision: false, implementer: '',
+  mode: 'auto', task: 'general', hard: false, vision: false,
   named: '', namedProvider: '', swe2Until: DATA.SWE2_FREE_UNTIL,
   provOff: new Set(),           // 勾选掉 = canRunChildTask false
   poolState: {},                // poolId -> ok|quota|cooldown|recovery
@@ -123,13 +122,12 @@ const entryId = e => `${e.provider}/${e.id}`;
 function expandCandidates(cands, stream, seen, via) {
   for (const cand of cands) {
     const m = MODELS[cand.model]; if (!m) continue;
-    const primary = cand.provider ? m.entries.find(e=>e.provider===cand.provider) : m.entries[0];
-    const ordered = primary ? [primary, ...m.entries.filter(e=>e!==primary)] : [...m.entries];
-    ordered.forEach((e,i)=>{
+    const entries = cand.provider ? m.entries.filter(e=>e.provider===cand.provider) : m.entries;
+    entries.forEach((e,i)=>{
       const k = entryId(e); if (seen.has(k)) return; seen.add(k);
-      stream.push({model:cand.model, family:m.family, status:m.status, vision:m.vision===true,
+      stream.push({model:cand.model, status:m.status, vision:m.vision??0,
         provider:e.provider, id:e.id, options:{...(e.options||{}), ...(i===0?(cand.options||{}):{})},
-        pool:e.pool, via:i===0?(cand.via??via):'same-model', leg:cand.leg});
+        pool:e.pool, via:i===0?(cand.via??via):'same-model'});
     });
   }
 }
@@ -145,11 +143,14 @@ function applyExpiryDemote(taskKey,cands){
   }
   return out;
 }
+function whitelistCands(taskKey){
+  const adv=(ADVISOR_TASKS||[]).includes(taskKey);
+  return Object.keys(MODELS).filter(k=>MODELS[k].status==='auto'||(adv&&MODELS[k].status==='advisor')).map(model=>({model}));
+}
 function expandRoute(taskKey) {
-  const stream=[]; const seen=new Set(); const seenTasks=new Set();
-  const visit=(key,via)=>{ if(seenTasks.has(key))return; seenTasks.add(key);
-    expandCandidates(applyExpiryDemote(key,ROUTES[key]||[]),stream,seen,via); const d=DOWNGRADE[key]; if(d)visit(d,'downgrade'); };
-  visit(taskKey,'route'); return stream;
+  const stream=[]; const seen=new Set();
+  expandCandidates(applyExpiryDemote(taskKey,ROUTES[taskKey]||[]),stream,seen,'route');
+  expandCandidates(whitelistCands(taskKey),stream,seen,'whitelist'); return stream;
 }
 function swe2Free(){ return NOW < Date.parse(S.swe2Until); }
 function injectOptions(item){
@@ -160,10 +161,10 @@ function injectOptions(item){
   if (hasFast && options.fastMode===undefined) options.fastMode=false;
   return options;
 }
-function gateEntry(item,named){
+function gateEntry(item,named,task){
   const reasons=[];
   if (item.status==='named'&&!named) reasons.push('仅限用户点名');
-  if (BANNED_PROVIDERS[item.provider]) reasons.push(`${item.provider} ${BANNED_PROVIDERS[item.provider]}`);
+  if (item.status==='advisor'&&task&&!(ADVISOR_TASKS||[]).includes(task)) reasons.push('顾问模型不承担该任务类型');
   const rule=PROVIDER_RULES[item.provider];
   if (rule?.allowModels && !rule.allowModels.includes(item.id)) reasons.push(`${item.provider} 白名单仅 ${rule.allowModels.join(' / ')}`);
   const info=capsMap[item.provider];
@@ -200,26 +201,14 @@ function resolveModel(q){
 }
 function taskStream(){
   const task=S.task;
-  if (task==='security'){
-    const fallback=applyExpiryDemote(DOWNGRADE.security,(ROUTES[DOWNGRADE.security]||[]).map(c=>({...c,via:'downgrade'})));
-    const legs=[...new Set(ROUTES.security.map(c=>c.leg||'main'))];
-    return legs.map(leg=>{
-      const stream=[]; expandCandidates([...applyExpiryDemote('security',ROUTES.security.filter(c=>(c.leg||'main')===leg)),...fallback],stream,new Set(),'route');
-      return {leg, stream};
-    });
-  }
   let stream=expandRoute(task);
-  if (task==='review'&&S.implementer){
-    const impl=resolveModel(S.implementer);
-    if (impl) stream=[...stream.filter(i=>i.family!==impl.family),...stream.filter(i=>i.family===impl.family)];
+  const byVision=s=>S.vision?[...s].sort((a,b)=>b.vision-a.vision):s;
+  stream=byVision(stream);
+  if (task==='general'&&S.hard){
+    const advFiltered=byVision(expandRoute('advisor'));
+    return [{leg:'advisor',stream:advFiltered,task:'advisor'},{leg:'general',stream,task:'general'}];
   }
-  if (S.vision) stream=[...stream.filter(i=>i.vision),...stream.filter(i=>!i.vision)];
-  if (task==='implementation'&&S.hard){
-    const adv=expandRoute('advisor');
-    const advFiltered=S.vision?[...adv.filter(i=>i.vision),...adv.filter(i=>!i.vision)]:adv;
-    return [{leg:'advisor',stream:advFiltered},{leg:'implementation',stream}];
-  }
-  return [{leg:null,stream}];
+  return [{leg:null,stream,task}];
 }
 function namedStream(){
   const m=MODELS[S.named];
@@ -227,7 +216,7 @@ function namedStream(){
   const entries=S.namedProvider?m.entries.filter(e=>e.provider===S.namedProvider):m.entries;
   const stream=[]; const seen=new Set();
   for(const e of entries){ const k=entryId(e); if(seen.has(k))continue; seen.add(k);
-    stream.push({model:S.named,family:m.family,status:m.status,vision:m.vision===true,provider:e.provider,id:e.id,options:{...e.options},pool:e.pool,via:'named'}); }
+    stream.push({model:S.named,status:m.status,vision:m.vision??0,provider:e.provider,id:e.id,options:{...e.options},pool:e.pool,via:'named'}); }
   return [{leg:null,stream}];
 }
 
@@ -249,7 +238,6 @@ function render(){
   // named 状态提示
   let html='';
   if (S.mode==='named'&&MODELS[S.named]?.status!=='named') html+=`<div class="warnline">WARN ${esc(MODELS[S.named]?.label??S.named)} 状态是 ${MODELS[S.named]?.status}，不是点名专用</div>`;
-  if (S.mode==='auto'&&S.implementer&&S.task==='review'){const impl=resolveModel(S.implementer); if(impl)html+=`<div class="warnline"># 实现者 ${esc(impl.label)}（${impl.family}）：审查优先选不同家族</div>`;}
   const overCap=S.excluded.size>=MAX_ATTEMPTS;
   const groups=taskOrNamedGroups();
   let stepIdx=0;
@@ -257,14 +245,14 @@ function render(){
   for(const g of groups){
     const stream=g.stream.filter(i=>!S.excluded.has(entryId(i)));
     const skipped=[],avail=[];
-    for(const item of stream){const r=gateEntry(item,S.mode==='named'); if(r.length)skipped.push({...item,reasons:r});else avail.push(item);}
+    for(const item of stream){const r=gateEntry(item,S.mode==='named',g.task); if(r.length)skipped.push({...item,reasons:r});else avail.push(item);}
     g.avail=avail;g.skipped=skipped;g.pick=avail[0]??null;
-    if(groups.length>1){const label=g.leg==='advisor'?'顾问咨询 design':g.leg==='implementation'?'实现 implementation':g.leg==='review'?'安全审查 review':g.leg==='crosscheck'?'交叉复核 review':g.leg;html+=`<div class="legtitle">STEP ${++stepIdx} · ${esc(label)}</div>`;}
+    if(groups.length>1){const label=g.leg==='advisor'?'顾问咨询 design':'实现 general';html+=`<div class="legtitle">STEP ${++stepIdx} · ${esc(label)}</div>`;}
     if(g.pick&&!overCap){html+=`<div class="pickbox"><div class="tgt">PICK <span class="pv">${esc(g.pick.provider)}</span> / ${esc(g.pick.id)}</div><pre>${esc(JSON.stringify({providerInstanceId:g.pick.provider,model:g.pick.id,options:injectOptions(g.pick)},null,1))}</pre></div>`;}
     else if(!overCap)html+=`<div class="pickbox none"><div class="tgt">无可用候选</div><div style="font-size:11px;color:var(--muted-foreground, var(--fb-muted-foreground))">看下方 SKIPPED 原因；不要绕开脚本自己挑</div></div>`;
     html+=g.stream.map((it,i)=>{
       if(S.excluded.has(entryId(it)))return rowHtml({...it,reasons:['已试（--exclude）']},i,'excl');
-      const r=gateEntry(it,S.mode==='named');
+      const r=gateEntry(it,S.mode==='named',g.task);
       if(r.length)return rowHtml({...it,reasons:r},i,'skip');
       return rowHtml(it,i,it===g.pick?'pick':'alt');
     }).join('');
@@ -284,8 +272,7 @@ function taskOrNamedGroups(){return S.mode==='named'?namedStream():taskStream();
 // ---------- 控件 ----------
 function init(){
   const taskSel=$('task');for(const[k,v]of Object.entries(TASKS)){const o=document.createElement('option');o.value=k;o.textContent=`${k} — ${v}`;taskSel.appendChild(o);}taskSel.value=S.task;
-  const implSel=$('implementer');for(const[k,m]of Object.entries(MODELS)){const o=document.createElement('option');o.value=k;o.textContent=m.label;implSel.appendChild(o);}
-  const nmSel=$('namedModel');for(const[k,m]of Object.entries(MODELS)){const o=document.createElement('option');o.value=k;o.textContent=`${m.label}（${m.status}）`;nmSel.appendChild(o);}nmSel.value='gpt-6-astra';S.named='gpt-6-astra';
+  const nmSel=$('namedModel');for(const[k,m]of Object.entries(MODELS)){const o=document.createElement('option');o.value=k;o.textContent=`${m.label}（${m.status}）`;nmSel.appendChild(o);}nmSel.value='swe-2';S.named='swe-2';
   const npSel=$('namedProvider');for(const p of PROVS){const o=document.createElement('option');o.value=p;o.textContent=p;npSel.appendChild(o);}
   const pg=$('provs');for(const p of PROVS){const c=capsMap[p];pg.innerHTML+=`<label><input type="checkbox" data-p="${esc(p)}" ${S.provOff.has(p)?'':'checked'}><span class="pid">${esc(p)}</span>${c&&c.canRunChildTask===false?`<span class="note" title="${esc((c.constraints||[]).join(';'))}">实时不可用</span>`:''}</label>`;}
   const pl=$('pools');for(const pid of Object.keys(POOLS)){pl.innerHTML+=`<label><span class="pid">${esc(pid)}</span><select data-pool="${esc(pid)}"><option value="ok">正常</option><option value="quota">额度≥90%&>24h</option><option value="cooldown">冷却中</option><option value="recovery">待恢复探测</option></select></label>`;}
@@ -295,7 +282,6 @@ function init(){
   taskSel.addEventListener('change',e=>{S.task=e.target.value;render();});
   $('hard').addEventListener('change',e=>{S.hard=e.target.checked;render();});
   $('vision').addEventListener('change',e=>{S.vision=e.target.checked;render();});
-  implSel.addEventListener('change',e=>{S.implementer=e.target.value;render();});
   nmSel.addEventListener('change',e=>{S.named=e.target.value;render();});
   npSel.addEventListener('change',e=>{S.namedProvider=e.target.value;render();});
   $('mAuto').addEventListener('click',()=>{S.mode='auto';$('mAuto').classList.add('on');$('mNamed').classList.remove('on');$('taskCtl').style.display='';$('namedCtl').style.display='none';render();});
@@ -307,12 +293,12 @@ init();render();
 try{
   const save={...S,provOff:new Set(S.provOff),poolState:{...S.poolState},excluded:new Set()};
   for(const t of Object.keys(TASKS)){
-    S.mode='auto';S.task=t;S.hard=false;S.vision=false;S.implementer='';
+    S.mode='auto';S.task=t;S.hard=false;S.vision=false;
     const groups=taskStream();
-    const line=groups.map(g=>{const a=g.stream.filter(i=>!gateEntry(i,false).length);return (g.leg?g.leg+':':'')+(a[0]?a[0].provider+'/'+a[0].id:'NONE');}).join(' + ');
+    const line=groups.map(g=>{const a=g.stream.filter(i=>!gateEntry(i,false,g.task).length);return (g.leg?g.leg+':':'')+(a[0]?a[0].provider+'/'+a[0].id:'NONE');}).join(' + ');
     console.log('SELFTEST select',t,'→',line);
   }
-  for(const nm of ['gpt-6-astra','fable-5.1','kimi-k3','grok-4.7']){
+  for(const nm of ['swe-2','grok-4.6','gpt-6.1-sol','grok-4.7']){
     S.mode='named';S.named=nm;S.namedProvider='';
     const g=namedStream()[0];const a=g.stream.filter(i=>!gateEntry(i,true).length);
     console.log('SELFTEST named',nm,'→',a[0]?a[0].provider+'/'+a[0].id:'NONE');

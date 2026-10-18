@@ -1,21 +1,17 @@
 ---
 name: t3-orchestrator
-description: T3 Code 多 harness 编排：主代理按任务难度和各 harness 额度选择子代理模型，通过 t3-code MCP 的 delegate_task 跨 harness 派活、验收，并在子代理遇到限流、额度用尽、服务过载时自动换路续跑。仅限用户或技能点名时调用。
+description: T3 Code 多 harness 编排：route.mjs 裁决 harness/模型，delegate_task 派活、验收，限流/额度/过载自动换路续跑。仅限用户或技能点名时调用。
 ---
 
 用户调用本技能后，本线程余下的工作都按这里的规则进行。
 
-你是主代理：负责定方向、拆任务、派活、验收和汇报。真正的小任务可以直接完成，避免侦察和交接比实现更长；复杂实现继续按原有路由与权限规则委派。
+你是主代理：负责定方向、拆任务、派活、验收和汇报。真正的小任务直接完成，避免侦察和交接比实现更长；复杂实现按这里的规则委派。主代理自己中断由用户处理，本技能只管子代理。
 
-主代理自己中断由用户处理，本技能只管子代理。
-
-子代理和主代理在同一个额度池时会一起消耗额度，池用尽后主代理也会中断。所以耗时长、改动多的子任务，在其他池有同档候选时优先派到其他池。
+子代理与主代理同池时一起耗额度，池尽主代理也会中断：耗时长、改动多的子任务，其他池有同档候选时派到其他池。
 
 ## 选目标由脚本裁决
 
-**选哪个 harness、哪个模型，不查文档、不自己判断，一律跑 `route.mjs`。** 固定输入固定输出：任务类型和已试入口进去，`PICK` 出来就是 `delegate_task` 的 `target`（`options` 已按规则注入好）。
-
-硬性规则（快速模式全禁、点名专用模型、不主动调用清单、顾问模型不写实现、各 harness 白名单与模型锁定入口、droid 选项名、单任务最多 4 次尝试）全部编码在 `scripts/route-data.mjs` 和 `route.mjs` 里，脚本能拦住的就别靠记忆；`route.mjs table` 可查看当前生效的全部规则数据。
+**选哪个 harness、哪个模型，一律跑 `route.mjs`，不查文档、不自己挑。** 固定输入固定输出：任务类型和已试入口进去，`PICK` 出来就是 `delegate_task` 的 `target`（`options` 已按规则注入好）。硬性规则全部编码在 `scripts/route-data.mjs` 与 `route.mjs`——脚本能拦的别靠记忆；`route.mjs table` 看当前生效数据。
 
 ```bash
 # 选目标：--task 分类进去，pick/alternatives/skipped 出来
@@ -28,14 +24,14 @@ node <技能目录>/scripts/route.mjs select --task <类型> --exclude <provider
 node <技能目录>/scripts/route.mjs check --provider <id> --model <id> [--role <role>] [--options '<json>'] [--user-named]
 ```
 
-- `PICK` 为空时看 `SKIPPED` 的原因，不要绕开脚本自己挑；`ALTERNATIVES` 已按换路顺序排好（同模型其他入口 → 行内下一候选 → 降档行）。
-- `PICK` 是额度裁决的终点：`select` 自己读共享冷却和各池额度窗口（≤10 分钟快照，输出注明新鲜度），免费期等豁免生效时 PICK 行自带「豁免」标注。`t3-quota.mjs` 的原始读数只用于摸底与汇报，不是第二意见——不要凭「某池显示 100%」否决 PICK 或给它补 `--exclude`；输出与认知矛盾时先找豁免标注，确属脚本数据陈旧或豁免未登记，向用户报告或修 `route-data.mjs`。
-- `--task` 取值跑 `route.mjs tasks` 查看：low（小改动、机械修改、批量）、implementation（实现、修 bug、架构；难题加 `--hard` 自动输出「顾问→实现」两步）、ui、ui-minor（只按截图做小调整）、advisor（视觉/长时程规划/要第二意见时加 `--vision`）、review（带 `--implementer <实现者模型>` 自动避开同家族）、research、security（输出先审查后交叉复核两腿）。拿不准任务是否属于 low 时按 implementation。
-- 脚本自行读取共享冷却状态和各池额度窗口（≤10 分钟快照复用，输出注明快照时间与来源；`--refresh-quota` 强制实查）；`--caps-file` 给的是 `orchestrator_capabilities` 的 JSON（开工前落盘，超 30 分钟会告警并把「不可派/无此模型」类判定标注为可能过期——见到就重新落盘再选，不要凭旧快照拍板），不给时退化为 `~/.t3/caches` 快照并告警。
-- 点名清单外模型时 `named` 不识别，用 `check --user-named` 验证后手工指定 target。
-- `needsRecovery: true` 的 pick 表示该入口/池有未清除的失败记录：派发前先 `claim` 并做恢复探测（见「子代理失败时」）。
+- `--task` 取值见 `route.mjs tasks`（general / advisor，拿不准按 general）。旗标：`--hard` 出「顾问→实现」两步，`--vision` 让候选按视觉分数降序（截图、UI 还原等看图任务用）。
+- `PICK` 为空看 `SKIPPED` 原因。`ALTERNATIVES` 即换路顺序（行内「模型@harness」组合 → 白名单递补）；`via=whitelist` 说明行内候选都不可用。
+- `PICK` 是额度裁决的终点：`select` 自己读共享冷却和各池额度窗口，豁免生效时 PICK 自带标注；`--refresh-quota` 强制实查。`t3-quota.mjs` 的读数只用于摸底与汇报，不是第二意见；与认知矛盾时先找豁免标注，确属数据陈旧或豁免未登记就向用户报告或修 `route-data.mjs`。
+- 不给 `--caps-file` 时退化为 `~/.t3/caches` 快照并告警。
+- 点名清单外的模型 `named` 不识别：先 `check --user-named` 验证再手工指定 target。
+- `needsRecovery: true` 的 pick：该入口/池有未清除失败记录，派发前按 [references/failures.md](references/failures.md) 做恢复探测。
 
-调整路由规则前，可以用沙盒页人工搭配输入、眼看每个候选的跳过原因：
+调整路由规则前可用沙盒页人工搭配输入、眼看每个候选的跳过原因：
 
 ```bash
 node <技能目录>/scripts/route-playground.mjs [--caps-file ...] [--quota-file ... | --no-quota]
@@ -44,37 +40,30 @@ node <技能目录>/scripts/route-playground.mjs [--caps-file ...] [--quota-file
 
 ## 开工前
 
-1. 调一次 `orchestrator_capabilities` 并把返回 JSON 落盘（例如 `/tmp/t3-caps.json`），route.mjs 的 `--caps-file` 用它判断 `canRunChildTask`、模型清单和选项名。MCP 工具没出现时，按 T3 注入的说明直接调用一次，或用 `acp-mcp-call` 兜底（具体语法见 `t3-code` 技能）输出重定向到文件。落盘后跑 `route.mjs audit --caps-file /tmp/t3-caps.json` 核对路由数据与目录一致（输出问题即按提示修 route-data.mjs）。注意：`--caps-file` 不自带 TTL——不要复用别的会话留下的旧文件，每次开工都重新落盘；长任务中 `select` 报「caps 快照过期」告警时同样重调一次覆盖该文件。
-2. 运行 `node ~/.agents/skills/t3-orchestrator/scripts/t3-quota.mjs` 摸底额度：本机凭证直查所有 harness（Codex、Cursor、Devin、GLM、Droid），并写穿快照供随后的 `select` 复用（`--cached` 只读快照不触网）。读数只作摸底与汇报——`select` 自己管额度数据的新鲜度，复核 `PICK` 以 `select` 输出为准。
-3. 读取共享失败状态：`node <技能目录>/scripts/quota-state.mjs status`。每次换路也读；用法与池边界见 [references/quota-state.md](references/quota-state.md)。
-4. 指定实现、独立审查和最终验证三类职责。最终验证默认由主代理负责，也可明确交给一个验证子代理；整个任务始终只有一个最终验证负责人，交接时先结束旧负责人的检查。
+1. 调一次 `orchestrator_capabilities` 并把返回 JSON 落盘（例如 `/tmp/t3-caps.json`），`--caps-file` 用它判断 `canRunChildTask`、模型清单和选项名。MCP 工具没出现时，按 T3 注入的说明直接调用一次，或用 `acp-mcp-call` 兜底（语法见 `t3-code` 技能）输出重定向到文件。落盘后跑 `route.mjs audit --caps-file /tmp/t3-caps.json` 核对路由数据与目录一致。caps 文件没有 TTL：每次开工重新落盘，快照超 30 分钟脚本会把「不可派/无此模型」类判定标为可能过期——见到告警就重调覆盖，不凭旧快照拍板。
+2. `node <技能目录>/scripts/t3-quota.mjs` 摸底各池额度并写穿快照供 `select` 复用（`--cached` 只读快照不触网）。
+3. `node <技能目录>/scripts/quota-state.mjs status` 读共享失败状态；每次换路也读。用法与池边界见 [references/quota-state.md](references/quota-state.md)。
+4. 指定实现、独立审查和最终验证三类职责。最终验证始终只有一个负责人（默认主代理，可明确交给一个验证子代理）；交接时先结束旧负责人的检查。
 
 ## 派活
 
-用 `delegate_task`：
+`delegate_task` 参数：
 
 - `target`：用 route.mjs 输出的 `providerInstanceId`、`model`、`options`，不自行增减选项。
 - `role`：按任务填 `implementation`、`review`、`research`、`design`、`test` 之一。
-- `mode`：委派任务用 `async`，靠完成事件唤醒。派完处理剩余独立工作，然后结束本轮等待事件；不另起监视任务。追加修复和复审也新建 `delegate_task`，不能用子线程的 `t3_thread_send` 代替委派。
-- 保存每轮的 `taskId`、`childThreadId`、`clientRequestId`。taskId 用于 `task_status` / `task_cancel`；childThreadId 只用于读原始证据。每轮 clientRequestId 不同，同一轮工具重试沿用原值，换路增加尝试序号。
-- `runtimeMode`、`interactionMode` 一律继承，不主动设置——降级同样不行：`approval-required` 的后台子代理每次工具调用都弹人工授权，没人批就永久挂起，而 `task_status` 仍显示 running。「只读审查」这类意图写进任务「范围」，不靠权限模式实现。
+- `mode`：`async`，靠完成事件唤醒。派完处理剩余独立工作，然后结束本轮等事件；不另起监视任务。追加修复和复审也新建 `delegate_task`，不用子线程的 `t3_thread_send` 代替委派。
+- 保存每轮的 `taskId`（`task_status` / `task_cancel`）、`childThreadId`（只用于读原始证据）、`clientRequestId`（每轮不同，同轮工具重试沿用原值，换路增加尝试序号）。
+- `runtimeMode`、`interactionMode` 一律继承：`approval-required` 的后台子代理每次工具调用都弹人工授权，没人批就永久挂起而 `task_status` 仍显示 running。「只读」这类意图写进任务「范围」，不靠权限模式实现。
 
 规则：
 
-- 同一个工作树可以同时跑多个写文件的子代理，但要同时满足：
-  - 各自「可以改」的范围互不重叠；
-  - 都不碰共享文件：生成物（l10n 输出、绑定生成的类型文件等）、锁文件（`Cargo.lock`、`pnpm-lock.yaml`、`oh-package-lock.json5` 等）、全局配置、预算和基线清单；
-  - 都不提交，也不跑会改写整个仓库的命令（生成器、全仓库格式化、依赖安装）；
-  - 后一个任务不需要参照前一个任务的产出（例如 OHOS 要照着 desktop 的新代码对齐语义时，只能串行）。
-
-  不满足就串行。共享文件和生成器由主代理在所有写任务验收后统一处理；最终完整验证由唯一负责人在写入收敛后安排。只读调研和审查可并行。
-- 任务要引用的名字来自共享生成物或词表（l10n key、FFI/接口签名、生成的绑定等）时，派活前主代理先查证现有条目，把可用名单写进「背景」；缺的条目先作为前置任务串行产出。子代理只引用名单内的名字，需要新条目时在回报里提出，由主代理统一登记。
-- 并行派写任务时，在每个子代理的「范围」里写明同一工作树还有哪些任务在改哪些目录，要求它不碰、不回滚 `git status` 里的这些改动；「验收标准」只写本范围的定向检查（单个 crate 的 `cargo check`/`cargo test`、单个包的 lint）。并行的 cargo 命令会争用同一个 target 目录，`Blocking waiting for file lock` 是正常等待，不要当成卡死去结束进程。
-- 实现、审查和需要执行命令的调研都走 `delegate_task`，方便看到失败原因并换路。当前 harness 自带的子代理只用于不执行命令的只读探索（读文件、搜索）。自带子代理在后台运行时，需要审批的工具（shell、写文件）会被自动拒绝，它跑不了构建和测试，只能交回没验证过的改动。
-- 顾问任务只读：「范围」里写明不改任何文件、不执行写命令，「验收标准」只要结论、理由和被否决方案的依据；回报的意见由主代理裁决后转述给实现代理，实现代理不直接和顾问来回对话。
+- 同一工作树可同时跑多个写文件的子代理，须同时满足：各自「可以改」的范围互不重叠；都不碰共享文件（生成物、锁文件、全局配置、预算和基线清单）；都不提交，也不跑改写整个仓库的命令（生成器、全仓库格式化、依赖安装）；后一个任务不需要参照前一个任务的产出（例如 OHOS 要照着 desktop 的新代码对齐语义时，只能串行）。不满足就串行。共享文件和生成器由主代理在所有写任务验收后统一处理；只读调研和审查可并行。
+- 任务要引用的名字来自共享生成物或词表（l10n key、FFI/接口签名、生成的绑定等）时，派活前先查证现有条目，把可用名单写进「背景」；缺的条目先作为前置任务串行产出。子代理只引用名单内的名字，需要新条目时在回报里提出，由主代理统一登记。
+- 并行派写任务时，在每个子代理的「范围」里写明同一工作树还有哪些任务在改哪些目录，要求不碰、不回滚 `git status` 里的这些改动；「验收标准」只写本范围的定向检查（单个 crate 的 `cargo check`/`cargo test`、单个包的 lint）。并行 cargo 命令会争用同一个 target 目录，`Blocking waiting for file lock` 是正常等待，不是卡死。
+- 实现、审查和需要执行命令的调研都走 `delegate_task`，失败原因可见、可换路。当前 harness 自带的子代理只用于不执行命令的只读探索（读文件、搜索）：它在后台运行时，需要审批的工具（shell、写文件）会被自动拒绝，只能交回没验证过的改动。
+- 顾问任务只读：「范围」里写明不改任何文件、不执行写命令，「验收标准」只要结论、理由和被否决方案的依据；意见由主代理裁决后转述给实现代理，实现代理不与顾问直接对话。
 - 只有用户明确要求新线程时，才用 `create_threads` 或 `t3_thread_launch`。
-- 派端到端验证或截图任务时，把项目 AGENTS.md 的相关约束原文写进「约束」，注明场景首次开始时间、已消耗时间、重复崩溃计数和现有统一入口。时限、停止条件跨代理、重试、编译策略及基线工作树累计；Musiver 按其项目规则执行单场景 15 分钟、同一崩溃两次停止，其他项目读取自身规则。
-- 截图前预检已有产物、harness 入口与上传条件，优先复用现有设施。环境事实只写查证过的；失败回报具体原因和替代证据，只释放本任务拥有的设备和进程。
+- 派端到端验证或截图任务时，把项目 AGENTS.md 的相关约束原文写进「约束」，注明场景首次开始时间、已消耗时间、重复崩溃计数和现有统一入口；时限、停止条件跨代理重试累计，以项目自身规则为准。截图前预检已有产物、harness 入口与上传条件，优先复用现有设施；环境事实只写查证过的；失败回报具体原因和替代证据；只释放本任务拥有的设备和进程。
 - 重命令遵守机器的调度入口与资源限额；限额取设备配置，不在本技能写死。审查者默认只读源码及已有证据，需额外重检查时提出请求，由最终验证负责人安排。
 
 子代理看不到父对话，提示词必须自带全部背景。按下面的模板写：
@@ -112,48 +101,15 @@ harness 拒绝执行工具时（例如 `Permission denied for this tool`、`was 
 
 ## 子代理失败时
 
-失败的 `summary` 开头是 provider 的错误原文。按原文分类：
+按 [references/failures.md](references/failures.md) 分类错误原文、记录共享冷却、核实旧尝试进度后续跑。
 
-| 类型 | 典型原文 | 处理 |
-|---|---|---|
-| 临时过载或连接失败 | `at capacity`、`server_is_overloaded`、`503`、`stream disconnected`、`Reconnecting... 5/5`、`runtime stream failed`、`Aborted` | 只记录该入口冷却，确认旧尝试退出后换路 |
-| 额度或限流 | 明确的 `usage limit` / `quota` / `credits` 耗尽；`429`、`exceeded retry limit` 需看原文 | 已确认额度耗尽才记录 quota；仅 rate limit 按单入口记录。只有已确认共用额度的入口才共用池标记，不能仅因 429 封禁整个池 |
-| 配置或环境 | `provider_unavailable`、`model_unavailable`、`Invalid value ... model`、`is not enabled`、`auth`、`Provider session failed to open`、`does not exist` | 不在原目标重试；重新调 `orchestrator_capabilities` 落盘，换入口 |
-| 启动即失败 | 开始后 1 分钟内失败，期间没有任何工具调用，原文不属于上面几类（例如 `Provider turn failed`） | 按配置或环境处理 |
-| 权限被拒 | `Permission denied for this tool`、`was denied because this agent is running in the background` | 不在原目标重试。如果用的是 harness 自带子代理，改用 `delegate_task` 重新派；如果已经是 `delegate_task`，不能升级权限，停下向用户报告被拒的工具 |
-| 任务没做好 | 状态是 completed，但结果不达标 | 不算 harness 故障，见「验收」 |
-| 长时间无新消息 | activity 很久没有新内容 | `status=working` 不算活着——请求流挂死时状态停 working、零事件。查子线程 provider 日志文件 mtime/大小是否增长、实际编译进程、锁持有者和排队状态；仍在编译或合法排队就继续等待。确认无实际进展再取消，退出确认后才换路 |
-
-把已查证的失败类别与重置时间写入共享状态；未知重置初始冷却 30 分钟，到期通过 `claim` 争取唯一恢复探测，恢复失败带原 token 延长冷却，成功带原 token 清除标记；过期结果不影响新探测。单入口故障不封禁模型家族。首次派活及每次换路都先检查并认领入口和已确认的池。只有 claim 的 `recovery: false` 才派正式实现；`recovery: true` 先做一次轻量额度/连接查询，以 token 回报后重新检查。失败消耗整个探测 token，旧结果不能再清除其他 scope 的故障。具体命令见额度状态参考，池 ID 见 [references/models.md](references/models.md)「额度池」。
-
-换路：把刚失败的入口加进 `--exclude` 再跑一次 `route.mjs select`，用新的 `PICK`。`ALTERNATIVES` 的顺序就是换路顺序（同模型其他入口 → 行内下一候选 → 降档行），不用先问用户，最后在汇报里说明。换路不会放出点名专用模型，超过单任务 4 次尝试脚本直接拒绝——停下向用户报告每次尝试的入口和失败原因。
-
-## 续跑
-
-换路前先弄清上一次尝试做到了哪一步：
-
-1. 用 `t3_thread_read` 读失败的子线程（`childThreadId`），用 activity 视图看它改了什么、卡在哪；
-2. 用 `task_status` 与原始日志/实际进程交叉核对。需要取消时调 `task_cancel`；取消请求本身不是退出确认。确认旧写者及其构建子进程已退出、锁已释放，才能启动下一尝试。投影与实际不一致时继续查证，不复制启动同一写任务；仅可结束本任务拥有的进程。
-3. 在工作目录看 `git status` 和 `git diff`，核对已完成步骤、失败日志、后台任务及剩余验证。
-
-新的提示词沿用原模板，在「背景」末尾加上：
-
-```text
-上一次尝试由 <实例/模型> 执行，因 <错误类型> 中断。
-已完成：<步骤与已有检查证据>
-工作区已有的改动：<文件列表和源码状态>
-失败日志：<原始路径>
-后台任务：<PID/任务ID、归属、已确认退出或仍运行>
-剩余验证：<检查与唯一负责人>
-截图边界：<首次开始时间、累计耗时与崩溃计数，续跑不重置>
-先核对这些改动是否正确，在此基础上继续，不要从头开始，也不要回滚。
-```
+换路即带上已试入口的 `--exclude` 重跑 `select`，用新的 `PICK`，不用先问用户，最后在汇报里说明。脚本报超过单任务 4 次上限（exit 1）就停下，向用户报告每次尝试的入口和失败原因。
 
 ## 验收与本地审查
 
-1. 主代理亲自读实际 diff、原始日志和测试报告，核对证据对应的源码、脏改动、工具链及覆盖范围，不能仅采信子代理自述。已有证据与最终源码一致且覆盖充分时复核采用；证据缺失、源码或工具链变化、有疑点时补跑相应检查。必要的独立行为核验仍执行。
-2. 不达标时，无论修复大小都新建一次 `delegate_task`，带原始意图、上轮发现、修复回应、未解决异议和完整续跑证据；保存新 taskId，async 等完成事件。方向错误或反复修不好按路由升档。每个子任务最多 4 次故障换路尝试，不能靠新建任务重置计数。
-3. 按风险安排审查：小改动由主代理检查；需要独立审查的常规改动派 `route.mjs select --task review --implementer <实现者模型>` 选出的不同家族审查者；高风险改动用两模型 `$code-review-panel`——并发（文件锁/互斥、跨进程共享状态、进程或 PID 生命周期与复用、看门狗/清理守护）、取消边界、播放、安全或公共接口，命中其一即 panel，不留裁量。合格 panel 就是该轮最终本地审查，不再加一个审查者重复同一份 diff。
+1. 主代理亲自读实际 diff、原始日志和测试报告，核对证据对应的源码、脏改动、工具链及覆盖范围，不采信子代理自述。已有证据与最终源码一致且覆盖充分时复核采用；证据缺失、源码或工具链变化、有疑点时补跑相应检查。必要的独立行为核验仍执行。
+2. 不达标时无论修复大小都新建一次 `delegate_task`，带原始意图、上轮发现、修复回应、未解决异议和完整续跑证据；保存新 taskId，async 等完成事件。方向错误或反复修不好按路由升档。4 次换路上限不能靠新建任务重置。
+3. 按风险安排审查：小改动由主代理检查；需要独立审查的常规改动派 `route.mjs select --task advisor` 选出的审查者（实现者是用户点名的顾问模型时，审查改用 `ALTERNATIVES` 里第一个其他模型）；高风险改动用两模型 `$code-review-panel`——并发（文件锁/互斥、跨进程共享状态、进程或 PID 生命周期与复用、看门狗/清理守护）、取消边界、播放、安全或公共接口，命中其一即 panel，不留裁量。合格 panel 就是该轮最终本地审查，不再重复审同一份 diff。
 4. 后续轮只复核已修问题、修改范围与相关回归，仍完整传递原始意图、上轮发现及未解决异议；出现新风险则扩展相关审查范围。创建 PR 后交给云端审查与 `$pr-review-loop`，仅用户要求或风险实质扩大时重启本地 panel。
 5. 所有写任务与生成步骤收敛后，唯一最终验证负责人完成最终完整验证；可按第 1 步条件复核采用已有检查证据，不降低整体覆盖。验收完成标准是最终源码、必要行为核验和所有有效审查问题都有可核查证据。
 
@@ -169,4 +125,4 @@ harness 拒绝执行工具时（例如 `Permission denied for this tool`、`was 
 
 用户要求更新模型与额度参考时，按 [references/models.md](references/models.md) 末尾的「更新来源与标准」执行：先列出改动建议，用户确认后再改。
 
-选择规则（模型状态、各模型的 harness 入口优先级、路由行、降档链、池映射）的唯一事实源是 `scripts/route-data.mjs`，改完跑 `node --test scripts/route.test.mjs`；`references/models.md` 只保留额度池、模型画像与更新标准。
+改选择规则只改 `scripts/route-data.mjs`，改完跑 `node --test scripts/route.test.mjs`。

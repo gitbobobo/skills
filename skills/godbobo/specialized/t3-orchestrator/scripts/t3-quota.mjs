@@ -18,6 +18,12 @@
 //     → GET app.devin.ai/api/<org>/billing/quota/usage（org 取 ~/.config/devin/config.json）
 //   - GLM Coding Plan：GET <host>/api/monitor/usage/quota/limit
 //   - Factory Droid：GET https://api.factory.ai/api/billing/limits
+//   - Command Code（pi 实例的 commandcode/* 模型）：COMMAND_CODE_API_KEY 或 ~/.commandcode/auth.json 的 apiKey
+//     → GET api.commandcode.ai/alpha/billing/{credits,subscriptions}（与 CLI 的 /usage 同源）
+//   - OpenDesign（pi 实例的 opendesign/* 模型）：控制面密钥 vela_ctrl_…（OPENDESIGN_CONTROL_KEY，
+//     或 --login-opendesign 设备授权后存的 ${XDG_CONFIG_HOME:-~/.config}/t3-orchestrator/opendesign.json）
+//     → GET amr-api.open-design.ai/api/v1/workspaces/<id>/billing/preflight
+//     pi 配置里的 sk-amr-… 是模型面密钥，控制面不收（401）。接口参考 npm 包 opencode-opendesign-auth。
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -411,10 +417,142 @@ async function droidRow() {
   }
 }
 
-const DISPLAY = { codex: "codex", cursor: "cursor", devin: "devin", glm: "glm (claudeAgent)", droid: "droid (factory_droid)" };
+// --- Command Code（pi 实例走的套餐） ---
+
+// 套餐月度额度（美元价值）。接口只回剩余额度，总额取自 command-code CLI 内置的同名表（getPlanInfo）。
+const COMMANDCODE_PLAN_CREDITS = {
+  "individual-go": 10,
+  "individual-go-v1": 10,
+  "individual-goat": 70,
+  "individual-pro": 30,
+  "individual-pro-v1": 80,
+  "individual-provider": 15,
+  "individual-max": 150,
+  "individual-ultra": 300,
+  "teams-pro": 40,
+};
+
+function commandcodePlanCredits(planId) {
+  const id = planId?.toLowerCase().replace(/_/g, "-");
+  if (!id) return null;
+  // 最长前缀匹配：individual-goat 不能落到 individual-go
+  const key = Object.keys(COMMANDCODE_PLAN_CREDITS)
+    .filter((k) => id.startsWith(k))
+    .sort((a, b) => b.length - a.length)[0];
+  return key ? COMMANDCODE_PLAN_CREDITS[key] : null;
+}
+
+function commandcodeWindow(label, w) {
+  if (!w || !(Number(w.cap) > 0)) return null;
+  const n = Number(w.resetAt);
+  return { label, usedPercent: Math.min(100, (Number(w.used) / Number(w.cap)) * 100), resetMs: Number.isFinite(n) ? n : Date.parse(w.resetAt) };
+}
+
+async function commandcodeRow() {
+  const key = "commandcode";
+  const authPath = join(HOME, ".commandcode", "auth.json");
+  const apiKey = process.env.COMMAND_CODE_API_KEY || readJson(authPath)?.apiKey;
+  if (!apiKey) return { key, note: `未找到凭证（COMMAND_CODE_API_KEY 或 ${authPath}）`, windows: [], extras: [] };
+  const headers = { authorization: `Bearer ${apiKey}`, accept: "application/json" };
+  const base = "https://api.commandcode.ai/alpha";
+  try {
+    const orgId = (await getJson(`${base}/whoami`, headers))?.org?.id;
+    const q = orgId ? `?orgId=${encodeURIComponent(orgId)}` : "";
+    const [creditsBody, subBody] = await Promise.all([getJson(`${base}/billing/credits${q}`, headers), getJson(`${base}/billing/subscriptions${q}`, headers)]);
+    const c = creditsBody?.credits;
+    if (!c) return { key, note: "查询失败（返回格式无法识别）", windows: [], extras: [] };
+    const sub = subBody?.data;
+    const active = ["active", "trialing", "past_due"].includes(sub?.status);
+    const remaining = Math.max(0, Number(c.monthlyCredits) || 0);
+    const planTotal = active ? commandcodePlanCredits(sub.planId) : null;
+    const windows = [
+      commandcodeWindow("5h", c.windowLimits?.fiveHour),
+      commandcodeWindow("周", c.windowLimits?.weekly),
+    ].filter(Boolean);
+    if (planTotal) {
+      const total = Math.max(planTotal, remaining);
+      windows.push({ label: "月", usedPercent: ((total - remaining) / total) * 100, resetMs: Date.parse(sub.currentPeriodEnd) });
+    }
+    const extras = [];
+    if (sub?.planId) extras.push(`套餐 ${sub.planId}${active ? "" : `（${sub.status}）`}`);
+    if (!planTotal) extras.push(`月度剩余 $${remaining.toFixed(2)}`);
+    // 额外额度不受 5h/周窗口限制，窗口满时先扣它
+    const extra = (Number(c.purchasedCredits) || 0) + (Number(c.freeCredits) || 0);
+    if (extra > 0) extras.push(`额外额度 $${extra.toFixed(2)}（不受窗口限制）`);
+    return { key, windows, extras };
+  } catch (error) {
+    return { key, note: `查询失败（${error.message}）`, windows: [], extras: [] };
+  }
+}
+
+// --- OpenDesign Design Plan（pi 实例走的另一个套餐） ---
+
+const OPENDESIGN_CONTROL = "https://amr-api.open-design.ai";
+const opendesignKeyPath = () => join(process.env.XDG_CONFIG_HOME || join(HOME, ".config"), "t3-orchestrator", "opendesign.json");
+
+async function opendesignRow() {
+  const key = "opendesign";
+  const controlKey = process.env.OPENDESIGN_CONTROL_KEY || readJson(opendesignKeyPath())?.controlKey;
+  if (!controlKey) return { key, note: "未授权（跑一次 t3-quota.mjs --login-opendesign，或设 OPENDESIGN_CONTROL_KEY）", windows: [], extras: [] };
+  const headers = { authorization: `Bearer ${controlKey}`, accept: "application/json" };
+  try {
+    const ws = await getJson(`${OPENDESIGN_CONTROL}/api/v1/workspaces/current`, headers);
+    const id = ws?.activeWorkspaceId || ws?.workspaceId;
+    if (!id) return { key, note: "账号没有活动 workspace", windows: [], extras: [] };
+    const body = await getJson(`${OPENDESIGN_CONTROL}/api/v1/workspaces/${encodeURIComponent(id)}/billing/preflight`, headers);
+    const plan = body?.codingPlan;
+    const windows = (plan?.windows ?? [])
+      .filter((w) => Number(w?.limitCredits) > 0)
+      .map((w) => {
+        const s = Number(w.durationSeconds);
+        const t = typeof w.resetsAt === "number" ? (w.resetsAt < 1e11 ? w.resetsAt * 1000 : w.resetsAt) : Date.parse(w.resetsAt);
+        return { label: s === 18000 ? "5h" : s === 604800 ? "周" : codexWindowLabel(s), usedPercent: (Number(w.usedCredits) / Number(w.limitCredits)) * 100, resetMs: t };
+      });
+    const extras = [];
+    const balance = Number(body?.balanceUsd);
+    if (Number.isFinite(balance)) extras.push(`钱包 $${balance.toFixed(2)}（套餐窗口用尽后扣这里）`);
+    if (plan?.eligible === false) extras.push("无 Design Plan 额度，全部扣钱包");
+    return { key, windows, extras };
+  } catch (error) {
+    return { key, note: `查询失败（${error.message}${/401|403/.test(error.message) ? "，重跑 --login-opendesign" : ""}）`, windows: [], extras: [] };
+  }
+}
+
+// 设备授权（同 Open Design CLI 的 vela login）：打印激活链接，等用户在浏览器批准后保存控制面密钥。
+async function opendesignLogin() {
+  const post = (path, body) =>
+    fetch(OPENDESIGN_CONTROL + path, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) }));
+  const start = await post("/api/v1/cli/device-authorizations", { cliVersion: "t3-quota", host: "t3-orchestrator", profile: "prod" });
+  const d = start.body;
+  if (!d?.deviceId || !d?.deviceSecret) throw new Error(`发起授权失败（HTTP ${start.status}）`);
+  console.log(`在浏览器打开并批准：${d.activationUrl}${d.userCode ? `（验证码 ${d.userCode}）` : ""}`);
+  const until = Date.parse(d.expiresAt ?? "") || Date.now() + 10 * 60_000;
+  const interval = (Number(d.pollIntervalSeconds) > 0 ? Number(d.pollIntervalSeconds) : 2) * 1000;
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, interval));
+    const r = await post(`/api/v1/cli/device-authorizations/${encodeURIComponent(d.deviceId)}/token`, { deviceSecret: d.deviceSecret }).catch(() => null);
+    if (r?.body?.controlKey) {
+      const path = opendesignKeyPath();
+      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+      writeFileSync(path, JSON.stringify({ controlKey: r.body.controlKey, savedAt: new Date().toISOString() }), { mode: 0o600 });
+      console.log(`已授权，控制面密钥保存到 ${path}`);
+      return;
+    }
+    const status = String(r?.body?.status ?? "").toLowerCase();
+    if (r?.status === 404 || r?.status === 401 || ["expired", "canceled", "cancelled", "denied", "rejected"].includes(status)) throw new Error(`授权未完成（${status || `HTTP ${r.status}`}），重新运行`);
+  }
+  throw new Error("授权超时，重新运行");
+}
+
+const DISPLAY = { codex: "codex", cursor: "cursor", devin: "devin", glm: "glm (claudeAgent)", droid: "droid (factory_droid)", commandcode: "commandcode (pi)", opendesign: "opendesign (pi)" };
 
 export async function collect() {
-  const jobs = [codexRow, cursorRow, devinRow, glmRow, droidRow];
+  const jobs = [codexRow, cursorRow, devinRow, glmRow, droidRow, commandcodeRow, opendesignRow];
   return Promise.all(
     jobs.map((fn) =>
       fn().catch((error) => ({ key: fn.name.replace(/Row$/, ""), note: `查询失败（${error.message}）`, windows: [], extras: [] })),
@@ -468,6 +606,10 @@ function formatRow(row) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
+  if (process.argv.includes("--login-opendesign")) {
+    await opendesignLogin();
+    process.exit(0);
+  }
   const cachePath = quotaCachePath();
   let result;
   if (process.argv.includes("--cached")) {

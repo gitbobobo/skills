@@ -3,7 +3,7 @@
 // 规则全部来自 route-data.mjs；本文件只做展开与过滤，不含可调整的策略。
 //
 // 子命令：
-//   route.mjs select --task <key> [--hard] [--vision] [--implementer <model>]
+//   route.mjs select --task <key> [--hard] [--vision]
 //                    [--exclude <provider/model>]... [--caps-file <path>]
 //                    [--state-dir <path>] [--quota-file <path> | --no-quota | --refresh-quota] [--json]
 //   route.mjs named <模型> [--provider <id>] [--caps-file ...] [--json]
@@ -32,13 +32,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   SWE2_FREE_UNTIL,
   PROVIDER_RULES,
-  BANNED_PROVIDERS,
-  MODEL_BANS,
-  MODEL_LOCKS,
   MODELS,
   TASKS,
+  ADVISOR_TASKS,
   ROUTES,
-  DOWNGRADE,
   EXPIRY_DEMOTE,
   POOLS,
   QUOTA_BLOCK_PERCENT,
@@ -220,7 +217,7 @@ function findModel(provider, id) {
   return null;
 }
 
-// 任意字符串（模型 key / label / 任一入口 id）→ MODELS 条目；用于 --implementer、named
+// 任意字符串（模型 key / label / 任一入口 id）→ MODELS 条目；用于 named
 function resolveModel(query) {
   const q = String(query).toLowerCase();
   const hits = [];
@@ -283,12 +280,11 @@ function validateOptions(provider, modelId, options = {}, providers) {
   return problems;
 }
 
-// harness 白名单（PROVIDER_RULES.allowModels）与模型锁定（MODEL_LOCKS）：硬性规则，用户点名也不豁免。
-function lockViolations(provider, model) {
+// harness 白名单（PROVIDER_RULES.allowModels）：硬性规则，用户点名也不豁免。
+function allowlistViolations(provider, model) {
   const reasons = [];
   const rule = PROVIDER_RULES[provider];
   if (rule?.allowModels && !rule.allowModels.includes(model)) reasons.push(`${provider} 只允许 ${rule.allowModels.join(" / ")}（${rule.note}）`);
-  for (const l of MODEL_LOCKS) if (l.match.test(model) && provider !== l.provider) reasons.push(`${model} 只能走 ${l.provider}（${l.reason}）`);
   return reasons;
 }
 
@@ -300,11 +296,11 @@ function gateCheck({ provider, model, role, options = {}, userNamed = false }, p
   const resolved = findModel(provider, model);
   const status = resolved?.status;
 
-  // 永远生效：快速模式、harness 白名单与模型锁定、droid 选项
+  // 永远生效：快速模式、harness 白名单、droid 选项
   if (options.fastMode === true || options.fastMode === "true") fails.push("fastMode 必须为 false");
   if (options.serviceTier === "priority") fails.push("codex serviceTier 保持 default，不用 priority");
   if (/-fast\b/i.test(model)) fails.push(`模型名带 -fast（${model}）`);
-  fails.push(...lockViolations(provider, model));
+  fails.push(...allowlistViolations(provider, model));
   if (provider === "acpRegistry_factory_droid") {
     if (options.autonomy_level === undefined) fails.push('factory_droid 任务 options 必须带 {"autonomy_level":"auto-high"}');
     else if (options.autonomy_level !== "auto-high") warns.push(`autonomy_level=${options.autonomy_level}，非 auto-high——确认是用户指定`);
@@ -315,13 +311,9 @@ function gateCheck({ provider, model, role, options = {}, userNamed = false }, p
 
   if (!userNamed) {
     if (status === "named") fails.push(`${resolved.label} 仅限用户点名才可用，自动调度与换路跳过`);
-    if (BANNED_PROVIDERS[provider]) fails.push(`${provider} 不主动调用（${BANNED_PROVIDERS[provider]}）`);
-    const ban = MODEL_BANS.find((b) => b.match.test(model));
-    if (status === "banned" || ban) fails.push(`${model} 不主动调用（${resolved?.label ?? ""} ${ban?.reason ?? ""}）`.trim());
     if (status === "advisor" && role === "implementation") fails.push(`${resolved.label} 是顾问/审查专用，不承担 implementation 任务`);
     if (!resolved) fails.push(`${provider}/${model} 不在 route-data.mjs 任何模型的入口清单内，自动调度不得选用`);
   } else {
-    if (status === "banned" || MODEL_BANS.some((b) => b.match.test(model))) warns.push(`${model} 在不主动调用清单，确认用户确实点名`);
     if (status === "named") warns.push(`${resolved.label} 为点名专用模型——本次按用户点名放行`);
     if (resolved?.status === "advisor" && role === "implementation") warns.push(`${resolved.label} 平时不写实现；用户点名时按用户说的`);
     if (!resolved) warns.push(`${provider}/${model} 不在任何已知入口清单——确认模型 ID 与用户点名一致`);
@@ -331,28 +323,26 @@ function gateCheck({ provider, model, role, options = {}, userNamed = false }, p
 
 // ---------- 候选展开 ----------
 
-// ROUTES 行 → 展开为入口流：[行候选, 该模型其余入口（换路第 1 步）, 下一行候选..., 降档行（换路第 3 步）]
+// 候选 → 入口组合：{model, provider} 钉到该模型 entries 里 provider 匹配的条目（同一 harness 有多个入口时按 entries 顺序全部展开）；
+// 不带 provider 的候选（白名单递补、named）展开该模型全部入口，entries 顺序即 harness 优先级。
 function expandCandidates(cands, stream, seen, via) {
   for (const cand of cands) {
     const m = MODELS[cand.model];
     if (!m) continue;
-    const primary = cand.provider ? m.entries.find((e) => e.provider === cand.provider) : m.entries[0];
-    const ordered = primary ? [primary, ...m.entries.filter((e) => e !== primary)] : [...m.entries];
-    ordered.forEach((e, i) => {
+    const entries = cand.provider ? m.entries.filter((e) => e.provider === cand.provider) : m.entries;
+    entries.forEach((e, i) => {
       const k = entryId(e);
       if (seen.has(k)) return;
       seen.add(k);
       stream.push({
         model: cand.model,
-        family: m.family,
         status: m.status,
-        vision: m.vision === true,
+        vision: m.vision ?? 0,
         provider: e.provider,
         id: e.id,
         options: { ...(e.options ?? {}), ...(i === 0 ? (cand.options ?? {}) : {}) },
         pool: e.pool,
         via: i === 0 ? (cand.via ?? via) : "same-model",
-        leg: cand.leg,
       });
     });
   }
@@ -375,18 +365,20 @@ function applyExpiryDemote(taskKey, cands, free = swe2Free) {
   return out;
 }
 
+// 白名单递补：ROUTES 行内没点名的可调度模型按 MODELS 声明顺序补在流末尾。
+// status:"auto" 全任务可用；"advisor" 只进 ADVISOR_TASKS 任务；named 不进自动调度流。
+function whitelistCands(taskKey) {
+  const allowAdvisor = ADVISOR_TASKS.includes(taskKey);
+  return Object.keys(MODELS)
+    .filter((k) => MODELS[k].status === "auto" || (allowAdvisor && MODELS[k].status === "advisor"))
+    .map((model) => ({ model }));
+}
+
 function expandRoute(taskKey, free = swe2Free) {
   const stream = [];
   const seen = new Set();
-  const seenTasks = new Set();
-  const visit = (key, via) => {
-    if (seenTasks.has(key)) return; // DOWNGRADE 链允许成环（advisor↔review），展开一次即止
-    seenTasks.add(key);
-    expandCandidates(applyExpiryDemote(key, ROUTES[key] ?? [], free), stream, seen, via);
-    const down = DOWNGRADE[key];
-    if (down) visit(down, "downgrade");
-  };
-  visit(taskKey, "route");
+  expandCandidates(applyExpiryDemote(taskKey, ROUTES[taskKey] ?? [], free), stream, seen, "route");
+  expandCandidates(whitelistCands(taskKey), stream, seen, "whitelist");
   return stream;
 }
 
@@ -409,11 +401,12 @@ function quotaNote(meta) {
   return `额度快照：${src}（--refresh-quota 强制实查；明细跑 t3-quota.mjs）`;
 }
 
-function gateEntry(item, ctx, opts) {
+function gateEntry(item, ctx, opts, taskKey) {
   const reasons = [];
   if (item.status === "named") reasons.push("仅限用户点名");
-  if (BANNED_PROVIDERS[item.provider]) reasons.push(`${item.provider} ${BANNED_PROVIDERS[item.provider]}`);
-  reasons.push(...lockViolations(item.provider, item.id));
+  // 兜底：白名单递补已按任务过滤，这里再拦一次行内错配的顾问模型
+  if (item.status === "advisor" && taskKey && !ADVISOR_TASKS.includes(taskKey)) reasons.push("顾问模型不承担该任务类型");
+  reasons.push(...allowlistViolations(item.provider, item.id));
   // caps 快照过期时，这三条由它得出的拦截原因都可能失效，逐条标注逼出复核而不是默默照单全收
   const staleNote = ctx.capsStaleMin !== undefined ? `；caps 快照 ${ctx.capsStaleMin} 分钟前生成，此判定可能已过期` : "";
   const info = ctx.providers.get(item.provider);
@@ -456,7 +449,6 @@ function finalize(item, ctx) {
     providerInstanceId: item.provider,
     model: item.id,
     modelKey: item.model,
-    family: item.family,
     options,
     pool: item.pool ?? null,
     via: item.via,
@@ -471,21 +463,14 @@ function runSelect(taskKey, ctx, opts, out) {
   const excluded = new Set(opts.exclude);
   stream = stream.filter((i) => !excluded.has(entryId(i)));
 
-  if (taskKey === "review" && opts.implementer) {
-    const impl = resolveModel(opts.implementer)[0];
-    if (impl) {
-      stream = [...stream.filter((i) => i.family !== impl.family), ...stream.filter((i) => i.family === impl.family)];
-      out.notes.push(`实现者 ${impl.label}（${impl.family}）：审查优先选不同家族`);
-    } else out.warnings.push(`--implementer ${opts.implementer} 无法识别家族，按默认顺序`);
-  }
   if (opts.vision) {
-    stream = [...stream.filter((i) => i.vision), ...stream.filter((i) => !i.vision)];
-    out.notes.push("--vision：视觉能力模型提前");
+    stream = [...stream].sort((a, b) => b.vision - a.vision);
+    out.notes.push("--vision：候选按视觉分数降序");
   }
 
   const available = [];
   for (const item of stream) {
-    const reasons = gateEntry(item, ctx, opts);
+    const reasons = gateEntry(item, ctx, opts, taskKey);
     if (reasons.length) out.skipped.push({ entry: entryId(item), model: item.model, via: item.via, reasons });
     else available.push(finalize(item, ctx));
   }
@@ -509,42 +494,21 @@ async function selectCmd(opts) {
   const qn = quotaNote(ctx.quotaMeta);
   if (qn) out.notes.push(qn);
 
-  const pickFrom = (stream, leg) => {
-    const avail = [];
-    for (const item of stream) {
-      const reasons = gateEntry(item, ctx, opts);
-      if (reasons.length) out.skipped.push({ entry: entryId(item), model: item.model, leg, reasons });
-      else avail.push(finalize(item, ctx));
-    }
-    return avail;
-  };
-
-  if (opts.hard && task === "implementation") {
+  if (opts.hard && task === "general") {
     const advisor = runSelect("advisor", ctx, { ...opts, vision: opts.vision }, out);
-    const impl = runSelect("implementation", ctx, opts, out);
+    const impl = runSelect("general", ctx, opts, out);
     out.steps = [
       { role: "design", purpose: "难题先派顾问咨询（问方案、风险、被否决方向）", pick: advisor[0] ?? null },
       { role: "implementation", purpose: "方案定下来后的实现", pick: impl[0] ?? null },
     ];
     out.alternatives = impl.slice(1, 8);
-  } else if (task === "security") {
-    // 两腿：每条腿的候选 = 本腿 ROUTES 候选 + 降档行（DOWNGRADE.security）兜底，各自独立展开去重
-    const fallbackCands = applyExpiryDemote(DOWNGRADE.security, (ROUTES[DOWNGRADE.security] ?? []).map((c) => ({ ...c, via: "downgrade" })));
-    const legs = [...new Set(ROUTES.security.map((c) => c.leg ?? "main"))];
-    out.steps = legs.map((leg) => {
-      const cands = applyExpiryDemote("security", ROUTES.security.filter((c) => (c.leg ?? "main") === leg));
-      const stream = [];
-      expandCandidates([...cands, ...fallbackCands], stream, new Set(), "route");
-      const avail = pickFrom(stream, leg);
-      const purpose = leg === "review" ? "安全审查（Opus 可能静默回退旧模型，注意核对实际模型）" : "交叉复核";
-      return { role: "review", leg, purpose, pick: avail[0] ?? null };
-    });
   } else {
     const available = runSelect(task, ctx, opts, out);
     out.pick = available[0] ?? null;
     out.alternatives = available.slice(1, 8);
   }
 
+  if (out.pick?.via === "whitelist") out.notes.push("PICK 来自白名单递补：路由行的候选都不可用（见 SKIPPED），该模型不在本任务优先级行内");
   const done = out.pick ?? out.steps?.every((s) => s.pick);
   printSelect(out, opts);
   process.exit(done ? 0 : 1);
@@ -615,10 +579,9 @@ async function namedCmd(opts) {
   }
   const avail = [];
   for (const e of entries) {
-    const item = { model: m.key ?? query, family: m.family, status: m.status, vision: m.vision === true, provider: e.provider, id: e.id, options: { ...(e.options ?? {}), ...extraOptions }, pool: e.pool, via: "named" };
+    const item = { model: m.key ?? query, status: m.status, vision: m.vision ?? 0, provider: e.provider, id: e.id, options: { ...(e.options ?? {}), ...extraOptions }, pool: e.pool, via: "named" };
     const reasons = [];
-    if (BANNED_PROVIDERS[item.provider]) reasons.push(`${item.provider} ${BANNED_PROVIDERS[item.provider]}`);
-    reasons.push(...lockViolations(item.provider, item.id));
+    reasons.push(...allowlistViolations(item.provider, item.id));
     const staleNote = ctx.capsStaleMin !== undefined ? `；caps 快照 ${ctx.capsStaleMin} 分钟前生成，此判定可能已过期` : "";
     const info = ctx.providers.get(item.provider);
     if (!info) reasons.push(`实例不在 capabilities/缓存清单${staleNote}`);
@@ -701,9 +664,13 @@ function auditRouteData(providers) {
         problems.push(`ROUTES.${task}: 未知模型 ${c.model}`);
         continue;
       }
-      const e = c.provider ? m.entries.find((x) => x.provider === c.provider) : m.entries[0];
+      if (!c.provider) {
+        problems.push(`ROUTES.${task}: ${c.model} 候选缺 provider（组合须显式钉 harness）`);
+        continue;
+      }
+      const e = m.entries.find((x) => x.provider === c.provider);
       if (!e) {
-        problems.push(`ROUTES.${task}: ${c.model} 在 ${c.provider} 上无入口`);
+        problems.push(`ROUTES.${task}: ${c.model} 没有 ${c.provider} 入口`);
         continue;
       }
       check(`ROUTES.${task}`, e.provider, e.id, { ...(e.options ?? {}), ...(c.options ?? {}) });
@@ -728,19 +695,20 @@ function auditCmd(opts) {
 // ---------- table / tasks ----------
 
 function tableCmd(opts) {
-  const data = { SWE2_FREE_UNTIL, swe2FreeNow: swe2Free, PROVIDER_RULES, BANNED_PROVIDERS, MODEL_BANS, MODEL_LOCKS, MODELS, TASKS, ROUTES, DOWNGRADE, POOLS, QUOTA_BLOCK_PERCENT, QUOTA_BLOCK_RESET_MS, MAX_ATTEMPTS };
+  const data = { SWE2_FREE_UNTIL, swe2FreeNow: swe2Free, PROVIDER_RULES, MODELS, TASKS, ADVISOR_TASKS, ROUTES, POOLS, QUOTA_BLOCK_PERCENT, QUOTA_BLOCK_RESET_MS, MAX_ATTEMPTS };
   console.log(opts.json ? JSON.stringify(data, null, 2) : renderTable(data));
 }
 
-function renderTable({ MODELS: ms, ROUTES: rs, DOWNGRADE: dg }) {
+function renderTable({ MODELS: ms, ROUTES: rs }) {
   const lines = [];
   for (const [key, m] of Object.entries(ms)) {
-    lines.push(`\n[${m.label}] status=${m.status} family=${m.family}${m.vision ? " vision" : ""}`);
+    lines.push(`\n[${m.label}] status=${m.status}${m.vision ? ` vision=${m.vision}` : ""}`);
     m.entries.forEach((e, i) => lines.push(`  ${i + 1}. ${e.provider} / ${e.id}  pool=${e.pool ?? "-"}  options=${JSON.stringify(e.options ?? {})}`));
   }
-  lines.push("\nROUTES:");
+  lines.push("\nROUTES（行内是「模型@harness」组合的优先级；行尾自动递补白名单）:");
   for (const [task, cands] of Object.entries(rs)) {
-    lines.push(`  ${task}: ${cands.map((c) => `${c.provider ?? "首选"}/${MODELS[c.model]?.entries.find((e) => e.provider === c.provider)?.id ?? c.model}${c.leg ? `(${c.leg})` : ""}`).join("  →  ")}${dg[task] ? `   ⇒ 降档:${dg[task]}` : ""}`);
+    const tail = `auto${ADVISOR_TASKS.includes(task) ? "+advisor" : ""}`;
+    lines.push(`  ${task}: ${cands.map((c) => `${c.model}@${c.provider}`).join("  →  ")}   ⇒ 递补:${tail}`);
   }
   return lines.join("\n");
 }
@@ -769,4 +737,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
   }
 }
 
-export { gateCheck, lockViolations, expandRoute, expandCandidates, applyExpiryDemote, loadProviders, quotaBlock, resolveModel, findModel, validateOptions, injectOptions, auditRouteData };
+export { gateCheck, allowlistViolations, expandRoute, expandCandidates, whitelistCands, applyExpiryDemote, loadProviders, quotaBlock, resolveModel, findModel, validateOptions, injectOptions, auditRouteData };

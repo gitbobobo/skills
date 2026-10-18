@@ -61,116 +61,6 @@
               "currentValue": "default"
             }
           ]
-        },
-        {
-          "id": "gpt-6-astra",
-          "label": "GPT-6-Astra",
-          "options": [
-            {
-              "id": "reasoningEffort",
-              "label": "Reasoning",
-              "type": "select",
-              "options": [
-                {
-                  "id": "low",
-                  "label": "Low"
-                },
-                {
-                  "id": "medium",
-                  "label": "Medium",
-                  "isDefault": true
-                },
-                {
-                  "id": "high",
-                  "label": "High"
-                },
-                {
-                  "id": "xhigh",
-                  "label": "Extra High"
-                },
-                {
-                  "id": "max",
-                  "label": "Max"
-                },
-                {
-                  "id": "ultra",
-                  "label": "Ultra"
-                }
-              ],
-              "currentValue": "medium"
-            },
-            {
-              "id": "serviceTier",
-              "label": "Service Tier",
-              "type": "select",
-              "options": [
-                {
-                  "id": "default",
-                  "label": "Standard",
-                  "isDefault": true
-                },
-                {
-                  "id": "priority",
-                  "label": "Fast",
-                  "description": "2x speed, increased usage"
-                }
-              ],
-              "currentValue": "default"
-            }
-          ]
-        },
-        {
-          "id": "gpt-6-luna",
-          "label": "GPT-6-Luna",
-          "options": [
-            {
-              "id": "reasoningEffort",
-              "label": "Reasoning",
-              "type": "select",
-              "options": [
-                {
-                  "id": "low",
-                  "label": "Low"
-                },
-                {
-                  "id": "medium",
-                  "label": "Medium",
-                  "isDefault": true
-                },
-                {
-                  "id": "high",
-                  "label": "High"
-                },
-                {
-                  "id": "xhigh",
-                  "label": "Extra High"
-                },
-                {
-                  "id": "max",
-                  "label": "Max"
-                }
-              ],
-              "currentValue": "medium"
-            },
-            {
-              "id": "serviceTier",
-              "label": "Service Tier",
-              "type": "select",
-              "options": [
-                {
-                  "id": "default",
-                  "label": "Standard",
-                  "isDefault": true
-                },
-                {
-                  "id": "priority",
-                  "label": "Fast",
-                  "description": "1.5x speed"
-                }
-              ],
-              "currentValue": "default"
-            }
-          ]
         }
       ],
       "canRunChildTask": true,
@@ -252,43 +142,6 @@
               "currentValue": "high"
             }
           ]
-        },
-        {
-          "id": "grok-4.6",
-          "label": "Grok 4.6",
-          "options": [
-            {
-              "id": "effort",
-              "label": "Effort",
-              "type": "select",
-              "options": [
-                {
-                  "id": "low",
-                  "label": "Low"
-                },
-                {
-                  "id": "medium",
-                  "label": "Medium"
-                },
-                {
-                  "id": "high",
-                  "label": "High",
-                  "isDefault": true
-                },
-                {
-                  "id": "xhigh",
-                  "label": "Extra High"
-                }
-              ],
-              "currentValue": "high"
-            },
-            {
-              "id": "fastMode",
-              "label": "Fast",
-              "type": "boolean",
-              "currentValue": true
-            }
-          ]
         }
       ],
       "canRunChildTask": true,
@@ -360,303 +213,8 @@
           ]
         },
         {
-          "id": "claude-fable-5-1-medium",
-          "label": "Claude Fable 5.1",
-          "options": [
-            {
-              "id": "mode",
-              "label": "Session Mode",
-              "type": "select",
-              "options": [
-                {
-                  "id": "accept-edits",
-                  "label": "Code",
-                  "description": "Write and edit code"
-                },
-                {
-                  "id": "smart",
-                  "label": "Smart",
-                  "description": "Auto-approve actions the model judges safe"
-                },
-                {
-                  "id": "ask",
-                  "label": "Ask",
-                  "description": "Answer questions without code changes"
-                },
-                {
-                  "id": "plan",
-                  "label": "Plan",
-                  "description": "Plan changes before implementing"
-                },
-                {
-                  "id": "bypass",
-                  "label": "Bypass Permissions",
-                  "description": "Auto-approve all tool calls"
-                }
-              ],
-              "currentValue": "accept-edits"
-            },
-            {
-              "id": "thought_level",
-              "label": "Thinking",
-              "type": "select",
-              "options": [
-                {
-                  "id": "medium",
-                  "label": "Medium"
-                },
-                {
-                  "id": "high",
-                  "label": "High"
-                },
-                {
-                  "id": "max",
-                  "label": "Max"
-                }
-              ],
-              "currentValue": "max"
-            }
-          ]
-        },
-        {
           "id": "claude-opus-5-5-medium",
           "label": "Claude Opus 5.5",
-          "options": [
-            {
-              "id": "mode",
-              "label": "Session Mode",
-              "type": "select",
-              "options": [
-                {
-                  "id": "accept-edits",
-                  "label": "Code",
-                  "description": "Write and edit code"
-                },
-                {
-                  "id": "smart",
-                  "label": "Smart",
-                  "description": "Auto-approve actions the model judges safe"
-                },
-                {
-                  "id": "ask",
-                  "label": "Ask",
-                  "description": "Answer questions without code changes"
-                },
-                {
-                  "id": "plan",
-                  "label": "Plan",
-                  "description": "Plan changes before implementing"
-                },
-                {
-                  "id": "bypass",
-                  "label": "Bypass Permissions",
-                  "description": "Auto-approve all tool calls"
-                }
-              ],
-              "currentValue": "accept-edits"
-            },
-            {
-              "id": "thought_level",
-              "label": "Thinking",
-              "type": "select",
-              "options": [
-                {
-                  "id": "medium",
-                  "label": "Medium"
-                },
-                {
-                  "id": "high",
-                  "label": "High"
-                },
-                {
-                  "id": "max",
-                  "label": "Max"
-                }
-              ],
-              "currentValue": "max"
-            }
-          ]
-        },
-        {
-          "id": "gpt-6-astra-medium",
-          "label": "GPT-6 Astra",
-          "options": [
-            {
-              "id": "mode",
-              "label": "Session Mode",
-              "type": "select",
-              "options": [
-                {
-                  "id": "accept-edits",
-                  "label": "Code",
-                  "description": "Write and edit code"
-                },
-                {
-                  "id": "smart",
-                  "label": "Smart",
-                  "description": "Auto-approve actions the model judges safe"
-                },
-                {
-                  "id": "ask",
-                  "label": "Ask",
-                  "description": "Answer questions without code changes"
-                },
-                {
-                  "id": "plan",
-                  "label": "Plan",
-                  "description": "Plan changes before implementing"
-                },
-                {
-                  "id": "bypass",
-                  "label": "Bypass Permissions",
-                  "description": "Auto-approve all tool calls"
-                }
-              ],
-              "currentValue": "accept-edits"
-            },
-            {
-              "id": "thought_level",
-              "label": "Thinking",
-              "type": "select",
-              "options": [
-                {
-                  "id": "medium",
-                  "label": "Medium"
-                },
-                {
-                  "id": "high",
-                  "label": "High"
-                },
-                {
-                  "id": "max",
-                  "label": "Max"
-                }
-              ],
-              "currentValue": "max"
-            }
-          ]
-        },
-        {
-          "id": "gpt-6-luna-medium",
-          "label": "GPT-6 Luna",
-          "options": [
-            {
-              "id": "mode",
-              "label": "Session Mode",
-              "type": "select",
-              "options": [
-                {
-                  "id": "accept-edits",
-                  "label": "Code",
-                  "description": "Write and edit code"
-                },
-                {
-                  "id": "smart",
-                  "label": "Smart",
-                  "description": "Auto-approve actions the model judges safe"
-                },
-                {
-                  "id": "ask",
-                  "label": "Ask",
-                  "description": "Answer questions without code changes"
-                },
-                {
-                  "id": "plan",
-                  "label": "Plan",
-                  "description": "Plan changes before implementing"
-                },
-                {
-                  "id": "bypass",
-                  "label": "Bypass Permissions",
-                  "description": "Auto-approve all tool calls"
-                }
-              ],
-              "currentValue": "accept-edits"
-            },
-            {
-              "id": "thought_level",
-              "label": "Thinking",
-              "type": "select",
-              "options": [
-                {
-                  "id": "medium",
-                  "label": "Medium"
-                },
-                {
-                  "id": "high",
-                  "label": "High"
-                },
-                {
-                  "id": "max",
-                  "label": "Max"
-                }
-              ],
-              "currentValue": "max"
-            }
-          ]
-        },
-        {
-          "id": "kimi-k3-high",
-          "label": "Kimi K3",
-          "options": [
-            {
-              "id": "mode",
-              "label": "Session Mode",
-              "type": "select",
-              "options": [
-                {
-                  "id": "accept-edits",
-                  "label": "Code",
-                  "description": "Write and edit code"
-                },
-                {
-                  "id": "smart",
-                  "label": "Smart",
-                  "description": "Auto-approve actions the model judges safe"
-                },
-                {
-                  "id": "ask",
-                  "label": "Ask",
-                  "description": "Answer questions without code changes"
-                },
-                {
-                  "id": "plan",
-                  "label": "Plan",
-                  "description": "Plan changes before implementing"
-                },
-                {
-                  "id": "bypass",
-                  "label": "Bypass Permissions",
-                  "description": "Auto-approve all tool calls"
-                }
-              ],
-              "currentValue": "accept-edits"
-            },
-            {
-              "id": "thought_level",
-              "label": "Thinking",
-              "type": "select",
-              "options": [
-                {
-                  "id": "medium",
-                  "label": "Medium"
-                },
-                {
-                  "id": "high",
-                  "label": "High"
-                },
-                {
-                  "id": "max",
-                  "label": "Max"
-                }
-              ],
-              "currentValue": "max"
-            }
-          ]
-        },
-        {
-          "id": "claude-sonnet-5-5-medium",
-          "label": "Claude Sonnet 5.5",
           "options": [
             {
               "id": "mode",
@@ -783,136 +341,8 @@
       "displayName": "Factory Droid",
       "models": [
         {
-          "id": "claude-fable-5.1",
-          "label": "Fable 5.1",
-          "options": [
-            {
-              "id": "autonomy_level",
-              "label": "Autonomy Level",
-              "description": "Which tool actions the agent may run without confirmation.",
-              "type": "select",
-              "options": [
-                {
-                  "id": "normal",
-                  "label": "Auto (Off)"
-                },
-                {
-                  "id": "spec",
-                  "label": "Spec"
-                },
-                {
-                  "id": "auto-low",
-                  "label": "Auto (Low)"
-                },
-                {
-                  "id": "auto-medium",
-                  "label": "Auto (Medium)"
-                },
-                {
-                  "id": "auto-high",
-                  "label": "Auto (High)"
-                }
-              ],
-              "currentValue": "auto-high"
-            },
-            {
-              "id": "reasoning_effort",
-              "label": "Reasoning Effort",
-              "description": "Controls how much thinking the model performs before responding. The available options depend on the selected model.",
-              "type": "select",
-              "options": [
-                {
-                  "id": "low",
-                  "label": "Low"
-                },
-                {
-                  "id": "medium",
-                  "label": "Medium"
-                },
-                {
-                  "id": "high",
-                  "label": "High"
-                },
-                {
-                  "id": "xhigh",
-                  "label": "Extra High"
-                },
-                {
-                  "id": "max",
-                  "label": "Maximum"
-                }
-              ],
-              "currentValue": "high"
-            }
-          ]
-        },
-        {
           "id": "claude-opus-5-5",
           "label": "Opus 5.5",
-          "options": [
-            {
-              "id": "autonomy_level",
-              "label": "Autonomy Level",
-              "description": "Which tool actions the agent may run without confirmation.",
-              "type": "select",
-              "options": [
-                {
-                  "id": "normal",
-                  "label": "Auto (Off)"
-                },
-                {
-                  "id": "spec",
-                  "label": "Spec"
-                },
-                {
-                  "id": "auto-low",
-                  "label": "Auto (Low)"
-                },
-                {
-                  "id": "auto-medium",
-                  "label": "Auto (Medium)"
-                },
-                {
-                  "id": "auto-high",
-                  "label": "Auto (High)"
-                }
-              ],
-              "currentValue": "auto-high"
-            },
-            {
-              "id": "reasoning_effort",
-              "label": "Reasoning Effort",
-              "description": "Controls how much thinking the model performs before responding. The available options depend on the selected model.",
-              "type": "select",
-              "options": [
-                {
-                  "id": "low",
-                  "label": "Low"
-                },
-                {
-                  "id": "medium",
-                  "label": "Medium"
-                },
-                {
-                  "id": "high",
-                  "label": "High"
-                },
-                {
-                  "id": "xhigh",
-                  "label": "Extra High"
-                },
-                {
-                  "id": "max",
-                  "label": "Maximum"
-                }
-              ],
-              "currentValue": "high"
-            }
-          ]
-        },
-        {
-          "id": "claude-sonnet-5-5",
-          "label": "Sonnet 5.5",
           "options": [
             {
               "id": "autonomy_level",
@@ -1037,110 +467,69 @@
               "currentValue": "high"
             }
           ]
-        },
+        }
+      ],
+      "canRunChildTask": true,
+      "canRunCrossProviderChildTask": true,
+      "constraints": []
+    },
+    {
+      "providerInstanceId": "pi",
+      "driverKind": "pi",
+      "displayName": "Pi",
+      "models": [
         {
-          "id": "gpt-6-astra",
-          "label": "GPT-6 Astra",
+          "id": "commandcode/deepseek/deepseek-v4.1-flash",
+          "label": "DeepSeek V4.1 Flash",
           "options": [
             {
-              "id": "autonomy_level",
-              "label": "Autonomy Level",
-              "description": "Which tool actions the agent may run without confirmation.",
+              "id": "thinking",
+              "label": "Thinking",
               "type": "select",
               "options": [
                 {
-                  "id": "normal",
-                  "label": "Auto (Off)"
+                  "id": "off",
+                  "label": "Off"
                 },
                 {
-                  "id": "spec",
-                  "label": "Spec"
+                  "id": "minimal",
+                  "label": "Minimal"
                 },
-                {
-                  "id": "auto-low",
-                  "label": "Auto (Low)"
-                },
-                {
-                  "id": "auto-medium",
-                  "label": "Auto (Medium)"
-                },
-                {
-                  "id": "auto-high",
-                  "label": "Auto (High)"
-                }
-              ],
-              "currentValue": "auto-high"
-            },
-            {
-              "id": "reasoning_effort",
-              "label": "Reasoning Effort",
-              "description": "Controls how much thinking the model performs before responding. The available options depend on the selected model.",
-              "type": "select",
-              "options": [
                 {
                   "id": "low",
                   "label": "Low"
                 },
                 {
                   "id": "medium",
-                  "label": "Medium"
+                  "label": "Medium",
+                  "isDefault": true
                 },
                 {
                   "id": "high",
                   "label": "High"
-                },
-                {
-                  "id": "xhigh",
-                  "label": "Extra High"
-                },
-                {
-                  "id": "max",
-                  "label": "Maximum"
                 }
               ],
-              "currentValue": "high"
+              "currentValue": "medium"
             }
           ]
         },
         {
-          "id": "gpt-6-luna",
-          "label": "GPT-6 Luna",
+          "id": "opendesign/deepseek-v4.1-flash",
+          "label": "DeepSeek V4.1 Flash",
           "options": [
             {
-              "id": "autonomy_level",
-              "label": "Autonomy Level",
-              "description": "Which tool actions the agent may run without confirmation.",
+              "id": "thinking",
+              "label": "Thinking",
               "type": "select",
               "options": [
                 {
-                  "id": "normal",
-                  "label": "Auto (Off)"
+                  "id": "off",
+                  "label": "Off"
                 },
                 {
-                  "id": "spec",
-                  "label": "Spec"
+                  "id": "minimal",
+                  "label": "Minimal"
                 },
-                {
-                  "id": "auto-low",
-                  "label": "Auto (Low)"
-                },
-                {
-                  "id": "auto-medium",
-                  "label": "Auto (Medium)"
-                },
-                {
-                  "id": "auto-high",
-                  "label": "Auto (High)"
-                }
-              ],
-              "currentValue": "auto-high"
-            },
-            {
-              "id": "reasoning_effort",
-              "label": "Reasoning Effort",
-              "description": "Controls how much thinking the model performs before responding. The available options depend on the selected model.",
-              "type": "select",
-              "options": [
                 {
                   "id": "low",
                   "label": "Low"
@@ -1152,81 +541,8 @@
                 {
                   "id": "high",
                   "label": "High"
-                },
-                {
-                  "id": "xhigh",
-                  "label": "Extra High"
-                },
-                {
-                  "id": "max",
-                  "label": "Maximum"
                 }
-              ],
-              "currentValue": "high"
-            }
-          ]
-        },
-        {
-          "id": "kimi-k3",
-          "label": "Kimi K3",
-          "options": [
-            {
-              "id": "autonomy_level",
-              "label": "Autonomy Level",
-              "description": "Which tool actions the agent may run without confirmation.",
-              "type": "select",
-              "options": [
-                {
-                  "id": "normal",
-                  "label": "Auto (Off)"
-                },
-                {
-                  "id": "spec",
-                  "label": "Spec"
-                },
-                {
-                  "id": "auto-low",
-                  "label": "Auto (Low)"
-                },
-                {
-                  "id": "auto-medium",
-                  "label": "Auto (Medium)"
-                },
-                {
-                  "id": "auto-high",
-                  "label": "Auto (High)"
-                }
-              ],
-              "currentValue": "auto-high"
-            },
-            {
-              "id": "reasoning_effort",
-              "label": "Reasoning Effort",
-              "description": "Controls how much thinking the model performs before responding. The available options depend on the selected model.",
-              "type": "select",
-              "options": [
-                {
-                  "id": "low",
-                  "label": "Low"
-                },
-                {
-                  "id": "medium",
-                  "label": "Medium"
-                },
-                {
-                  "id": "high",
-                  "label": "High"
-                },
-                {
-                  "id": "xhigh",
-                  "label": "Extra High"
-                },
-                {
-                  "id": "max",
-                  "label": "Maximum"
-                }
-              ],
-              "currentValue": "high"
+              ]
             }
           ]
         }
