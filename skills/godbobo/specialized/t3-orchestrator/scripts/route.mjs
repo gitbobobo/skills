@@ -35,6 +35,7 @@ import {
   MODELS,
   TASKS,
   ADVISOR_TASKS,
+  ROLE_TASKS,
   ROUTES,
   EXPIRY_DEMOTE,
   POOLS,
@@ -288,6 +289,13 @@ function allowlistViolations(provider, model) {
   return reasons;
 }
 
+// MODELS.tasks 限定：模型不承担该任务类型时返回原因，否则 null
+function taskViolation(modelKey, task) {
+  const tasks = MODELS[modelKey]?.tasks;
+  if (!tasks || !task || tasks.includes(task)) return null;
+  return `${MODELS[modelKey].label} 只承担 ${tasks.join(" / ")} 任务，不做 ${task}`;
+}
+
 // check 子命令用的全部硬性规则；select 对生成的组合也跑一遍兜底。
 // providers 可选：传了才做目录取值校验（check --caps-file），不传维持原有行为。
 function gateCheck({ provider, model, role, options = {}, userNamed = false }, providers) {
@@ -309,13 +317,16 @@ function gateCheck({ provider, model, role, options = {}, userNamed = false }, p
 
   if (providers) fails.push(...validateOptions(provider, model, options, providers));
 
+  const roleTask = resolved && taskViolation(resolved.key, ROLE_TASKS[role]);
   if (!userNamed) {
     if (status === "named") fails.push(`${resolved.label} 仅限用户点名才可用，自动调度与换路跳过`);
     if (status === "advisor" && role === "implementation") fails.push(`${resolved.label} 是顾问/审查专用，不承担 implementation 任务`);
+    if (roleTask) fails.push(`${roleTask}（role=${role}）`);
     if (!resolved) fails.push(`${provider}/${model} 不在 route-data.mjs 任何模型的入口清单内，自动调度不得选用`);
   } else {
     if (status === "named") warns.push(`${resolved.label} 为点名专用模型——本次按用户点名放行`);
     if (resolved?.status === "advisor" && role === "implementation") warns.push(`${resolved.label} 平时不写实现；用户点名时按用户说的`);
+    if (roleTask) warns.push(`${roleTask}；用户点名时按用户说的`);
     if (!resolved) warns.push(`${provider}/${model} 不在任何已知入口清单——确认模型 ID 与用户点名一致`);
   }
   return { fails, warns, resolved };
@@ -366,11 +377,13 @@ function applyExpiryDemote(taskKey, cands, free = swe2Free) {
 }
 
 // 白名单递补：ROUTES 行内没点名的可调度模型按 MODELS 声明顺序补在流末尾。
-// status:"auto" 全任务可用；"advisor" 只进 ADVISOR_TASKS 任务；named 不进自动调度流。
+// status:"auto" 全任务可用；"advisor" 只进 ADVISOR_TASKS 任务；named 不进自动调度流；
+// 带 tasks 的模型只进所列任务。
 function whitelistCands(taskKey) {
   const allowAdvisor = ADVISOR_TASKS.includes(taskKey);
   return Object.keys(MODELS)
     .filter((k) => MODELS[k].status === "auto" || (allowAdvisor && MODELS[k].status === "advisor"))
+    .filter((k) => !taskViolation(k, taskKey))
     .map((model) => ({ model }));
 }
 
@@ -406,6 +419,8 @@ function gateEntry(item, ctx, opts, taskKey) {
   if (item.status === "named") reasons.push("仅限用户点名");
   // 兜底：白名单递补已按任务过滤，这里再拦一次行内错配的顾问模型
   if (item.status === "advisor" && taskKey && !ADVISOR_TASKS.includes(taskKey)) reasons.push("顾问模型不承担该任务类型");
+  const tv = taskViolation(item.model, taskKey);
+  if (tv) reasons.push(tv);
   reasons.push(...allowlistViolations(item.provider, item.id));
   // caps 快照过期时，这三条由它得出的拦截原因都可能失效，逐条标注逼出复核而不是默默照单全收
   const staleNote = ctx.capsStaleMin !== undefined ? `；caps 快照 ${ctx.capsStaleMin} 分钟前生成，此判定可能已过期` : "";
@@ -479,7 +494,7 @@ function runSelect(taskKey, ctx, opts, out) {
 
 async function selectCmd(opts) {
   const task = opts.task;
-  if (!task || !ROUTES[task]) {
+  if (!task || !TASKS[task]) {
     console.error(`--task 必填且须为: ${Object.keys(TASKS).join(" | ")}`);
     process.exit(2);
   }
@@ -495,7 +510,7 @@ async function selectCmd(opts) {
   if (qn) out.notes.push(qn);
 
   if (opts.hard && task === "general") {
-    const advisor = runSelect("advisor", ctx, { ...opts, vision: opts.vision }, out);
+    const advisor = runSelect("design", ctx, { ...opts, vision: opts.vision }, out);
     const impl = runSelect("general", ctx, opts, out);
     out.steps = [
       { role: "design", purpose: "难题先派顾问咨询（问方案、风险、被否决方向）", pick: advisor[0] ?? null },
@@ -673,6 +688,8 @@ function auditRouteData(providers) {
         problems.push(`ROUTES.${task}: ${c.model} 没有 ${c.provider} 入口`);
         continue;
       }
+      const tv = taskViolation(c.model, task);
+      if (tv) problems.push(`ROUTES.${task}: ${tv}`);
       check(`ROUTES.${task}`, e.provider, e.id, { ...(e.options ?? {}), ...(c.options ?? {}) });
     }
   }
@@ -695,14 +712,14 @@ function auditCmd(opts) {
 // ---------- table / tasks ----------
 
 function tableCmd(opts) {
-  const data = { SWE2_FREE_UNTIL, swe2FreeNow: swe2Free, PROVIDER_RULES, MODELS, TASKS, ADVISOR_TASKS, ROUTES, POOLS, QUOTA_BLOCK_PERCENT, QUOTA_BLOCK_RESET_MS, MAX_ATTEMPTS };
+  const data = { SWE2_FREE_UNTIL, swe2FreeNow: swe2Free, PROVIDER_RULES, MODELS, TASKS, ADVISOR_TASKS, ROLE_TASKS, ROUTES, POOLS, QUOTA_BLOCK_PERCENT, QUOTA_BLOCK_RESET_MS, MAX_ATTEMPTS };
   console.log(opts.json ? JSON.stringify(data, null, 2) : renderTable(data));
 }
 
 function renderTable({ MODELS: ms, ROUTES: rs }) {
   const lines = [];
   for (const [key, m] of Object.entries(ms)) {
-    lines.push(`\n[${m.label}] status=${m.status}${m.vision ? ` vision=${m.vision}` : ""}`);
+    lines.push(`\n[${m.label}] status=${m.status}${m.tasks ? ` tasks=${m.tasks.join(",")}` : ""}${m.vision ? ` vision=${m.vision}` : ""}`);
     m.entries.forEach((e, i) => lines.push(`  ${i + 1}. ${e.provider} / ${e.id}  pool=${e.pool ?? "-"}  options=${JSON.stringify(e.options ?? {})}`));
   }
   lines.push("\nROUTES（行内是「模型@harness」组合的优先级；行尾自动递补白名单）:");

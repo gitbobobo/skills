@@ -3,6 +3,7 @@
 //
 // 结构：
 //   MODELS[key]  —— 一个逻辑模型：status（auto/advisor/named）、vision（视觉分数，见下）、
+//                  tasks?（限定可进入的任务类型，缺省不限；行内、白名单递补与 check --role 都按它拦）、
 //                  entries（该模型的 harness 入口，数组顺序 = 用户定下的 harness 优先级）
 //   vision       —— Roboflow Vision Evals 总分（playground.roboflow.com/evals，2026-10-13 版）；
 //                  --vision 按它降序重排候选流，同分保持原顺序；缺省 = 0（不看图）。
@@ -24,6 +25,7 @@
 // 用户级开关（只有用户能改）：
 //   - status: "named"    仅用户点名才用，自动调度与换路一律跳过
 //   - status: "advisor"  只承担审查/顾问咨询，不派 implementation
+//   - tasks              模型只进这些任务类型（如 Opus 只做实现顾问）
 //   - PROVIDER_RULES     harness 级白名单（用户偏好 ∩ 工具限制）；硬性规则，用户点名也不豁免
 
 // SWE-2 免费期：官方写 10-10 或 10-15 截止，后延长到本月底；2026-10-16 用户确认延至 10-31。
@@ -86,6 +88,8 @@ export const MODELS = {
   "opus-5.5": {
     label: "Opus 5.5",
     status: "advisor",
+    // 用户定：只做实现顾问（--hard 顾问步），不做代码审查与安全复核
+    tasks: ["design"],
     vision: 82.0,
     entries: [
       // claude 系 harness 优先级：devin > droid
@@ -140,13 +144,17 @@ export const MODELS = {
   },
 };
 
-// 白名单递补额外放开 status:"advisor" 的任务（见文件头）。select 的 --task 取值即 TASKS 的 key。
-export const ADVISOR_TASKS = ["advisor"];
+// 白名单递补额外放开 status:"advisor" 的任务（见文件头）。select 的 --task 取值即 TASKS 的 key；
+// design 是 --hard 顾问步专用的内部行，不进 TASKS。
+export const ADVISOR_TASKS = ["advisor", "design"];
 
 export const TASKS = {
-  general: "普通任务：写代码、修 bug、架构、机械与批量改动、调研与文档、UI 与前端视觉（重视觉加 --vision）",
-  advisor: "顾问类：方案咨询、审查、安全复核；要两个不同模型就跑两次（第二次 --exclude 第一次的入口）",
+  general: "普通任务：写代码、修 bug、架构、机械与批量改动、调研与文档、UI 与前端视觉（重视觉加 --vision）；难题加 --hard 先出实现顾问",
+  advisor: "评审：代码审查、安全复核；要两个不同模型就跑两次（第二次 --exclude 第一次的入口）",
 };
+
+// delegate_task role → 路由行，供 check --role 套用 MODELS.tasks 限定（implementation 由 status 规则管）
+export const ROLE_TASKS = { design: "design", review: "advisor" };
 
 // 组合规则见文件头（audit 会查 provider 是否命中 entries）。档位不在这里设，逐入口声明（见 EFFORT_STANDARD）。
 export const ROUTES = {
@@ -156,8 +164,15 @@ export const ROUTES = {
     { model: "swe-2", provider: "acpRegistry_devin" },
     { model: "deepseek-v4.1-flash", provider: "pi" },
   ],
-  // 顾问类：先出各模型首选 harness，再出同模型备用 harness。
+  // 评审：先出各模型首选 harness，再出同模型备用 harness；Opus 不做评审（tasks 限定）。
   advisor: [
+    { model: "gpt-6.1-sol", provider: "codex" },
+    { model: "grok-4.7", provider: "cursor" },
+    { model: "gpt-6.1-sol", provider: "acpRegistry_devin" },
+    { model: "gpt-6.1-sol", provider: "acpRegistry_factory_droid" },
+  ],
+  // --hard 顾问步（实现顾问）专用，不是 --task 取值。
+  design: [
     { model: "gpt-6.1-sol", provider: "codex" },
     { model: "opus-5.5", provider: "acpRegistry_devin" },
     { model: "grok-4.7", provider: "cursor" },

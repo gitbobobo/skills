@@ -25,7 +25,7 @@
 
 | 模型 | 状态 | 定位 | 关键数据 | 擅长 | 短板 |
 |---|---|---|---|---|---|
-| Opus 5.5 | 顾问 | 前沿，综合第一 | FrontierCode 第 1（medium 54.6%，$0.80）；CursorBench high 56.0% | 方案咨询、视觉判断、长时程规划意见、审查 | 不写实现（额度有限）；max 档极浪费；安全、生物、ML kernel 类任务会被静默回退到旧模型 |
+| Opus 5.5 | 顾问（仅实现顾问） | 前沿，综合第一 | FrontierCode 第 1（medium 54.6%，$0.80）；CursorBench high 56.0% | 方案咨询、视觉判断、长时程规划意见 | 不写实现（额度有限）；不做代码审查与安全复核，只在 `--hard` 顾问步出现（用户定，`tasks: ["design"]`）；max 档极浪费；安全、生物、ML kernel 类任务会被静默回退到旧模型 |
 | GPT-6.1 Sol | 顾问 | 审查与咨询主力 | FrontierCode medium 50.2%，$0.36，性价比最高 | 审查（首选）、方案咨询、调试思路 | 不写实现（额度有限）；输出比 6 Sol 多 10–30% |
 | SWE-2 | 自动 | 接近前沿，便宜 | FrontierCode max 50.0%（$1.18） | 端到端测试覆盖；被质疑时会重新推导；探索聚焦；基于 Kimi K3，原生看图 | 多小时级终端长任务弱于 Opus；无官方视觉数据 |
 | Grok 4.7 | 顾问 | 前沿，长任务 | FrontierCode high 47.6%（$6.65）；CursorBench xhigh 46.3% | 审查（用户实测适合）、长时程任务、自我验证、文档类知识工作 | 慢（小任务均 177s，Opus 34s），输出 token 约 4.5 倍；UI 口碑一般；500k 上下文双倍价 |
@@ -38,7 +38,7 @@
 
 ## 路由规则在哪里
 
-路由数据（模型状态与入口、ROUTES 组合优先级行、白名单递补、POOLS）的唯一事实源是 `scripts/route-data.mjs`，结构见其文件头；`route.mjs table` 查看当前生效数据。画像表「状态」列对应 `MODELS.status`：自动 → `auto`、顾问 → `advisor`、点名 → `named`；「不用」即不写进 `MODELS`。
+路由数据（模型状态与入口、ROUTES 组合优先级行、白名单递补、POOLS）的唯一事实源是 `scripts/route-data.mjs`，结构见其文件头；`route.mjs table` 查看当前生效数据。画像表「状态」列对应 `MODELS.status`：自动 → `auto`、顾问 → `advisor`、点名 → `named`；「不用」即不写进 `MODELS`。括注的任务限定（如「仅实现顾问」）对应 `MODELS.tasks`。
 
 ## 选项与档位
 
@@ -85,7 +85,7 @@ node scripts/route.mjs audit --caps-file /tmp/t3-caps.json   # 有问题逐条�
 
 ### 标准
 
-1. **只有用户能改的规则**：快速模式、点名专用（`status:"named"`）、harness 白名单（`PROVIDER_RULES.allowModels`）、顾问定位（`status:"advisor"` 不写实现）这四类限制由用户决定。更新时可以提出建议，不能自行改动。模型不入选不需要登记——不写进 `MODELS` 即不可选。
+1. **只有用户能改的规则**：快速模式、点名专用（`status:"named"`）、harness 白名单（`PROVIDER_RULES.allowModels`）、顾问定位（`status:"advisor"` 不写实现）、任务限定（`MODELS.tasks`）这五类限制由用户决定。更新时可以提出建议，不能自行改动。模型不入选不需要登记——不写进 `MODELS` 即不可选。
 2. **排序依据**：先看 FrontierCode 和 CursorBench 的分数和每任务成本；厂商自报数字只用来在第三方数据缺失或分数接近时参考，并在表里注明「厂商」。
 3. **加入自动路由**，须同时满足：
    - 用户现有订阅里至少一个 harness 能用（在 `MODELS` 加 entries，顺序即用户认可的 harness 优先级）；

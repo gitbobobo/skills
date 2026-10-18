@@ -24,7 +24,7 @@ node <技能目录>/scripts/route.mjs select --task <类型> --exclude <provider
 node <技能目录>/scripts/route.mjs check --provider <id> --model <id> [--role <role>] [--options '<json>'] [--user-named]
 ```
 
-- `--task` 取值见 `route.mjs tasks`（general / advisor，拿不准按 general）。旗标：`--hard` 出「顾问→实现」两步，`--vision` 让候选按视觉分数降序（截图、UI 还原等看图任务用）。
+- `--task` 取值见 `route.mjs tasks`（general / advisor，拿不准按 general；advisor 只用于代码审查、安全复核）。旗标：`--hard` 出「实现顾问→实现」两步（实现顾问只从这里出），`--vision` 让候选按视觉分数降序（截图、UI 还原等看图任务用）。
 - `PICK` 为空看 `SKIPPED` 原因。`ALTERNATIVES` 即换路顺序（行内「模型@harness」组合 → 白名单递补）；`via=whitelist` 说明行内候选都不可用。
 - `PICK` 是额度裁决的终点：`select` 自己读共享冷却和各池额度窗口，豁免生效时 PICK 自带标注；`--refresh-quota` 强制实查。`t3-quota.mjs` 的读数只用于摸底与汇报，不是第二意见；与认知矛盾时先找豁免标注，确属数据陈旧或豁免未登记就向用户报告或修 `route-data.mjs`。
 - 不给 `--caps-file` 时退化为 `~/.t3/caches` 快照并告警。
@@ -109,7 +109,7 @@ harness 拒绝执行工具时（例如 `Permission denied for this tool`、`was 
 
 1. 主代理亲自读实际 diff、原始日志和测试报告，核对证据对应的源码、脏改动、工具链及覆盖范围，不采信子代理自述。已有证据与最终源码一致且覆盖充分时复核采用；证据缺失、源码或工具链变化、有疑点时补跑相应检查。必要的独立行为核验仍执行。
 2. 不达标时无论修复大小都新建一次 `delegate_task`，带原始意图、上轮发现、修复回应、未解决异议和完整续跑证据；保存新 taskId，async 等完成事件。方向错误或反复修不好按路由升档。4 次换路上限不能靠新建任务重置。
-3. 按风险安排审查：小改动由主代理检查；需要独立审查的常规改动派 `route.mjs select --task advisor` 选出的审查者（实现者是用户点名的顾问模型时，审查改用 `ALTERNATIVES` 里第一个其他模型）；高风险改动用两模型 `$code-review-panel`——并发（文件锁/互斥、跨进程共享状态、进程或 PID 生命周期与复用、看门狗/清理守护）、取消边界、播放、安全或公共接口，命中其一即 panel，不留裁量。合格 panel 就是该轮最终本地审查，不再重复审同一份 diff。
+3. 按风险安排审查：小改动由主代理检查；需要独立审查的常规改动派 `route.mjs select --task advisor` 选出的审查者（实现者是用户点名的顾问模型时，审查改用 `ALTERNATIVES` 里第一个其他模型）；高风险改动用两模型 `$code-review-panel`（两位审查者都用 `--task advisor` 选，第二次 `--exclude` 第一次的入口）——并发（文件锁/互斥、跨进程共享状态、进程或 PID 生命周期与复用、看门狗/清理守护）、取消边界、播放、安全或公共接口，命中其一即 panel，不留裁量。合格 panel 就是该轮最终本地审查，不再重复审同一份 diff。
 4. 后续轮只复核已修问题、修改范围与相关回归，仍完整传递原始意图、上轮发现及未解决异议；出现新风险则扩展相关审查范围。创建 PR 后交给云端审查与 `$pr-review-loop`，仅用户要求或风险实质扩大时重启本地 panel。
 5. 所有写任务与生成步骤收敛后，唯一最终验证负责人完成最终完整验证；可按第 1 步条件复核采用已有检查证据，不降低整体覆盖。验收完成标准是最终源码、必要行为核验和所有有效审查问题都有可核查证据。
 

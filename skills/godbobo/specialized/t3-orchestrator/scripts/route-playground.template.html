@@ -145,7 +145,11 @@ function applyExpiryDemote(taskKey,cands){
 }
 function whitelistCands(taskKey){
   const adv=(ADVISOR_TASKS||[]).includes(taskKey);
-  return Object.keys(MODELS).filter(k=>MODELS[k].status==='auto'||(adv&&MODELS[k].status==='advisor')).map(model=>({model}));
+  return Object.keys(MODELS).filter(k=>MODELS[k].status==='auto'||(adv&&MODELS[k].status==='advisor')).filter(k=>!taskViolation(k,taskKey)).map(model=>({model}));
+}
+function taskViolation(k,task){
+  const ts=MODELS[k]?.tasks;
+  return (!ts||!task||ts.includes(task))?null:`${MODELS[k].label} 只承担 ${ts.join(' / ')} 任务，不做 ${task}`;
 }
 function expandRoute(taskKey) {
   const stream=[]; const seen=new Set();
@@ -165,6 +169,7 @@ function gateEntry(item,named,task){
   const reasons=[];
   if (item.status==='named'&&!named) reasons.push('仅限用户点名');
   if (item.status==='advisor'&&task&&!(ADVISOR_TASKS||[]).includes(task)) reasons.push('顾问模型不承担该任务类型');
+  const tv=taskViolation(item.model,task); if (tv) reasons.push(tv);
   const rule=PROVIDER_RULES[item.provider];
   if (rule?.allowModels && !rule.allowModels.includes(item.id)) reasons.push(`${item.provider} 白名单仅 ${rule.allowModels.join(' / ')}`);
   const info=capsMap[item.provider];
@@ -205,8 +210,8 @@ function taskStream(){
   const byVision=s=>S.vision?[...s].sort((a,b)=>b.vision-a.vision):s;
   stream=byVision(stream);
   if (task==='general'&&S.hard){
-    const advFiltered=byVision(expandRoute('advisor'));
-    return [{leg:'advisor',stream:advFiltered,task:'advisor'},{leg:'general',stream,task:'general'}];
+    const advFiltered=byVision(expandRoute('design'));
+    return [{leg:'advisor',stream:advFiltered,task:'design'},{leg:'general',stream,task:'general'}];
   }
   return [{leg:null,stream,task}];
 }
