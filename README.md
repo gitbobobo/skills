@@ -23,15 +23,21 @@
 
 ### git-prefs
 
-git 操作偏好：可审计粒度的规范提交、优先 rebase 的远程同步、删除当前工作树。「删除工作树」默认指当前所在的工作树，跑 `scripts/empty-worktree.mjs`：清空全部内容、保留目录壳维持终端 cwd，并在主仓库注销注册；仅限用户明确要求时执行。
+git 操作偏好：可审计粒度的规范提交、远程同步（未推送分支优先 rebase，已开 PR 的分支审查期间不追目标分支）、删除当前工作树。「删除工作树」默认指当前所在的工作树，跑 `scripts/empty-worktree.mjs`：清空全部内容、保留目录壳维持终端 cwd，并在主仓库注销注册；仅限用户明确要求时执行。
 
 详见 [skills/godbobo/general/git-prefs/SKILL.md](skills/godbobo/general/git-prefs/SKILL.md)。
 
 ### pr-review-loop
 
-PR 推送并请求复审后，持续跟进审查 bot 与 CI，每轮等所有审查者意见到齐后再修改并更新账本；同一子系统连续三轮仍有需修复的有效意见时，先调 `$code-review-panel` 做方向审计（不受 P 级标签限制），方向仍有分歧时咨询用户。轮次按受审提交计算，重复通知不另计轮次；登记当前各审查者的触发方式与等待上限（等待上限只花一次，超时过的审查者后续轮次不再等待）；自己的回复统一带 `<!-- pr-review-loop:reply -->` 标记排除。
+PR 推送并请求复审后，持续跟进审查 bot 与 CI，每轮等所有审查者意见到齐后再修改并更新账本；同一子系统连续三轮仍有需修复的有效意见时，先调 `$code-review-panel` 做方向审计（不受 P 级标签限制），方向仍有分歧时咨询用户。轮次按受审提交计算，重复通知不另计轮次；登记当前各审查者的触发方式与等待上限（等待上限只花一次，超时过的审查者后续轮次不再等待）；自己的回复统一带 `<!-- pr-review-loop:reply -->` 标记排除。跟进与等待收尾期间不追目标分支，整合留给收尾。
 
 详见 [skills/godbobo/general/pr-review-loop/SKILL.md](skills/godbobo/general/pr-review-loop/SKILL.md)。
+
+### pr-finish
+
+PR 收尾：对最新目标分支一次性整合（默认 merge）并解决冲突、清理基线既有问题、按需复审、合并，再交接后续工作、关闭关联问题、回收工作树与分支。检查与合并入口、合并方式、交接约定读仓库自己的文档，未声明时用默认做法。仅限用户主动调用。
+
+详见 [skills/godbobo/general/pr-finish/SKILL.md](skills/godbobo/general/pr-finish/SKILL.md)。
 
 ### setup-env
 
