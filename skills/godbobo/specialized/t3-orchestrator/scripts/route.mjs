@@ -4,7 +4,8 @@
 //
 // 子命令：
 //   route.mjs select --task <key> [--hard] [--vision]
-//                    [--exclude <provider/model>]... [--caps-file <path>]
+//                    [--exclude <provider/model>]... [--exclude-model <模型 key|provider/model>]...
+//                    [--caps-file <path>]
 //                    [--state-dir <path>] [--quota-file <path> | --no-quota | --refresh-quota] [--json]
 //   route.mjs named <模型> [--provider <id>] [--caps-file ...] [--json]
 //   route.mjs check --provider <id> --model <id> [--role <role>] [--options '<json>'] [--user-named]
@@ -61,13 +62,14 @@ const CAPS_FILE_TTL_MS = 30 * 60 * 1000;
 // ---------- 参数 ----------
 
 function parseArgs(argv) {
-  const args = { exclude: [] };
+  const args = { exclude: [], excludeModel: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a.startsWith("--")) {
       const key = a.slice(2);
       if (["hard", "vision", "json", "no-quota", "refresh-quota", "user-named"].includes(key)) args[key] = true;
       else if (key === "exclude") args.exclude.push(argv[++i]);
+      else if (key === "exclude-model") args.excludeModel.push(argv[++i]);
       else args[key] = argv[++i];
     } else if (args._ === undefined) args._ = a;
     else (args._extra ??= []).push(a);
@@ -473,10 +475,18 @@ function finalize(item, ctx) {
   };
 }
 
+// --exclude-model 取值：MODELS key，或任一入口的 provider/id（换算成所属模型）；无法识别返回 null
+function excludeModelKey(v) {
+  if (MODELS[v]) return v;
+  const slash = String(v).indexOf("/");
+  return slash > 0 ? (findModel(v.slice(0, slash), v.slice(slash + 1))?.key ?? null) : null;
+}
+
 function runSelect(taskKey, ctx, opts, out) {
   let stream = expandRoute(taskKey);
   const excluded = new Set(opts.exclude);
-  stream = stream.filter((i) => !excluded.has(entryId(i)));
+  const excludedModels = new Set(opts.excludeModel.map(excludeModelKey));
+  stream = stream.filter((i) => !excluded.has(entryId(i)) && !excludedModels.has(i.model));
 
   if (opts.vision) {
     stream = [...stream].sort((a, b) => b.vision - a.vision);
@@ -498,6 +508,12 @@ async function selectCmd(opts) {
     console.error(`--task 必填且须为: ${Object.keys(TASKS).join(" | ")}`);
     process.exit(2);
   }
+  const badModels = opts.excludeModel.filter((v) => !excludeModelKey(v));
+  if (badModels.length) {
+    console.error(`--exclude-model 无法识别: ${badModels.join(", ")}（取模型 key 或入口 provider/model；模型 key: ${Object.keys(MODELS).join(", ")}）`);
+    process.exit(2);
+  }
+  // --exclude-model 是「换个模型」的选型约束，不是失败尝试，不计入换路上限
   const out = { task, attempt: 1 + opts.exclude.length, pick: null, alternatives: [], skipped: [], notes: [], warnings: [] };
   if (out.attempt > MAX_ATTEMPTS) {
     out.error = `已试 ${opts.exclude.length} 个入口，超过单任务 ${MAX_ATTEMPTS} 次上限——停下向用户报告每次尝试的入口和失败原因`;
@@ -534,7 +550,7 @@ function printSelect(out, opts) {
     console.log(JSON.stringify(out, null, 2));
     return;
   }
-  const fmt = (p) => (p ? `${p.providerInstanceId} / ${p.model}  options=${JSON.stringify(p.options)}${p.exempt ? `（${p.exempt}）` : ""}` : "无");
+  const fmt = (p) => (p ? `${p.providerInstanceId} / ${p.model}  model=${p.modelKey}  options=${JSON.stringify(p.options)}${p.exempt ? `（${p.exempt}）` : ""}` : "无");
   for (const n of out.notes) console.log(`# ${n}`);
   for (const w of out.warnings) console.log(`WARN ${w}`);
   if (out.error) console.log(`ERROR ${out.error}`);

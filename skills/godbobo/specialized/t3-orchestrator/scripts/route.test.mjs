@@ -140,6 +140,29 @@ test("select: advisor 排除 sol@codex 后给 grok，--vision 给 sol@devin，�
   }
 });
 
+test("select: --exclude-model 排除同模型全部入口（panel 第二位审查者不撞模型）", () => {
+  const f = fixture();
+  try {
+    // 复现：grok 不可派时，只 --exclude 入口会给 sol@devin——同一个模型换个 harness
+    const caps = JSON.parse(JSON.stringify(CAPS));
+    caps.providers.find((p) => p.providerInstanceId === "cursor").canRunChildTask = false;
+    writeFileSync(f.caps, JSON.stringify(caps));
+    const before = pick(run(["select", "--task", "advisor", "--exclude", "codex/gpt-6.1-sol", ...f.base]));
+    if (before?.[2] !== "gpt-6-1-sol-medium") throw new Error(`前提不成立：应复现同模型 PICK，实得 ${before?.[0]}`);
+    for (const v of ["gpt-6.1-sol", "codex/gpt-6.1-sol"]) {
+      const r = run(["select", "--task", "advisor", "--exclude-model", v, ...f.base]);
+      if (r.status !== 0) throw new Error(r.stdout + r.stderr);
+      const head = r.stdout.split("SKIPPED:")[0];
+      if (/gpt-6.1-sol|gpt-6-1-sol/.test(head)) throw new Error(`--exclude-model ${v} 后 PICK/ALTERNATIVES 不应再有 sol: ${r.stdout}`);
+      if (/已试/.test(r.stdout)) throw new Error(`--exclude-model 不应计入换路次数: ${r.stdout}`);
+    }
+    const bad = run(["select", "--task", "advisor", "--exclude-model", "no-such-model", ...f.base]);
+    if (bad.status !== 2) throw new Error(`未知模型应 exit 2: ${bad.status} ${bad.stderr}`);
+  } finally {
+    f.cleanup();
+  }
+});
+
 test("check: 清单外组合红（用户点名降级为 warn）", () => {
   fail(["--provider", "codex", "--model", "gpt-5.6"], "不在 route-data.mjs");
   ok(["--provider", "codex", "--model", "gpt-5.6", "--user-named"]);

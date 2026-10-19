@@ -20,6 +20,8 @@ node <技能目录>/scripts/route.mjs select --task <类型> [--caps-file /tmp/t
 node <技能目录>/scripts/route.mjs named <模型> [--provider <实例>] [--caps-file ...]
 # 换路：把已试过的入口（含失败和刚被跳过的）逐个 --exclude
 node <技能目录>/scripts/route.mjs select --task <类型> --exclude <provider/model> [--exclude ...]
+# 要另一个模型（不只是另一个 harness）：排除该模型全部入口，不计入换路次数
+node <技能目录>/scripts/route.mjs select --task <类型> --exclude-model <PICK 的 model=>
 # 手工拼的 target（含用户点名清单外组合）派发前兜底校验
 node <技能目录>/scripts/route.mjs check --provider <id> --model <id> [--role <role>] [--options '<json>'] [--user-named]
 ```
@@ -109,7 +111,7 @@ harness 拒绝执行工具时（例如 `Permission denied for this tool`、`was 
 
 1. 主代理亲自读实际 diff、原始日志和测试报告，核对证据对应的源码、脏改动、工具链及覆盖范围，不采信子代理自述。已有证据与最终源码一致且覆盖充分时复核采用；证据缺失、源码或工具链变化、有疑点时补跑相应检查。必要的独立行为核验仍执行。
 2. 不达标时无论修复大小都新建一次 `delegate_task`，带原始意图、上轮发现、修复回应、未解决异议和完整续跑证据；保存新 taskId，async 等完成事件。方向错误或反复修不好按路由升档。4 次换路上限不能靠新建任务重置。
-3. 按风险安排审查：小改动由主代理检查；需要独立审查的常规改动派 `route.mjs select --task advisor` 选出的审查者（实现者是用户点名的顾问模型时，审查改用 `ALTERNATIVES` 里第一个其他模型）；高风险改动用两模型 `$code-review-panel`（两位审查者都用 `--task advisor` 选，第二次 `--exclude` 第一次的入口）——并发（文件锁/互斥、跨进程共享状态、进程或 PID 生命周期与复用、看门狗/清理守护）、取消边界、播放、安全或公共接口，命中其一即 panel，不留裁量。合格 panel 就是该轮最终本地审查，不再重复审同一份 diff。
+3. 按风险安排审查：小改动由主代理检查；需要独立审查的常规改动派 `route.mjs select --task advisor` 选出的审查者（实现者是用户点名的顾问模型时，审查改用 `ALTERNATIVES` 里第一个其他模型）；高风险改动用两模型 `$code-review-panel`（两位审查者都用 `--task advisor` 选，第二次带 `--exclude-model <第一位 PICK 的 model=>`；同一模型换 harness 不算第二位审查者，任一位换路后两人 `model=` 仍须不同）——并发（文件锁/互斥、跨进程共享状态、进程或 PID 生命周期与复用、看门狗/清理守护）、取消边界、播放、安全或公共接口，命中其一即 panel，不留裁量。合格 panel 就是该轮最终本地审查，不再重复审同一份 diff。
 4. 后续轮只复核已修问题、修改范围与相关回归，仍完整传递原始意图、上轮发现及未解决异议；出现新风险则扩展相关审查范围。创建 PR 后交给云端审查与 `$pr-review-loop`，仅用户要求或风险实质扩大时重启本地 panel。
 5. 所有写任务与生成步骤收敛后，唯一最终验证负责人完成最终完整验证；可按第 1 步条件复核采用已有检查证据，不降低整体覆盖。验收完成标准是最终源码、必要行为核验和所有有效审查问题都有可核查证据。
 

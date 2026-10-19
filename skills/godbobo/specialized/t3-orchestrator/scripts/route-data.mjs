@@ -150,7 +150,7 @@ export const ADVISOR_TASKS = ["advisor", "design"];
 
 export const TASKS = {
   general: "普通任务：写代码、修 bug、架构、机械与批量改动、调研与文档、UI 与前端视觉（重视觉加 --vision）；难题加 --hard 先出实现顾问",
-  advisor: "评审：代码审查、安全复核；要两个不同模型就跑两次（第二次 --exclude 第一次的入口）",
+  advisor: "评审：代码审查、安全复核；要两个不同模型就跑两次（第二次 --exclude-model 第一次 PICK 的 model=）",
 };
 
 // delegate_task role → 路由行，供 check --role 套用 MODELS.tasks 限定（implementation 由 status 规则管）
