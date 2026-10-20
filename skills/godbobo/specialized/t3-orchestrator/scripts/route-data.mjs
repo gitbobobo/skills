@@ -88,7 +88,7 @@ export const MODELS = {
   "opus-5.5": {
     label: "Opus 5.5",
     status: "advisor",
-    // 用户定：只做实现顾问（--hard 顾问步），不做代码审查与安全复核
+    // 用户定：只做实现顾问（--task design），不做代码审查与安全复核
     tasks: ["design"],
     vision: 82.0,
     entries: [
@@ -144,17 +144,15 @@ export const MODELS = {
   },
 };
 
-// 白名单递补额外放开 status:"advisor" 的任务（见文件头）。select 的 --task 取值即 TASKS 的 key；
-// design 是 --hard 顾问步专用的内部行，不进 TASKS。
-export const ADVISOR_TASKS = ["advisor", "design"];
+// 白名单递补额外放开 status:"advisor" 的任务（见文件头）。select 的 --task 取值即 TASKS 的 key。
+// design / review 与 delegate_task 的 role 同名，check --role 直接按它套用 MODELS.tasks 限定。
+export const ADVISOR_TASKS = ["review", "design"];
 
 export const TASKS = {
-  general: "普通任务：写代码、修 bug、架构、机械与批量改动、调研与文档、UI 与前端视觉（重视觉加 --vision）；难题加 --hard 先出实现顾问",
-  advisor: "评审：代码审查、安全复核；要两个不同模型就跑两次（第二次 --exclude-model 第一次 PICK 的 model=）",
+  general: "普通任务：写代码、修 bug、架构、机械与批量改动、调研与文档、UI 与前端视觉（重视觉加 --vision）",
+  design: "实现顾问：审主代理的方案/设计稿、修不收敛时要第二意见（UI/UX 方案加 --vision）",
+  review: "审查：代码审查、安全复核；要两个不同模型就跑两次（第二次 --exclude-model 第一次 PICK 的 model=）",
 };
-
-// delegate_task role → 路由行，供 check --role 套用 MODELS.tasks 限定（implementation 由 status 规则管）
-export const ROLE_TASKS = { design: "design", review: "advisor" };
 
 // 组合规则见文件头（audit 会查 provider 是否命中 entries）。档位不在这里设，逐入口声明（见 EFFORT_STANDARD）。
 export const ROUTES = {
@@ -164,21 +162,21 @@ export const ROUTES = {
     { model: "swe-2", provider: "acpRegistry_devin" },
     { model: "deepseek-v4.1-flash", provider: "pi" },
   ],
-  // 评审：先出各模型首选 harness，再出同模型备用 harness；Opus 不做评审（tasks 限定）。
-  advisor: [
+  // 审查：先出各模型首选 harness，再出同模型备用 harness；Opus 不做审查（tasks 限定）。
+  review: [
     { model: "gpt-6.1-sol", provider: "codex" },
     { model: "grok-4.7", provider: "cursor" },
     { model: "gpt-6.1-sol", provider: "acpRegistry_devin" },
     { model: "gpt-6.1-sol", provider: "acpRegistry_factory_droid" },
   ],
-  // --hard 顾问步（实现顾问）专用，不是 --task 取值。
+  // 实现顾问。
   design: [
     { model: "gpt-6.1-sol", provider: "codex" },
-    { model: "opus-5.5", provider: "acpRegistry_devin" },
-    { model: "grok-4.7", provider: "cursor" },
     { model: "gpt-6.1-sol", provider: "acpRegistry_devin" },
-    { model: "opus-5.5", provider: "acpRegistry_factory_droid" },
     { model: "gpt-6.1-sol", provider: "acpRegistry_factory_droid" },
+    { model: "opus-5.5", provider: "acpRegistry_devin" },
+    { model: "opus-5.5", provider: "acpRegistry_factory_droid" },
+    { model: "grok-4.7", provider: "cursor" },
   ],
 };
 

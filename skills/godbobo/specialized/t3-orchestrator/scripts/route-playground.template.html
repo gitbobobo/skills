@@ -54,7 +54,6 @@
   .modebar { display: flex; gap: 6px; margin-bottom: 8px; }
   .modebar button { flex: 1; background: var(--secondary, var(--fb-secondary)); color: var(--secondary-foreground, var(--foreground, var(--fb-foreground))); border: 1px solid var(--border, var(--fb-border)); border-radius: 6px; padding: 4px 0; font: inherit; cursor: pointer; }
   .modebar button.on { background: var(--primary, var(--fb-primary)); color: var(--primary-foreground, var(--fb-primary-foreground)); border-color: var(--primary, var(--fb-primary)); }
-  .legtitle { font-size: 11px; color: var(--info, #6cb8f0); margin: 8px 0 2px; font-weight: 600; }
   .foot { margin-top: 12px; font-size: 11px; color: var(--muted-foreground, var(--fb-muted-foreground)); border-top: 1px solid var(--border, var(--fb-border)); padding-top: 8px; }
 </style>
 </head>
@@ -68,7 +67,6 @@
     <div class="ctl" id="taskCtl">
       <h3>任务 --task</h3>
       <select id="task"></select>
-      <label><input type="checkbox" id="hard"> 难题 --hard（顾问→实现）</label>
       <label><input type="checkbox" id="vision"> --vision（按视觉分数降序）</label>
     </div>
     <div class="ctl" id="namedCtl" style="display:none">
@@ -101,7 +99,7 @@ const NOW = Date.now();
 
 // ---------- UI 状态 ----------
 const S = {
-  mode: 'auto', task: 'general', hard: false, vision: false,
+  mode: 'auto', task: 'general', vision: false,
   named: '', namedProvider: '', swe2Until: DATA.SWE2_FREE_UNTIL,
   provOff: new Set(),           // 勾选掉 = canRunChildTask false
   poolState: {},                // poolId -> ok|quota|cooldown|recovery
@@ -207,22 +205,17 @@ function resolveModel(q){
 function taskStream(){
   const task=S.task;
   let stream=expandRoute(task);
-  const byVision=s=>S.vision?[...s].sort((a,b)=>b.vision-a.vision):s;
-  stream=byVision(stream);
-  if (task==='general'&&S.hard){
-    const advFiltered=byVision(expandRoute('design'));
-    return [{leg:'advisor',stream:advFiltered,task:'design'},{leg:'general',stream,task:'general'}];
-  }
-  return [{leg:null,stream,task}];
+  if (S.vision) stream=[...stream].sort((a,b)=>b.vision-a.vision);
+  return [{stream,task}];
 }
 function namedStream(){
   const m=MODELS[S.named];
-  if(!m) return [{leg:null,stream:[]}];
+  if(!m) return [{stream:[]}];
   const entries=S.namedProvider?m.entries.filter(e=>e.provider===S.namedProvider):m.entries;
   const stream=[]; const seen=new Set();
   for(const e of entries){ const k=entryId(e); if(seen.has(k))continue; seen.add(k);
     stream.push({model:S.named,status:m.status,vision:m.vision??0,provider:e.provider,id:e.id,options:{...e.options},pool:e.pool,via:'named'}); }
-  return [{leg:null,stream}];
+  return [{stream}];
 }
 
 // ---------- 渲染 ----------
@@ -245,14 +238,12 @@ function render(){
   if (S.mode==='named'&&MODELS[S.named]?.status!=='named') html+=`<div class="warnline">WARN ${esc(MODELS[S.named]?.label??S.named)} 状态是 ${MODELS[S.named]?.status}，不是点名专用</div>`;
   const overCap=S.excluded.size>=MAX_ATTEMPTS;
   const groups=taskOrNamedGroups();
-  let stepIdx=0;
   if(overCap)html+=`<div class="pickbox none"><div class="tgt">已试 ${S.excluded.size} 个入口，超过单任务 ${MAX_ATTEMPTS} 次上限</div><div style="font-size:11px;color:var(--muted-foreground, var(--fb-muted-foreground))">停下向用户报告每次尝试的入口和失败原因（脚本 exit 1）</div></div>`;
   for(const g of groups){
     const stream=g.stream.filter(i=>!S.excluded.has(entryId(i)));
     const skipped=[],avail=[];
     for(const item of stream){const r=gateEntry(item,S.mode==='named',g.task); if(r.length)skipped.push({...item,reasons:r});else avail.push(item);}
     g.avail=avail;g.skipped=skipped;g.pick=avail[0]??null;
-    if(groups.length>1){const label=g.leg==='advisor'?'顾问咨询 design':'实现 general';html+=`<div class="legtitle">STEP ${++stepIdx} · ${esc(label)}</div>`;}
     if(g.pick&&!overCap){html+=`<div class="pickbox"><div class="tgt">PICK <span class="pv">${esc(g.pick.provider)}</span> / ${esc(g.pick.id)}</div><pre>${esc(JSON.stringify({providerInstanceId:g.pick.provider,model:g.pick.id,options:injectOptions(g.pick)},null,1))}</pre></div>`;}
     else if(!overCap)html+=`<div class="pickbox none"><div class="tgt">无可用候选</div><div style="font-size:11px;color:var(--muted-foreground, var(--fb-muted-foreground))">看下方 SKIPPED 原因；不要绕开脚本自己挑</div></div>`;
     html+=g.stream.map((it,i)=>{
@@ -285,7 +276,6 @@ function init(){
   pg.querySelectorAll('input').forEach(cb=>cb.addEventListener('change',()=>{cb.checked?S.provOff.delete(cb.dataset.p):S.provOff.add(cb.dataset.p);render();}));
   $('swe2free').value=S.swe2Until;$('swe2free').addEventListener('change',e=>{S.swe2Until=e.target.value;render();});
   taskSel.addEventListener('change',e=>{S.task=e.target.value;render();});
-  $('hard').addEventListener('change',e=>{S.hard=e.target.checked;render();});
   $('vision').addEventListener('change',e=>{S.vision=e.target.checked;render();});
   nmSel.addEventListener('change',e=>{S.named=e.target.value;render();});
   npSel.addEventListener('change',e=>{S.namedProvider=e.target.value;render();});
@@ -298,9 +288,10 @@ init();render();
 try{
   const save={...S,provOff:new Set(S.provOff),poolState:{...S.poolState},excluded:new Set()};
   for(const t of Object.keys(TASKS)){
-    S.mode='auto';S.task=t;S.hard=false;S.vision=false;
-    const groups=taskStream();
-    const line=groups.map(g=>{const a=g.stream.filter(i=>!gateEntry(i,false,g.task).length);return (g.leg?g.leg+':':'')+(a[0]?a[0].provider+'/'+a[0].id:'NONE');}).join(' + ');
+    S.mode='auto';S.task=t;S.vision=false;
+    const g=taskStream()[0];
+    const a=g.stream.filter(i=>!gateEntry(i,false,g.task).length);
+    const line=a[0]?a[0].provider+'/'+a[0].id:'NONE';
     console.log('SELFTEST select',t,'→',line);
   }
   for(const nm of ['swe-2','grok-4.6','gpt-6.1-sol','grok-4.7']){

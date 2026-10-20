@@ -3,7 +3,7 @@
 // 规则全部来自 route-data.mjs；本文件只做展开与过滤，不含可调整的策略。
 //
 // 子命令：
-//   route.mjs select --task <key> [--hard] [--vision]
+//   route.mjs select --task <key> [--vision]
 //                    [--exclude <provider/model>]... [--exclude-model <模型 key|provider/model>]...
 //                    [--caps-file <path>]
 //                    [--state-dir <path>] [--quota-file <path> | --no-quota | --refresh-quota] [--json]
@@ -36,7 +36,6 @@ import {
   MODELS,
   TASKS,
   ADVISOR_TASKS,
-  ROLE_TASKS,
   ROUTES,
   EXPIRY_DEMOTE,
   POOLS,
@@ -67,7 +66,11 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a.startsWith("--")) {
       const key = a.slice(2);
-      if (["hard", "vision", "json", "no-quota", "refresh-quota", "user-named"].includes(key)) args[key] = true;
+      if (key === "hard") {
+        console.error("--hard 已移除：实现顾问单独跑 select --task design");
+        process.exit(2);
+      }
+      if (["vision", "json", "no-quota", "refresh-quota", "user-named"].includes(key)) args[key] = true;
       else if (key === "exclude") args.exclude.push(argv[++i]);
       else if (key === "exclude-model") args.excludeModel.push(argv[++i]);
       else args[key] = argv[++i];
@@ -319,7 +322,7 @@ function gateCheck({ provider, model, role, options = {}, userNamed = false }, p
 
   if (providers) fails.push(...validateOptions(provider, model, options, providers));
 
-  const roleTask = resolved && taskViolation(resolved.key, ROLE_TASKS[role]);
+  const roleTask = resolved && taskViolation(resolved.key, TASKS[role] ? role : undefined);
   if (!userNamed) {
     if (status === "named") fails.push(`${resolved.label} 仅限用户点名才可用，自动调度与换路跳过`);
     if (status === "advisor" && role === "implementation") fails.push(`${resolved.label} 是顾问/审查专用，不承担 implementation 任务`);
@@ -504,6 +507,10 @@ function runSelect(taskKey, ctx, opts, out) {
 
 async function selectCmd(opts) {
   const task = opts.task;
+  if (task === "advisor") {
+    console.error("--task advisor 已改名：审查用 --task review");
+    process.exit(2);
+  }
   if (!task || !TASKS[task]) {
     console.error(`--task 必填且须为: ${Object.keys(TASKS).join(" | ")}`);
     process.exit(2);
@@ -525,24 +532,13 @@ async function selectCmd(opts) {
   const qn = quotaNote(ctx.quotaMeta);
   if (qn) out.notes.push(qn);
 
-  if (opts.hard && task === "general") {
-    const advisor = runSelect("design", ctx, { ...opts, vision: opts.vision }, out);
-    const impl = runSelect("general", ctx, opts, out);
-    out.steps = [
-      { role: "design", purpose: "难题先派顾问咨询（问方案、风险、被否决方向）", pick: advisor[0] ?? null },
-      { role: "implementation", purpose: "方案定下来后的实现", pick: impl[0] ?? null },
-    ];
-    out.alternatives = impl.slice(1, 8);
-  } else {
-    const available = runSelect(task, ctx, opts, out);
-    out.pick = available[0] ?? null;
-    out.alternatives = available.slice(1, 8);
-  }
+  const available = runSelect(task, ctx, opts, out);
+  out.pick = available[0] ?? null;
+  out.alternatives = available.slice(1, 8);
 
   if (out.pick?.via === "whitelist") out.notes.push("PICK 来自白名单递补：路由行的候选都不可用（见 SKIPPED），该模型不在本任务优先级行内");
-  const done = out.pick ?? out.steps?.every((s) => s.pick);
   printSelect(out, opts);
-  process.exit(done ? 0 : 1);
+  process.exit(out.pick ? 0 : 1);
 }
 
 function printSelect(out, opts) {
@@ -554,13 +550,8 @@ function printSelect(out, opts) {
   for (const n of out.notes) console.log(`# ${n}`);
   for (const w of out.warnings) console.log(`WARN ${w}`);
   if (out.error) console.log(`ERROR ${out.error}`);
-  if (out.steps) {
-    for (const s of out.steps) console.log(`STEP [${s.role}] ${s.purpose}\n  → ${fmt(s.pick)}`);
-    if (out.steps.some((s) => !s.pick)) console.log("某一步无可用候选——见下方 skipped");
-  } else {
-    console.log(`PICK ${fmt(out.pick)}`);
-    if (!out.pick) console.log("无可用候选——见下方 skipped，或全部进入冷却；不要再自行挑选");
-  }
+  console.log(`PICK ${fmt(out.pick)}`);
+  if (!out.pick) console.log("无可用候选——见下方 skipped，或全部进入冷却；不要再自行挑选");
   if (out.pick?.needsRecovery) console.log("注意：该入口/池有过失败记录，派发前先 claim 并做恢复探测");
   if (out.alternatives?.length) {
     console.log("ALTERNATIVES（按换路顺序）:");
@@ -728,7 +719,7 @@ function auditCmd(opts) {
 // ---------- table / tasks ----------
 
 function tableCmd(opts) {
-  const data = { SWE2_FREE_UNTIL, swe2FreeNow: swe2Free, PROVIDER_RULES, MODELS, TASKS, ADVISOR_TASKS, ROLE_TASKS, ROUTES, POOLS, QUOTA_BLOCK_PERCENT, QUOTA_BLOCK_RESET_MS, MAX_ATTEMPTS };
+  const data = { SWE2_FREE_UNTIL, swe2FreeNow: swe2Free, PROVIDER_RULES, MODELS, TASKS, ADVISOR_TASKS, ROUTES, POOLS, QUOTA_BLOCK_PERCENT, QUOTA_BLOCK_RESET_MS, MAX_ATTEMPTS };
   console.log(opts.json ? JSON.stringify(data, null, 2) : renderTable(data));
 }
 
