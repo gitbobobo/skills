@@ -47,7 +47,7 @@ PR 收尾：对最新目标分支一次性整合（默认 merge）并解决冲�
 
 ### t3-code
 
-本机 T3 Code 运行状态的内部参考：状态库表布局与会话查询方法、子线程取证（`view:"activity"` 与 `file_change` 快照恢复）、编排机制事实与平台坑（含 watch_pull_request 等不到本账号 bot 评论时的定时兜底）；含孤儿工作树回收脚本 `t3-worktree-gc.mjs`。专用技能。
+本机 T3 Code 运行状态的内部参考：状态库表布局与会话查询方法、子线程取证（`view:"activity"` 与 `file_change` 快照恢复）、编排机制事实、监听与唤醒（含 MCP 工具延迟加载与本账号评论不唤醒的坑）与平台坑；含孤儿工作树回收脚本 `t3-worktree-gc.mjs`。专用技能。
 
 详见 [skills/godbobo/specialized/t3-code/SKILL.md](skills/godbobo/specialized/t3-code/SKILL.md)。
 

@@ -53,7 +53,7 @@ node <技能目录>/scripts/route-playground.mjs [--caps-file ...] [--quota-file
 
 - `target`：用 route.mjs 输出的 `providerInstanceId`、`model`、`options`，不自行增减选项。
 - `role`：按任务填 `implementation`、`review`、`research`、`design`、`test` 之一。
-- `mode`：`async`，靠完成事件唤醒。派完处理剩余独立工作，然后结束本轮等事件；不另起监视任务。追加修复和复审也新建 `delegate_task`，不用子线程的 `t3_thread_send` 代替委派。
+- `mode`：`async`，靠完成事件唤醒（机制见 `t3-code`「监听与唤醒」）。派完处理剩余独立工作后结束本轮。追加修复和复审也新建 `delegate_task`，不用子线程的 `t3_thread_send` 代替委派。
 - 保存每轮的 `taskId`（`task_status` / `task_cancel`）、`childThreadId`（只用于读原始证据）、`clientRequestId`（每轮不同，同轮工具重试沿用原值，换路增加尝试序号）。
 - `runtimeMode`、`interactionMode` 一律继承：`approval-required` 的后台子代理每次工具调用都弹人工授权，没人批就永久挂起而 `task_status` 仍显示 running。「只读」这类意图写进任务「范围」，不靠权限模式实现。
 
