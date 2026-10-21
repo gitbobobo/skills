@@ -23,8 +23,11 @@ description: 统一设置本机各 agent harness 的全局代理规则并做环�
 | claude / claudeAgent | `~/.claude/CLAUDE.md` | `~/.claude/CLAUDE.md` |
 | cursor | `~/.cursor/rules/global.mdc` | `~\.cursor\rules\global.mdc` |
 | factory droid | `~/.factory/AGENTS.md` | `~\.factory\AGENTS.md` |
+| pi | `~/.pi/agent/AGENTS.md` | `~\.pi\agent\AGENTS.md` |
 
-新增 harness 时改 `scripts/setup-env.mjs` 里的 `TARGETS`。
+新增 harness 时改 `scripts/setup-env.mjs` 里的 `TARGETS`。pi 的目录可被 `PI_CODING_AGENT_DIR` 覆盖，脚本也照这个变量取路径。
+
+pi 备注：在 Windows 上，pi 只去 C 盘的 `Program Files` 找 Git Bash，找不到就用 PATH 上的 `System32\bash.exe`，也就是 WSL。Git 装在其他盘时，体检会报 `pi:shell` 待处理，并给出应写进 `<agent-dir>/settings.json` 的 `"shellPath"`；照提示写入后重跑体检确认。
 
 Factory Droid 备注：
 

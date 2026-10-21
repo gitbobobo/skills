@@ -41,7 +41,7 @@ PR 收尾：对最新目标分支一次性整合（默认 merge）并解决冲�
 
 ### setup-env
 
-统一设置本机各 agent harness 的全局代理规则（唯一真源 `rules/AGENTS.md`）并做环境体检；区分 Cargo 工具未安装与 PATH 不可见。仅限用户主动调用。
+统一设置本机各 agent harness 的全局代理规则（唯一真源 `rules/AGENTS.md`）并做环境体检；区分 Cargo 工具未安装与 PATH 不可见，检查 Windows 上 pi 是否会落到 WSL bash。仅限用户主动调用。
 
 详见 [skills/godbobo/general/setup-env/SKILL.md](skills/godbobo/general/setup-env/SKILL.md)。
 

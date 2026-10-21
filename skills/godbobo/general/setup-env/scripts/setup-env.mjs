@@ -32,6 +32,7 @@ import { fileURLToPath } from "node:url";
 const HOME = homedir();
 const IS_WIN = platform() === "win32";
 const APPDATA = process.env.APPDATA || join(HOME, "AppData", "Roaming");
+const PI_DIR = process.env.PI_CODING_AGENT_DIR || join(HOME, ".pi", "agent");
 
 const SOURCE = resolve(dirname(fileURLToPath(import.meta.url)), "../rules/AGENTS.md");
 
@@ -67,6 +68,12 @@ const TARGETS = [
     harness: "factory droid",
     path: join(HOME, ".factory", "AGENTS.md"),
     cli: "droid",
+  },
+  {
+    // pi 的全局上下文文件：<agent-dir>/AGENTS.md，agent-dir 可被 PI_CODING_AGENT_DIR 覆盖。
+    harness: "pi",
+    path: join(PI_DIR, "AGENTS.md"),
+    cli: "pi",
   },
 ];
 
@@ -191,6 +198,34 @@ for (const t of TOOLS) {
     console.log(installed
       ? `PATH不可见 tool:${t.name.padEnd(14)} 已安装：${installed}；将 ${dirname(installed)} 加入实际代理启动环境的 PATH`
       : `未安装   tool:${t.name.padEnd(14)} ${t.hint}`);
+  }
+}
+
+// ---- pi 的 bash：Windows 上只在 C 盘 Program Files 找 Git Bash，找不到就落到 PATH 上的
+// System32\bash.exe（WSL）——WSL 里 git 读不了 Windows gitdir、没有 node，超时也杀不到
+// Windows 子进程。只报告，不改 settings.json。
+if (IS_WIN && which("pi")) {
+  const settingsPath = join(PI_DIR, "settings.json");
+  let shellPath;
+  try {
+    shellPath = JSON.parse(readFileSync(settingsPath, "utf8")).shellPath;
+  } catch {
+    // 没有或解析不了 settings.json 时按未配置处理。
+  }
+  const pf = [process.env.ProgramFiles, process.env["ProgramFiles(x86)"]].filter(Boolean);
+  const defaultBash = pf.map((d) => join(d, "Git", "bin", "bash.exe")).find((p) => existsSync(p));
+  const gitExe = which("git");
+  const gitBash = gitExe && join(dirname(gitExe), "..", "bin", "bash.exe");
+  if (shellPath && existsSync(shellPath)) {
+    console.log(`已配置   pi:shellPath         ${shellPath}`);
+  } else if (defaultBash) {
+    console.log(`默认     pi:shell             ${defaultBash}`);
+  } else {
+    pending++;
+    console.log(
+      `待处理   pi:shell             会落到 WSL bash；在 ${settingsPath} 设置 "shellPath"` +
+        (gitBash && existsSync(gitBash) ? `: ${JSON.stringify(resolve(gitBash))}` : " 指向 Git Bash"),
+    );
   }
 }
 
