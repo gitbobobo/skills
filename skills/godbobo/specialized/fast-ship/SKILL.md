@@ -126,7 +126,7 @@ AI 评审闭环（字段细节见 api.md screenshots 章）：
 3. 修改 UI 后，`POST /api/projects/{id}/screenshots` 以**同一 `screen_key` + 同一组 platform/locale/theme** 上传新截图（同变体即覆盖更新，文件与宽高/上传时间被替换；该截图上全部 open 标注置 `outdated=true`，等待人工「确认保留」或你确认修完后置 resolved）。
 4. 逐条 `PUT {"status":"resolved"}` 标已解决（JWT 批量场景可用 `POST /api/projects/{id}/screenshot-annotations/batch`，API Key 无此能力）。
 
-删 Issue 只清空标注的 `issue_id`（标注保留）；删截图会级联删标注。
+删 Issue 只清空标注的 `issue_id`（标注保留）；删截图会级联删标注。界面随版本增删时，用 `DELETE /api/screenshot-screens/{sid}` 清理过时截图（JWT / API Key 均可）。
 
 ## Issue 关联 PR
 
@@ -161,7 +161,7 @@ spec 的 security 经常同时写 JWT 和 API Key，真正的拒绝在 handler �
 
 ### 自身日志不是项目日志
 
-`GET /api/self-logs`、`/aggregate`、`/trace` 查的是 Fast Ship 服务端自己的 slog（INT-94）。项目运行日志仍走 `/api/projects/{id}/logs`。`fsr_` 令牌查自身日志返回 40301。失败请求用响应头 `X-Request-Id` 调 `/trace?request_id=`；自动化用 `run_id`。
+`GET /api/self-logs`、`/aggregate`、`/trace` 查的是 Fast Ship 服务端自己的 slog（INT-94）。项目运行日志仍走 `/api/projects/{id}/logs`。`fsr_` 令牌查自身日志返回 40301。失败请求用响应头 `X-Request-Id` 调 `/trace?request_id=`；审查运行链路用 `run_id`。
 
 ### checklist 是整组替换
 
