@@ -1,7 +1,6 @@
 ---
 name: pr-finish
-description: PR 收尾：整合目标分支并解决冲突、清理基线既有问题、合并 PR、交接后续工作、关闭关联问题、回收工作树与分支。仅限用户主动调用。
-disable-model-invocation: true
+description: PR 收尾：整合目标分支并解决冲突、清理基线既有问题、合并 PR、交接后续工作、关闭关联问题、回收工作树与分支。PR 审查收敛、用户要求收尾时使用。
 ---
 
 # pr-finish
