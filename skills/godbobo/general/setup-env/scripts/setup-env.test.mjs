@@ -53,3 +53,25 @@ test("cargo-nextest 发现：迁移目录/默认目录已有工具，PATH 不可
   writeFileSync(join(notExecutable, "cargo-nextest"), "not executable", { mode: 0o644 });
   assert.match(absent.run("--check").stdout, /未安装\s+tool:cargo-nextest/);
 });
+
+test("sccache：装了就写入 rustc-wrapper，已有 [build] 段合并，别的 wrapper 不覆盖", { skip: !posix }, async () => {
+  const { readFileSync } = await import("node:fs");
+  const absent = fixture();
+  assert.match(absent.run("--check").stdout, /未安装\s+cargo:sccache/);
+
+  const f = fixture();
+  writeFileSync(join(f.bin, "sccache"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  assert.match(f.run("--check").stdout, /待处理\s+cargo:rustc-wrapper/);
+  mkdirSync(f.env.CARGO_HOME, { recursive: true });
+  const cfg = join(f.env.CARGO_HOME, "config.toml");
+  writeFileSync(cfg, "[build]\njobs = 4\n");
+  assert.match(f.run().stdout, /已配置\s+cargo:rustc-wrapper\s+sccache/);
+  assert.equal(readFileSync(cfg, "utf8"), '[build]\nrustc-wrapper = "sccache"\njobs = 4\n');
+  assert.match(f.run("--check").stdout, /已配置\s+cargo:rustc-wrapper\s+sccache/);
+
+  const other = fixture();
+  writeFileSync(join(other.bin, "sccache"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  mkdirSync(other.env.CARGO_HOME, { recursive: true });
+  writeFileSync(join(other.env.CARGO_HOME, "config.toml"), '[build]\nrustc-wrapper = "ccache-rs"\n');
+  assert.match(other.run().stdout, /其他\s+cargo:rustc-wrapper\s+ccache-rs/);
+});

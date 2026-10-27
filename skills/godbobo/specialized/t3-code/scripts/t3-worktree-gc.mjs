@@ -10,6 +10,9 @@
 //   node t3-worktree-gc.mjs              # dry-run：逐目录打印结论，不删任何东西
 //   node t3-worktree-gc.mjs --apply      # 真正执行 git worktree remove
 //   node t3-worktree-gc.mjs --root <dir> # 单独指定扫描根
+//   node t3-worktree-gc.mjs --purge-build [--apply]
+//                                        # 对因脏树/未推送等 git 原因保留的工作树，
+//                                        # 只删可重建的构建产物目录（见 purgeTargets）
 //
 // 环境变量 T3CODE_HOME 覆盖 ~/.t3（worktrees=<home>/worktrees、
 // 数据库=<home>/userdata/statev2.sqlite），主要给测试夹具用。
@@ -92,19 +95,21 @@ const req = createRequire(import.meta.url);
 const args = process.argv.slice(2);
 let apply = false;
 let rootOverride = null;
+let purgeBuild = false;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--apply") apply = true;
+  else if (args[i] === "--purge-build") purgeBuild = true;
   else if (args[i] === "--root") {
     const v = args[++i];
     // 缺值/空白/以 -- 开头：拒绝静默回退——resolve("") 会落到调用者 cwd，
     // --apply --root "$空变量" 会把 cwd 下的目录当工作树根扫描
     if (v === undefined || !v.trim() || v.startsWith("--")) {
-      console.error(`--root 需要目录参数\n用法：node t3-worktree-gc.mjs [--apply] [--root <dir>]`);
+      console.error(`--root 需要目录参数\n用法：node t3-worktree-gc.mjs [--apply] [--purge-build] [--root <dir>]`);
       process.exit(2);
     }
     rootOverride = v;
   } else {
-    console.error(`未知参数：${args[i]}\n用法：node t3-worktree-gc.mjs [--apply] [--root <dir>]`);
+    console.error(`未知参数：${args[i]}\n用法：node t3-worktree-gc.mjs [--apply] [--purge-build] [--root <dir>]`);
     process.exit(2);
   }
 }
@@ -777,9 +782,55 @@ function gitStateReasons(dir, notes, gitCommon, refetch = false) {
   return reasons;
 }
 
+// ---------- 构建产物清理（--purge-build） ----------
+// 只认可重建的通用产物目录，且必须是 git ignored 目录（ls-files --directory
+// 折叠出的整目录条目）：cargo target（带 .rustc_info.json 或 CACHEDIR.TAG）、
+// SwiftPM .build、Xcode 派生数据（目录名 DerivedData，或含 ModuleCache.noindex
+// / Build/Intermediates.noindex 的自定义 -derivedDataPath）、node_modules、
+// .gradle。项目私有的产物目录不在此列——不往通用脚本里塞某个仓库的布局。
+function isPurgeTarget(abs, name) {
+  const has = (...p) => existsSync(join(abs, ...p));
+  switch (name.toLowerCase()) {
+    case "target":
+      return has(".rustc_info.json") || has("CACHEDIR.TAG") || ["debug", "release"].some((d) => has(d, ".cargo-lock") || has(d, ".cargo-artifact-lock") || has(d, ".fingerprint"));
+    case ".build":
+    case "deriveddata":
+    case "node_modules":
+    case ".gradle":
+      return true;
+    default:
+      return has("ModuleCache.noindex") || has("Build", "Intermediates.noindex");
+  }
+}
+function purgeTargets(dir) {
+  const out = sh("git", ["-c", "core.fsmonitor=false", "-C", dir, "ls-files", "-o", "-i", "--exclude-standard", "--directory", "-z"], { timeout: 60000, maxBuffer: 64 * 1024 * 1024 });
+  if (out === null) return null;
+  const found = [];
+  const walk = (rel, depth) => {
+    const abs = join(dir, rel);
+    const name = rel.replace(/\/$/, "").split("/").pop();
+    if (isPurgeTarget(abs, name)) return found.push(rel.replace(/\/$/, ""));
+    // 折叠条目（如 .tmp/）内部再下探两层找派生数据，不越过符号链接
+    if (depth >= 2) return;
+    let ents = [];
+    try {
+      ents = readdirSync(abs, { withFileTypes: true });
+    } catch {}
+    for (const e of ents) if (e.isDirectory()) walk(`${rel}${e.name}/`, depth + 1);
+  };
+  for (const p of out.split("\0")) if (p.endsWith("/")) walk(p, 0);
+  return found;
+}
+function duBytes(abs) {
+  const o = sh("du", ["-sk", abs], { timeout: 120000 });
+  return o ? Number(o.split(/\s/)[0]) * 1024 : 0;
+}
+const fmtBytes = (b) => (b >= 2 ** 30 ? `${(b / 2 ** 30).toFixed(1)}G` : `${Math.round(b / 2 ** 20)}M`);
+
 // ---------- 主流程 ----------
 const rows = []; // { verdict, rel, branch, detail }
-const counts = { delete: 0, deleted: 0, skip: 0, "not-a-worktree": 0, failed: 0 };
+const counts = { delete: 0, deleted: 0, skip: 0, "not-a-worktree": 0, failed: 0, purge: 0, purged: 0 };
+let purgeTotal = 0;
 const report = (verdict, rel, detail, branch) => {
   rows.push({ verdict, rel, detail, branch });
   counts[verdict]++;
@@ -866,6 +917,33 @@ for (const dir of candidates(scanRoot)) {
 
   if (reasons.length) {
     report("skip", rel, [...reasons, ...notes].join("；"), branch);
+    // 只因 git 侧原因保留的树（非 self、无未终结线程/活跃 run/不可归因占用）
+    // 可单删构建产物：产物全在 ignored 区，不碰任何跟踪或未提交内容
+    if (purgeBuild && !inside(cwdReal, wtReal) && sn.reasons.length === 0) {
+      const targets = purgeTargets(dir);
+      if (targets?.length) {
+        const sized = targets.map((t) => [t, duBytes(join(dir, t))]);
+        const sum = sized.reduce((a, [, b]) => a + b, 0);
+        const list = sized.map(([t, b]) => `${t}(${fmtBytes(b)})`).join("、");
+        if (!apply) {
+          purgeTotal += sum;
+          report("purge", rel, `可清构建产物 ${fmtBytes(sum)}：${list}`, branch);
+        } else if (snapshotReasons(dir, wtReal, snapshotDb(), computeOccupants(), []).reasons.length) {
+          report("skip", rel, "删除产物前复查发现线程/占用阻断", branch);
+        } else {
+          const failed = [];
+          for (const [t] of sized) {
+            try {
+              rmSync(join(dir, t), { recursive: true, maxRetries: 3, retryDelay: 300 });
+            } catch {}
+            if (existsSync(join(dir, t))) failed.push(t);
+          }
+          purgeTotal += sized.filter(([t]) => !failed.includes(t)).reduce((a, [, b]) => a + b, 0);
+          if (failed.length) report("failed", rel, `产物删除失败：${failed.join("、")}`, branch);
+          else report("purged", rel, `已清构建产物 ${fmtBytes(sum)}：${list}`, branch);
+        }
+      }
+    }
     continue;
   }
 
@@ -945,7 +1023,8 @@ const total = rows.length;
 console.log(
   `汇总：共 ${total} 个目录 — 可删 ${counts.delete} / 已删 ${counts.deleted} / skip ${counts.skip} / not-a-worktree ${counts["not-a-worktree"]} / failed ${counts.failed}`
 );
+if (purgeBuild) console.log(`构建产物：可清 ${counts.purge} / 已清 ${counts.purged}，共 ${fmtBytes(purgeTotal)}`);
 console.log(`在用工作树（绑定线程未终结或有进行中 run）：${inUseDirs} 个`);
-if (!apply && counts.delete > 0) console.log("（dry-run：加 --apply 执行删除）");
+if (!apply && counts.delete + counts.purge > 0) console.log("（dry-run：加 --apply 执行删除）");
 // 有 requested 删除失败时退出码非 0——自动化按退出码判清理成败
 process.exit(counts.failed > 0 ? 1 : 0);

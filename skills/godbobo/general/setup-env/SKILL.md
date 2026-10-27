@@ -5,7 +5,7 @@ description: 统一设置本机各 agent harness 的全局代理规则并做环�
 
 # setup-env
 
-把 `rules/AGENTS.md`（本技能目录下，唯一真源）链接到各 harness 的全局规则路径，让所有 CLI 代理在任何项目里都加载同一套约定；通用规则涵盖重命令遵守机器调度和单一最终验证负责人，具体编排流程留在对应技能。同步后仍以项目规则优先。同时报告各 harness CLI 与本机工具（如 cargo-nextest）是否可用——工具只报告不安装。cargo-nextest 不在 PATH 时再探测 CARGO_HOME 和默认 Cargo bin，区分「未安装」与「已安装但 PATH 不可见」；后者在实际代理启动环境补路径，再从新代理执行 `cargo nextest --version` 验证。
+把 `rules/AGENTS.md`（本技能目录下，唯一真源）链接到各 harness 的全局规则路径，让所有 CLI 代理在任何项目里都加载同一套约定；通用规则涵盖重命令遵守机器调度和单一最终验证负责人，具体编排流程留在对应技能。同步后仍以项目规则优先。同时报告各 harness CLI 与本机工具（如 cargo-nextest）是否可用——工具只报告不安装。cargo-nextest 不在 PATH 时再探测 CARGO_HOME 和默认 Cargo bin，区分「未安装」与「已安装但 PATH 不可见」；后者在实际代理启动环境补路径，再从新代理执行 `cargo nextest --version` 验证。装了 sccache 时，把它写进 `$CARGO_HOME/config.toml` 的 `[build] rustc-wrapper`，让多个工作树共享 Rust 编译缓存（已有别的 wrapper 或设置了 `RUSTC_WRAPPER` 时不覆盖；改写前先备份原文件）；没装只报告。
 
 ## 步骤
 
@@ -46,4 +46,4 @@ Cursor 备注：
 - 全局规则是「会被加载」，不是「必定遵守」。跨 harness 委派（`delegate_task`）时的硬性约束仍要原文写进任务 prompt 转述。
 - 仓库级规则仍放各仓库的 AGENTS.md；本文件只放与仓库无关的通用约定。
 - 改约定只改 `rules/AGENTS.md`。符号链接立即生效；`--copy` 部署过的机器要重跑本脚本。
-- 本技能只管全局规则，不装 CLI、不改项目。技能本身的安装走 `docs/setup.md` 的 `npx skills` 流程。
+- 本技能只管全局规则和上述 cargo 全局配置，不装 CLI、不改项目。技能本身的安装走 `docs/setup.md` 的 `npx skills` 流程。

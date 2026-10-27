@@ -201,6 +201,42 @@ for (const t of TOOLS) {
   }
 }
 
+// ---- sccache：多工作树并行时共享 Rust 编译缓存。装了 sccache 才配置，没装只报告。
+// 写 $CARGO_HOME/config.toml 的 [build] rustc-wrapper；已有其他 wrapper 不覆盖。
+{
+  const sccache = which("sccache");
+  const cargoHome = process.env.CARGO_HOME || join(HOME, ".cargo");
+  const cfg = join(cargoHome, "config.toml");
+  const text = existsSync(cfg) ? readFileSync(cfg, "utf8") : "";
+  const m = text.match(/^\s*rustc-wrapper\s*=\s*"([^"]*)"/m);
+  const envWrapper = process.env.RUSTC_WRAPPER;
+  if (!sccache) {
+    console.log(`未安装   cargo:sccache        多工作树共享 Rust 编译缓存需要它（brew install sccache / cargo install sccache --locked）`);
+  } else if (envWrapper || m) {
+    const w = envWrapper || m[1];
+    console.log(/sccache/.test(w)
+      ? `已配置   cargo:rustc-wrapper  ${w}${envWrapper ? "（RUSTC_WRAPPER）" : `（${cfg}）`}`
+      : `其他     cargo:rustc-wrapper  ${w}（已有别的 wrapper，不覆盖）`);
+  } else if (checkOnly) {
+    pending++;
+    console.log(`待处理   cargo:rustc-wrapper  未配置 sccache；去掉 --check 写入 ${cfg}`);
+  } else {
+    try {
+      mkdirSync(cargoHome, { recursive: true });
+      if (text) writeFileSync(`${cfg}.bak-${stamp}`, text);
+      const line = 'rustc-wrapper = "sccache"';
+      const next = /^\[build\]\s*$/m.test(text)
+        ? text.replace(/^\[build\]\s*$/m, `[build]\n${line}`)
+        : `${text}${text && !text.endsWith("\n") ? "\n" : ""}${text ? "\n" : ""}[build]\n${line}\n`;
+      writeFileSync(cfg, next);
+      console.log(`已配置   cargo:rustc-wrapper  sccache → ${cfg}${text ? `（原文件备份到 ${cfg}.bak-${stamp}）` : ""}`);
+    } catch (e) {
+      pending++;
+      console.log(`失败     cargo:rustc-wrapper  ${e.message}`);
+    }
+  }
+}
+
 // ---- pi 的 bash：Windows 上只在 C 盘 Program Files 找 Git Bash，找不到就落到 PATH 上的
 // System32\bash.exe（WSL）——WSL 里 git 读不了 Windows gitdir、没有 node，超时也杀不到
 // Windows 子进程。只报告，不改 settings.json。

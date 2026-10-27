@@ -197,6 +197,18 @@ before(() => {
   git(["-C", D.indexflags, "update-index", "--assume-unchanged", "f.txt"]);
   writeFileSync(join(D.indexflags, ".gitignore"), "edited\n");
   git(["-C", D.indexflags, "update-index", "--skip-worktree", ".gitignore"]);
+  D.purge = addWt("wt-purge"); // 脏树保留，但 --purge-build 只删可重建产物（.build、.tmp 下的派生数据）
+  writeFileSync(join(D.purge, "wip.txt"), "x\n");
+  mkdirSync(join(D.purge, ".build", "debug"), { recursive: true });
+  writeFileSync(join(D.purge, ".build", "debug", "a.o"), "x\n");
+  mkdirSync(join(D.purge, ".tmp", "derived", "ModuleCache.noindex"), { recursive: true });
+  writeFileSync(join(D.purge, ".tmp", "derived", "ModuleCache.noindex", "m"), "x\n");
+  mkdirSync(join(D.purge, ".tmp", "notes"), { recursive: true });
+  writeFileSync(join(D.purge, ".tmp", "notes", "keep.md"), "x\n");
+  D.purgelive = addWt("wt-purgelive"); // 同样有产物但线程未终结 → 不清
+  writeFileSync(join(D.purgelive, "wip.txt"), "x\n");
+  mkdirSync(join(D.purgelive, ".build"), { recursive: true });
+  writeFileSync(join(D.purgelive, ".build", "a.o"), "x\n");
   D.fsmon = addWt("wt-fsmon"); // fsmonitor 钩子谎报「无变更」：-c core.fsmonitor=false 退化回真实 stat
   const hook = join(tmp, "fsmon-hook.sh"); // v2 协议：回 token + 空变更列表
   writeFileSync(hook, '#!/bin/sh\nprintf "%s\\0" "$2"\n');
@@ -290,6 +302,8 @@ before(() => {
   insThread(db, { id: "t-clean-1", wt: D.clean, settled: true });
   insThread(db, { id: "t-clean-2", wt: D.clean, archived: "2026-01-02" }); // archived 同样算终结
   insRun(db, { id: "r0", thread: "t-clean-1", status: "completed" }); // 已结束 run 不阻挡
+  insThread(db, { id: "t-purge", wt: D.purge, settled: true });
+  insThread(db, { id: "t-purgelive", title: "产物树线程未结算", wt: D.purgelive });
   insThread(db, { id: "t-unsettled", title: "主线程未结算", wt: D.unsettled });
   insThread(db, { id: "thread:delegated-task:test%3Ad1", title: "委派线程未结算", wt: D.delegated });
   insThread(db, { id: "thread:delegated-task:test%3Adone", title: "委派线程子代理已完结", wt: D.deldone });
@@ -408,7 +422,7 @@ test("dry-run：逐目录判定，不删任何东西", () => {
   assert.match(lineFor(out, "wt-stalegit"), /^not-a-worktree/); // .git 失效文件不在白名单，维持只报告
   assert.match(out, /--apply 执行删除/);
   // 在用计数：wt-unsettled/wt-delegated/wt-delrun/wt-alias/wt-phbound/wt-occlive
-  assert.match(out, /在用工作树（绑定线程未终结或有进行中 run）：6 个/);
+  assert.match(out, /在用工作树（绑定线程未终结或有进行中 run）：7 个/);
   for (const d of Object.values(D)) assert.ok(existsSync(d), `dry-run 不应删除 ${d}`);
 });
 
@@ -472,4 +486,18 @@ test("--apply：只删可删工作树并清理本地分支", () => {
   assert.ok(existsSync(D.phbound), "绑定未终结线程的占位目录应保留");
   assert.ok(existsSync(D.phmixed), "混入真实文件的目录应保留");
   assert.ok(!/^failed/m.test(out), "不应有 failed");
+});
+
+test("--purge-build：只清已终结线程脏树里的可重建产物，保留跟踪/未提交/其他 ignored 内容", () => {
+  const dry = runGc(["--purge-build"]);
+  assert.match(dry, /^purge\s+group\/wt-purge\s.*\.build.*\.tmp\/derived/m);
+  assert.doesNotMatch(dry, /^purge\s+group\/wt-purgelive/m);
+  assert.ok(existsSync(join(D.purge, ".build")), "dry-run 不删");
+  const out = runGc(["--purge-build", "--apply"], { env: {} });
+  assert.match(out, /^purged\s+group\/wt-purge\s/m);
+  assert.ok(!existsSync(join(D.purge, ".build")));
+  assert.ok(!existsSync(join(D.purge, ".tmp", "derived")));
+  assert.ok(existsSync(join(D.purge, ".tmp", "notes", "keep.md")), "非产物 ignored 文件保留");
+  assert.ok(existsSync(join(D.purge, "wip.txt")), "未提交文件保留");
+  assert.ok(existsSync(join(D.purgelive, ".build")), "未终结线程的树不清");
 });
