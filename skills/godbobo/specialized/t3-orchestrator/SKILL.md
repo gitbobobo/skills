@@ -30,7 +30,7 @@ node <技能目录>/scripts/route.mjs check --provider <id> --model <id> [--role
 
 - `--task` 取值见 `route.mjs tasks`：general（拿不准按它）、design（实现顾问）、review（代码审查、安全复核）。`--vision` 让候选按视觉分数降序（截图、UI 还原、UI/UX 方案咨询等看图任务用）。
 - `PICK` 为空看 `SKIPPED` 原因。`ALTERNATIVES` 即换路顺序（行内「模型@harness」组合 → 白名单递补）；`via=whitelist` 说明行内候选都不可用。
-- 不给 `--caps-file` 时退化为 `~/.t3/caches` 快照并告警。
+- 不给 `--caps-file` 是降级模式（输出 `WARN 降级模式`）：pi 模型清单取自 `pi --list-models`，其余 provider 取自 `~/.t3/caches` 快照，`canRunChildTask` 与选项取值都未验证。见到它先按「派活」第 1 步落盘 caps 重跑，MCP 工具确实不可用时才按降级结果派发。
 - 点名清单外的模型 `named` 不识别：先 `check --user-named` 验证再手工指定 target。
 
 调整路由规则前可用沙盒页人工搭配输入、眼看每个候选的跳过原因：

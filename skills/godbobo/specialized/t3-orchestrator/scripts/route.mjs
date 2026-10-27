@@ -20,11 +20,14 @@
 // 输入来源（脚本自取，不靠模型转述）：
 //   capabilities  —— --caps-file 传 orchestrator_capabilities 的 JSON；文件 mtime 超
 //                    CAPS_FILE_TTL_MS 时告警，并在「不可派/无此模型」类判定上标注过期；
-//                    缺省读 ${T3_CACHE_DIR:-~/.t3/caches}/<provider>.json
-//                    （无法验证 canRunChildTask，只降级告警）
+//                    缺省为降级模式：pi 的模型清单取自本机 `pi --list-models`（T3 不刷新
+//                    ~/.t3/caches/pi.json，曾因其陈旧把全部 cliproxyapi 入口判为无此 ID），
+//                    其余 provider 读 ${T3_CACHE_DIR:-~/.t3/caches}/<provider>.json
+//                    （无法验证 canRunChildTask，强告警）
 // 额度不在这里判断：pi 入口由 cliproxyapi 自动路由，其余入口失败即换路。
 
 import { readFileSync, realpathSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -107,6 +110,10 @@ function loadProviders(capsFile) {
   const wanted = new Set();
   for (const m of Object.values(MODELS)) for (const e of m.entries) wanted.add(e.provider);
   for (const id of wanted) {
+    if (id === "pi") {
+      providers.set(id, loadPiModels());
+      continue;
+    }
     const file = join(cacheDir, `${id}.json`);
     let c = null;
     try {
@@ -127,8 +134,26 @@ function loadProviders(capsFile) {
       optionIds: new Map([...optionSpecs].map(([k, v]) => [k, new Set(v.keys())])),
     });
   }
-  warnings.push("未提供 --caps-file，用 ~/.t3/caches 快照判断可用性（无法验证 canRunChildTask）");
+  warnings.push(
+    "降级模式：未提供 --caps-file——pi 模型清单取自 `pi --list-models`，其余 provider 取自 ~/.t3/caches 快照，canRunChildTask 与选项取值均未验证。先调 orchestrator_capabilities 把返回 JSON 落盘并传 --caps-file 重跑；只有 MCP 工具确实不可用时才按本结果派发",
+  );
   return { providers, warnings, live: false };
+}
+
+// pi 的实时模型清单：`pi --list-models` 表格（首行表头，列为 provider model ...），
+// 入口 ID 取「provider/model」。不提供选项描述符，选项校验对 pi 入口放行（规格未知不误拦）。
+function loadPiModels() {
+  const bin = process.env.T3_PI_BIN || "pi";
+  const r = spawnSync(bin, ["--list-models"], { encoding: "utf8", timeout: 20000, stdio: ["ignore", "pipe", "pipe"] });
+  const fail = (reason) => ({ runnable: false, reason, models: new Set(), optionSpecs: new Map(), optionIds: new Map() });
+  if (r.error || r.status !== 0) return fail(`\`${bin} --list-models\` 失败：${r.error?.message ?? (r.stderr || `exit ${r.status}`).trim()}`);
+  const models = new Set();
+  for (const line of r.stdout.split("\n").slice(1)) {
+    const [prov, model] = line.trim().split(/\s+/);
+    if (prov && model) models.add(`${prov}/${model}`);
+  }
+  if (!models.size) return fail(`\`${bin} --list-models\` 未列出任何模型`);
+  return { runnable: true, models, optionSpecs: new Map(), optionIds: new Map() };
 }
 
 // ---------- 模型解析 ----------

@@ -223,14 +223,21 @@ test("select: 已移除参数与任务类型退出 2，tasks 只列三个任务"
   eq(run(["tasks"]).stdout.trim().split("\n").map((l) => l.split(/\s+/)[0]), ["general", "design", "review"]);
 });
 
-test("select: 无 caps-file 时读 T3_CACHE_DIR 缓存并告警", () => {
+test("select: 无 caps-file 时 pi 读 pi --list-models、其余读 T3_CACHE_DIR 并强告警", () => {
   const dir = mkdtempSync(join(tmpdir(), "route-cache-"));
   try {
-    const slug = "cliproxyapi/glm-5.3-flash";
-    writeFileSync(join(dir, "pi.json"), JSON.stringify({ enabled: true, status: "ready", auth: { status: "authenticated" }, models: [{ slug, capabilities: { optionDescriptors: [{ id: "thinking", type: "select", options: [{ id: "high" }] }] } }] }));
-    const r = run(["select", "--task", "general"], { env: { ...process.env, T3_CACHE_DIR: dir } });
-    eq(pickOf(r), `pi/${slug}`);
-    if (!r.stdout.includes("未提供 --caps-file")) throw new Error(r.stdout);
+    // 陈旧 pi.json 不再参与判断
+    writeFileSync(join(dir, "pi.json"), JSON.stringify({ enabled: true, status: "ready", auth: { status: "authenticated" }, models: [{ slug: "commandcode/old" }] }));
+    const bin = join(dir, "fake-pi");
+    writeFileSync(bin, "#!/bin/sh\nprintf 'provider     model                context\\ncliproxyapi  glm-5.3-flash        500K\\ncliproxyapi  gpt-6.1-sol  500K\\n'\n", { mode: 0o755 });
+    const env = { ...process.env, T3_CACHE_DIR: dir, T3_PI_BIN: bin };
+    const r = run(["select", "--task", "general"], { env });
+    eq(pickOf(r), "pi/cliproxyapi/glm-5.3-flash");
+    if (!r.stdout.includes("降级模式")) throw new Error(r.stdout);
+    // pi 不可用：pi 入口全部跳过并注明原因
+    const r2 = run(["select", "--task", "general"], { env: { ...env, T3_PI_BIN: join(dir, "missing") } });
+    if (pickOf(r2)?.startsWith("pi/")) throw new Error(r2.stdout);
+    if (!r2.stdout.includes("--list-models` 失败")) throw new Error(r2.stdout);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
