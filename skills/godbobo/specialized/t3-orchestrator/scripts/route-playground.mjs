@@ -2,30 +2,17 @@
 // 生成 route-playground.html：route.mjs 路由规则的可视化沙盒。
 // 固定输入 → 固定输出的可视化版本；用来人工搭配输入、检查路由表哪里有问题。
 //
-//   node route-playground.mjs [--caps-file caps.json] [--quota-file quota.json | --no-quota] [-o out.html]
+//   node route-playground.mjs [--caps-file caps.json] [-o out.html]
 //
-// 数据快照默认是合成的（全部实例可用、全部池正常），供纯规则调试；
-// --caps-file 传 orchestrator_capabilities 的 JSON、--quota-file 传
-// t3-quota.mjs --json 的输出后，沙盒按真实状态初始化（仍可手动改）。
+// 数据快照默认是合成的（全部实例可用），供纯规则调试；--caps-file 传
+// orchestrator_capabilities 的 JSON 后，沙盒按真实状态初始化（仍可手动改）。
 //
 // 生成的 HTML 完全自包含，双击即可在浏览器打开（file:// 也行）。
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import {
-  SWE2_FREE_UNTIL,
-  PROVIDER_RULES,
-  MODELS,
-  TASKS,
-  ADVISOR_TASKS,
-  ROUTES,
-  EXPIRY_DEMOTE,
-  POOLS,
-  QUOTA_BLOCK_PERCENT,
-  QUOTA_BLOCK_RESET_MS,
-  MAX_ATTEMPTS,
-} from "./route-data.mjs";
+import { PROVIDER_RULES, MODELS, TASKS, ADVISOR_TASKS, ROUTES, MAX_ATTEMPTS } from "./route-data.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -37,8 +24,7 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a.startsWith("--")) {
       const key = a.slice(2);
-      if (key === "no-quota") o[key] = true;
-      else o[key] = argv[++i];
+      o[key] = argv[++i];
     } else if (a === "-o") o.o = argv[++i];
     else o._.push(a);
   }
@@ -81,19 +67,7 @@ function synthCaps() {
 // ---------- 主流程 ----------
 
 const opts = parseArgs(process.argv.slice(2));
-const table = {
-  SWE2_FREE_UNTIL,
-  PROVIDER_RULES,
-  MODELS,
-  TASKS,
-  ADVISOR_TASKS,
-  ROUTES,
-  EXPIRY_DEMOTE,
-  POOLS,
-  QUOTA_BLOCK_PERCENT,
-  QUOTA_BLOCK_RESET_MS,
-  MAX_ATTEMPTS,
-};
+const table = { PROVIDER_RULES, MODELS, TASKS, ADVISOR_TASKS, ROUTES, MAX_ATTEMPTS };
 
 let caps;
 if (opts["caps-file"]) {
@@ -103,23 +77,11 @@ if (opts["caps-file"]) {
   console.error("# 未传 --caps-file：沙盒按「全部实例可派」初始化，手动勾选即可模拟不可用");
 }
 
-let quota = [];
-if (opts["quota-file"]) quota = JSON.parse(readFileSync(opts["quota-file"], "utf8"));
-else if (!opts["no-quota"]) {
-  try {
-    const { collect } = await import("./t3-quota.mjs");
-    quota = await collect();
-  } catch (e) {
-    console.error(`# t3-quota.mjs collect() 失败（${e.message}），按「全部池正常」初始化`);
-  }
-}
-
 const template = readFileSync(join(here, "route-playground.template.html"), "utf8");
 const inject = (s) => s.replace(/<\//g, "<\\/"); // 防 JSON 里的 </script> 提前闭合
 const html = template
   .replace("__ROUTE_DATA__", () => inject(JSON.stringify(table, null, 1)))
-  .replace("__CAPS__", () => inject(JSON.stringify(caps, null, 1)))
-  .replace("__QUOTA__", () => inject(JSON.stringify(quota, null, 1)));
+  .replace("__CAPS__", () => inject(JSON.stringify(caps, null, 1)));
 
 const out = resolve(opts.o ?? join(here, "route-playground.html"));
 writeFileSync(out, html);

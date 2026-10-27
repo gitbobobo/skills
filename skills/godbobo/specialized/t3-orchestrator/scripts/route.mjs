@@ -4,9 +4,9 @@
 //
 // 子命令：
 //   route.mjs select --task <key> [--vision]
-//                    [--exclude <provider/model>]... [--exclude-model <模型 key|provider/model>]...
-//                    [--caps-file <path>]
-//                    [--state-dir <path>] [--quota-file <path> | --no-quota | --refresh-quota] [--json]
+//                    [--exclude <provider/model>]... [--exclude-provider <id>]...
+//                    [--exclude-model <模型 key|provider/model>]...
+//                    [--caps-file <path>] [--json]
 //   route.mjs named <模型> [--provider <id>] [--caps-file ...] [--json]
 //   route.mjs check --provider <id> --model <id> [--role <role>] [--options '<json>'] [--user-named]
 //   route.mjs audit [--caps-file <path>] [--json]
@@ -22,37 +22,16 @@
 //                    CAPS_FILE_TTL_MS 时告警，并在「不可派/无此模型」类判定上标注过期；
 //                    缺省读 ${T3_CACHE_DIR:-~/.t3/caches}/<provider>.json
 //                    （无法验证 canRunChildTask，只降级告警）
-//   共享冷却状态  —— quota-state.mjs 的 status（--state-dir 仅供测试）
-//   额度窗口      —— t3-quota.mjs collectCached()：<state-dir>/quota.json 快照 ≤TTL 直接复用，
-//                    过期才实查并写回（--quota-file 用文件代替；--no-quota 跳过；--refresh-quota 强制实查）
+// 额度不在这里判断：pi 入口由 cliproxyapi 自动路由，其余入口失败即换路。
 
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import {
-  SWE2_FREE_UNTIL,
-  PROVIDER_RULES,
-  MODELS,
-  TASKS,
-  ADVISOR_TASKS,
-  ROUTES,
-  EXPIRY_DEMOTE,
-  POOLS,
-  QUOTA_BLOCK_PERCENT,
-  QUOTA_BLOCK_RESET_MS,
-  MAX_ATTEMPTS,
-  VERIFIED_OPTION_VALUES,
-  EFFORT_STANDARD,
-  EFFORT_OPTION_IDS,
-  EFFORT_EXCEPTIONS,
-} from "./route-data.mjs";
-import { operate, defaultCache } from "./quota-state.mjs";
-import { collectCached as collectQuotaCached, quotaCachePath } from "./t3-quota.mjs";
+import { PROVIDER_RULES, MODELS, TASKS, ADVISOR_TASKS, ROUTES, MAX_ATTEMPTS } from "./route-data.mjs";
 
 const DIR = dirname(fileURLToPath(import.meta.url));
 const now = Date.now();
-const swe2Free = now < Date.parse(SWE2_FREE_UNTIL);
 // caps 文件时效：provider 可派性/模型清单会随安装与刷新漂移，手工落盘的快照没有 TTL 概念
 // （曾因此按 3 小时前的 canRunChildTask=false 跳过首选入口）。超阈值不拒用——该文件可能
 // 仍是最佳数据源——但告警并给「不可派」类判定标过期，提示刷新后复核。
@@ -61,7 +40,7 @@ const CAPS_FILE_TTL_MS = 30 * 60 * 1000;
 // ---------- 参数 ----------
 
 function parseArgs(argv) {
-  const args = { exclude: [], excludeModel: [] };
+  const args = { exclude: [], excludeModel: [], excludeProvider: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a.startsWith("--")) {
@@ -70,9 +49,10 @@ function parseArgs(argv) {
         console.error("--hard 已移除：实现顾问单独跑 select --task design");
         process.exit(2);
       }
-      if (["vision", "json", "no-quota", "refresh-quota", "user-named"].includes(key)) args[key] = true;
+      if (["vision", "json", "user-named"].includes(key)) args[key] = true;
       else if (key === "exclude") args.exclude.push(argv[++i]);
       else if (key === "exclude-model") args.excludeModel.push(argv[++i]);
+      else if (key === "exclude-provider") args.excludeProvider.push(argv[++i]);
       else args[key] = argv[++i];
     } else if (args._ === undefined) args._ = a;
     else (args._extra ??= []).push(a);
@@ -151,68 +131,6 @@ function loadProviders(capsFile) {
   return { providers, warnings, live: false };
 }
 
-// ---------- 冷却状态与额度 ----------
-
-async function loadBlocked(stateDir) {
-  try {
-    const state = await operate(stateDir || defaultCache(), "status");
-    const blockedEntries = new Map();
-    const blockedPools = new Map();
-    const recoveryEntries = new Map();
-    const recoveryPools = new Map();
-    for (const [k, r] of Object.entries(state.records ?? {})) {
-      const blocked = r.retryAt > now || r.probe?.until > now;
-      const until = Math.max(r.retryAt, r.probe?.until ?? 0);
-      if (k.startsWith("entry:")) {
-        if (blocked) blockedEntries.set(k.slice(6), { until, kind: r.kind });
-        else recoveryEntries.set(k.slice(6), { kind: r.kind });
-      } else if (k.startsWith("pool:")) {
-        if (blocked) blockedPools.set(k.slice(5), { until, kind: r.kind });
-        else recoveryPools.set(k.slice(5), { kind: r.kind });
-      }
-    }
-    return { blockedEntries, blockedPools, recoveryEntries, recoveryPools, warnings: [] };
-  } catch (e) {
-    return { blockedEntries: new Map(), blockedPools: new Map(), recoveryEntries: new Map(), recoveryPools: new Map(), warnings: [`共享状态读取失败（${e.message}），按无冷却处理`] };
-  }
-}
-
-async function loadQuota(opts) {
-  if (opts["no-quota"]) return { rows: null, warnings: ["--no-quota：跳过额度窗口检查"], meta: null };
-  try {
-    if (opts["quota-file"]) {
-      return { rows: JSON.parse(readFileSync(opts["quota-file"], "utf8")), warnings: [], meta: { source: "--quota-file" } };
-    }
-    const meta = await collectQuotaCached({
-      cachePath: quotaCachePath(opts["state-dir"] || defaultCache()),
-      refresh: opts["refresh-quota"] === true,
-    });
-    return { rows: meta.rows, warnings: [], meta };
-  } catch (e) {
-    return { rows: null, warnings: [`额度查询失败（${e.message}），跳过额度拦截`], meta: null };
-  }
-}
-
-// 返回 null（放行）或拦截原因字符串
-function quotaBlock(entry, quotaRows, warnings, { freeExempt = true } = {}) {
-  const pool = POOLS[entry.pool];
-  if (!pool || !quotaRows) return null;
-  if (freeExempt && entry.model === "swe-2" && swe2Free) return null; // 免费期内 devin 额度不拦 swe-2
-  const row = quotaRows.find((r) => r.key === pool.quotaKey);
-  if (!row) return null;
-  if (!row.windows?.length) {
-    if (row.note) warnings.add(`额度 ${pool.quotaKey}：${row.note}，该池按未拦截处理`);
-    return null;
-  }
-  for (const label of pool.windows) {
-    const w = row.windows.find((x) => x.label === label);
-    if (w && Number(w.usedPercent) >= QUOTA_BLOCK_PERCENT && w.resetMs - now > QUOTA_BLOCK_RESET_MS) {
-      return `额度池 ${entry.pool} ${label} 窗口 ${Math.round(w.usedPercent)}%，${new Date(w.resetMs).toISOString().slice(0, 13)}Z 重置（>24h）`;
-    }
-  }
-  return null;
-}
-
 // ---------- 模型解析 ----------
 
 // provider/model 具体组合 → MODELS 条目
@@ -239,7 +157,7 @@ function resolveModel(query) {
 
 // ---------- 选项注入与硬性校验 ----------
 
-function injectOptions(entry, providers, at = now) {
+function injectOptions(entry, providers) {
   const options = { ...(entry.options ?? {}) };
   const info = providers.get(entry.provider);
   if (entry.provider === "acpRegistry_factory_droid" && options.autonomy_level === undefined) {
@@ -249,12 +167,6 @@ function injectOptions(entry, providers, at = now) {
   // fastMode 的 cursor/claudeAgent 模型注入，被服务端拒掉）
   const specHasFast = info?.optionSpecs.get(entry.id)?.has("fastMode") ?? false;
   if (specHasFast && options.fastMode === undefined) options.fastMode = false;
-  // 带期限的档位例外（如 swe-2 免费期 max）：到期自动回落 EFFORT_STANDARD
-  const exc = EFFORT_EXCEPTIONS[`${entry.provider}/${entry.id}`];
-  if (exc?.until && at >= Date.parse(exc.until)) {
-    const k = EFFORT_OPTION_IDS.find((id) => id in options);
-    if (k) options[k] = EFFORT_STANDARD;
-  }
   return options;
 }
 
@@ -264,7 +176,6 @@ function validateOptions(provider, modelId, options = {}, providers) {
   const specs = providers?.get(provider)?.optionSpecs.get(modelId);
   if (!specs) return [];
   const problems = [];
-  const verified = VERIFIED_OPTION_VALUES[provider] ?? {};
   for (const [k, v] of Object.entries(options)) {
     const spec = specs.get(k);
     if (!spec) {
@@ -276,10 +187,8 @@ function validateOptions(provider, modelId, options = {}, providers) {
       continue;
     }
     if (spec.values?.size) {
-      let allowed = spec.values;
-      if (verified[k]) allowed = new Set([...allowed].filter((x) => verified[k].includes(x)));
-      if (!allowed.has(String(v))) {
-        problems.push(`${provider}/${modelId} 选项 ${k} 非法取值 ${JSON.stringify(v)}（允许: ${[...allowed].join(", ")}）`);
+      if (!spec.values.has(String(v))) {
+        problems.push(`${provider}/${modelId} 选项 ${k} 非法取值 ${JSON.stringify(v)}（允许: ${[...spec.values].join(", ")}）`);
       }
     }
   }
@@ -357,28 +266,10 @@ function expandCandidates(cands, stream, seen, via) {
         provider: e.provider,
         id: e.id,
         options: { ...(e.options ?? {}), ...(i === 0 ? (cand.options ?? {}) : {}) },
-        pool: e.pool,
         via: i === 0 ? (cand.via ?? via) : "same-model",
       });
     });
   }
-}
-
-// EXPIRY_DEMOTE 在候选层应用：free 为 false（SWE2_FREE_UNTIL 已过期）时按规则重排行内候选。
-// free 缺省取模块级真实时间；测试可显式传值。
-function applyExpiryDemote(taskKey, cands, free = swe2Free) {
-  if (free) return cands;
-  const out = [...cands];
-  for (const d of EXPIRY_DEMOTE) {
-    if (d.task !== taskKey) continue;
-    const from = out.findIndex((c) => c.model === d.model);
-    if (from < 0) continue;
-    const [moved] = out.splice(from, 1);
-    let below = -1;
-    out.forEach((c, i) => { if (c.model === d.below) below = i; });
-    out.splice(below < 0 ? from : below + 1, 0, moved);
-  }
-  return out;
 }
 
 // 白名单递补：ROUTES 行内没点名的可调度模型按 MODELS 声明顺序补在流末尾。
@@ -392,31 +283,29 @@ function whitelistCands(taskKey) {
     .map((model) => ({ model }));
 }
 
-function expandRoute(taskKey, free = swe2Free) {
+function expandRoute(taskKey) {
   const stream = [];
   const seen = new Set();
-  expandCandidates(applyExpiryDemote(taskKey, ROUTES[taskKey] ?? [], free), stream, seen, "route");
+  expandCandidates(ROUTES[taskKey] ?? [], stream, seen, "route");
   expandCandidates(whitelistCands(taskKey), stream, seen, "whitelist");
   return stream;
 }
 
 // ---------- select ----------
 
-async function buildContext(opts) {
-  const { providers, warnings: w1, capsStaleMin } = loadProviders(opts["caps-file"]);
-  const { blockedEntries, blockedPools, recoveryEntries, recoveryPools, warnings: w2 } = await loadBlocked(opts["state-dir"]);
-  const { rows: quotaRows, warnings: w3, meta: quotaMeta } = await loadQuota(opts);
-  const quotaWarnings = new Set();
-  return { providers, capsStaleMin, blockedEntries, blockedPools, recoveryEntries, recoveryPools, quotaRows, quotaMeta, quotaWarnings, warnings: [...w1, ...w2, ...w3] };
+function buildContext(opts) {
+  const { providers, warnings, capsStaleMin } = loadProviders(opts["caps-file"]);
+  return { providers, capsStaleMin, warnings };
 }
 
-// 额度快照来源说明：让读输出的人知道数据多新、是不是缓存，不据此自行裁决
-function quotaNote(meta) {
-  if (!meta) return null;
-  if (meta.source === "--quota-file") return null; // 测试/显式文件不注明
-  const ageMin = Math.max(0, Math.round((now - meta.fetchedAt) / 60000));
-  const src = meta.stale ? `实查失败，用 ${ageMin} 分钟前的旧快照` : meta.fromCache ? `${ageMin} 分钟前缓存` : "刚实查";
-  return `额度快照：${src}（--refresh-quota 强制实查；明细跑 t3-quota.mjs）`;
+// 目录可派性：实例在清单、可派子任务、模型清单有此 ID。caps 快照过期时逐条标注，逼出复核。
+function catalogReasons(item, ctx) {
+  const staleNote = ctx.capsStaleMin !== undefined ? `；caps 快照 ${ctx.capsStaleMin} 分钟前生成，此判定可能已过期` : "";
+  const info = ctx.providers.get(item.provider);
+  if (!info) return [`实例不在 capabilities/缓存清单${staleNote}`];
+  if (!info.runnable) return [`实例不可派子任务${info.reason ? `（${info.reason}）` : ""}${staleNote}`];
+  if (!info.models.has(item.id)) return [`该实例模型清单无此 ID${staleNote}`];
+  return [];
 }
 
 function gateEntry(item, ctx, opts, taskKey) {
@@ -427,54 +316,19 @@ function gateEntry(item, ctx, opts, taskKey) {
   const tv = taskViolation(item.model, taskKey);
   if (tv) reasons.push(tv);
   reasons.push(...allowlistViolations(item.provider, item.id));
-  // caps 快照过期时，这三条由它得出的拦截原因都可能失效，逐条标注逼出复核而不是默默照单全收
-  const staleNote = ctx.capsStaleMin !== undefined ? `；caps 快照 ${ctx.capsStaleMin} 分钟前生成，此判定可能已过期` : "";
-  const info = ctx.providers.get(item.provider);
-  if (!info) reasons.push(`实例不在 capabilities/缓存清单${staleNote}`);
-  else if (!info.runnable) reasons.push(`实例不可派子任务${info.reason ? `（${info.reason}）` : ""}${staleNote}`);
-  else if (!info.models.has(item.id)) reasons.push(`该实例模型清单无此 ID${staleNote}`);
-  if (ctx.blockedEntries.has(entryId(item))) {
-    const b = ctx.blockedEntries.get(entryId(item));
-    reasons.push(`入口冷却（${b.kind}，至 ${new Date(b.until).toISOString().slice(0, 16)}Z）`);
-  }
-  if (item.pool && ctx.blockedPools.has(item.pool)) {
-    const b = ctx.blockedPools.get(item.pool);
-    // 免费期内 devin 池的 quota 冷却不拦 swe-2；其他 kind（连接/配置等）照样拦
-    if (!(item.model === "swe-2" && swe2Free && b.kind === "quota")) {
-      reasons.push(`池冷却（${b.kind}，至 ${new Date(b.until).toISOString().slice(0, 16)}Z）`);
-    }
-  }
-  const qb = quotaBlock(item, ctx.quotaRows, ctx.quotaWarnings);
-  if (qb) reasons.push(qb);
+  reasons.push(...catalogReasons(item, ctx));
   // 注入后的最终 options 过一遍目录校验（选项名/取值非法的入口直接跳过）
   reasons.push(...validateOptions(item.provider, item.id, injectOptions(item, ctx.providers), ctx.providers));
   return reasons;
 }
 
 function finalize(item, ctx) {
-  const options = injectOptions(item, ctx.providers);
-  const recovery = ctx.recoveryEntries.has(entryId(item)) || (item.pool != null && ctx.recoveryPools.has(item.pool));
-  // 豁免只在「本来真会被拦」时标注：所在池额度超限或已有 quota 冷却。
-  // 不标的话 PICK 落在「池 100%」的池上，容易被误读成脚本漏判而被人工推翻。
-  let exempt;
-  if (item.model === "swe-2" && swe2Free) {
-    const waived = [];
-    const qb = quotaBlock(item, ctx.quotaRows, new Set(), { freeExempt: false });
-    if (qb) waived.push(qb);
-    const pb = item.pool ? ctx.blockedPools.get(item.pool) : null;
-    if (pb?.kind === "quota") waived.push(`池 quota 冷却至 ${new Date(pb.until).toISOString().slice(0, 16)}Z`);
-    if (waived.length) exempt = `swe-2 免费期至 ${SWE2_FREE_UNTIL.slice(0, 10)}，豁免：${waived.join("；")}`;
-  }
   return {
     providerInstanceId: item.provider,
     model: item.id,
     modelKey: item.model,
-    options,
-    pool: item.pool ?? null,
+    options: injectOptions(item, ctx.providers),
     via: item.via,
-    needsRecovery: recovery,
-    swe2FreeExempt: (item.model === "swe-2" && swe2Free) || undefined,
-    exempt,
   };
 }
 
@@ -489,7 +343,8 @@ function runSelect(taskKey, ctx, opts, out) {
   let stream = expandRoute(taskKey);
   const excluded = new Set(opts.exclude);
   const excludedModels = new Set(opts.excludeModel.map(excludeModelKey));
-  stream = stream.filter((i) => !excluded.has(entryId(i)) && !excludedModels.has(i.model));
+  const excludedProviders = new Set(opts.excludeProvider);
+  stream = stream.filter((i) => !excluded.has(entryId(i)) && !excludedModels.has(i.model) && !excludedProviders.has(i.provider));
 
   if (opts.vision) {
     stream = [...stream].sort((a, b) => b.vision - a.vision);
@@ -505,7 +360,7 @@ function runSelect(taskKey, ctx, opts, out) {
   return available;
 }
 
-async function selectCmd(opts) {
+function selectCmd(opts) {
   const task = opts.task;
   if (task === "advisor") {
     console.error("--task advisor 已改名：审查用 --task review");
@@ -520,17 +375,17 @@ async function selectCmd(opts) {
     console.error(`--exclude-model 无法识别: ${badModels.join(", ")}（取模型 key 或入口 provider/model；模型 key: ${Object.keys(MODELS).join(", ")}）`);
     process.exit(2);
   }
-  // --exclude-model 是「换个模型」的选型约束，不是失败尝试，不计入换路上限
-  const out = { task, attempt: 1 + opts.exclude.length, pick: null, alternatives: [], skipped: [], notes: [], warnings: [] };
+  // --exclude-model 是「换个模型」的选型约束，不计入换路上限；--exclude-provider 是整个 harness
+  // 故障后的一次换路（如 cliproxyapi 宕机），每个计一次
+  const tried = opts.exclude.length + opts.excludeProvider.length;
+  const out = { task, attempt: 1 + tried, pick: null, alternatives: [], skipped: [], notes: [], warnings: [] };
   if (out.attempt > MAX_ATTEMPTS) {
-    out.error = `已试 ${opts.exclude.length} 个入口，超过单任务 ${MAX_ATTEMPTS} 次上限——停下向用户报告每次尝试的入口和失败原因`;
+    out.error = `已试 ${tried} 个入口/harness，超过单任务 ${MAX_ATTEMPTS} 次上限——停下向用户报告每次尝试的入口和失败原因`;
     printSelect(out, opts);
     process.exit(1);
   }
-  const ctx = await buildContext(opts);
-  out.warnings.push(...ctx.warnings, ...ctx.quotaWarnings);
-  const qn = quotaNote(ctx.quotaMeta);
-  if (qn) out.notes.push(qn);
+  const ctx = buildContext(opts);
+  out.warnings.push(...ctx.warnings);
 
   const available = runSelect(task, ctx, opts, out);
   out.pick = available[0] ?? null;
@@ -546,13 +401,12 @@ function printSelect(out, opts) {
     console.log(JSON.stringify(out, null, 2));
     return;
   }
-  const fmt = (p) => (p ? `${p.providerInstanceId} / ${p.model}  model=${p.modelKey}  options=${JSON.stringify(p.options)}${p.exempt ? `（${p.exempt}）` : ""}` : "无");
+  const fmt = (p) => (p ? `${p.providerInstanceId} / ${p.model}  model=${p.modelKey}  options=${JSON.stringify(p.options)}` : "无");
   for (const n of out.notes) console.log(`# ${n}`);
   for (const w of out.warnings) console.log(`WARN ${w}`);
   if (out.error) console.log(`ERROR ${out.error}`);
   console.log(`PICK ${fmt(out.pick)}`);
-  if (!out.pick) console.log("无可用候选——见下方 skipped，或全部进入冷却；不要再自行挑选");
-  if (out.pick?.needsRecovery) console.log("注意：该入口/池有过失败记录，派发前先 claim 并做恢复探测");
+  if (!out.pick) console.log("无可用候选——见下方 skipped；不要再自行挑选");
   if (out.alternatives?.length) {
     console.log("ALTERNATIVES（按换路顺序）:");
     for (const a of out.alternatives) console.log(`  - ${fmt(a)}  via=${a.via}`);
@@ -565,7 +419,7 @@ function printSelect(out, opts) {
 
 // ---------- named ----------
 
-async function namedCmd(opts) {
+function namedCmd(opts) {
   const query = opts._;
   if (!query) {
     console.error("用法: route.mjs named <模型> [--provider <id>] [--caps-file <path>] [--json]");
@@ -586,10 +440,8 @@ async function namedCmd(opts) {
     console.error(`${m.label} 在 ${opts.provider} 上没有入口`);
     process.exit(2);
   }
-  const ctx = await buildContext(opts);
-  out.warnings.push(...ctx.warnings, ...ctx.quotaWarnings);
-  const qn2 = quotaNote(ctx.quotaMeta);
-  if (qn2) out.notes.push(qn2);
+  const ctx = buildContext(opts);
+  out.warnings.push(...ctx.warnings);
   let extraOptions = {};
   if (opts.options) {
     try {
@@ -601,21 +453,8 @@ async function namedCmd(opts) {
   }
   const avail = [];
   for (const e of entries) {
-    const item = { model: m.key ?? query, status: m.status, vision: m.vision ?? 0, provider: e.provider, id: e.id, options: { ...(e.options ?? {}), ...extraOptions }, pool: e.pool, via: "named" };
-    const reasons = [];
-    reasons.push(...allowlistViolations(item.provider, item.id));
-    const staleNote = ctx.capsStaleMin !== undefined ? `；caps 快照 ${ctx.capsStaleMin} 分钟前生成，此判定可能已过期` : "";
-    const info = ctx.providers.get(item.provider);
-    if (!info) reasons.push(`实例不在 capabilities/缓存清单${staleNote}`);
-    else if (!info.runnable) reasons.push(`实例不可派子任务${info.reason ? `（${info.reason}）` : ""}${staleNote}`);
-    else if (!info.models.has(item.id)) reasons.push(`该实例模型清单无此 ID${staleNote}`);
-    if (ctx.blockedEntries.has(entryId(item))) reasons.push("入口冷却中");
-    if (item.pool && ctx.blockedPools.has(item.pool)) {
-      const b = ctx.blockedPools.get(item.pool);
-      if (!(item.model === "swe-2" && swe2Free && b.kind === "quota")) reasons.push("池冷却中");
-    }
-    const qb = quotaBlock(item, ctx.quotaRows, ctx.quotaWarnings);
-    if (qb) reasons.push(qb);
+    const item = { model: m.key ?? query, status: m.status, vision: m.vision ?? 0, provider: e.provider, id: e.id, options: { ...(e.options ?? {}), ...extraOptions }, via: "named" };
+    const reasons = [...allowlistViolations(item.provider, item.id), ...catalogReasons(item, ctx)];
     if (reasons.length) out.skipped.push({ entry: entryId(item), reasons });
     else avail.push(finalize(item, ctx));
   }
@@ -719,7 +558,7 @@ function auditCmd(opts) {
 // ---------- table / tasks ----------
 
 function tableCmd(opts) {
-  const data = { SWE2_FREE_UNTIL, swe2FreeNow: swe2Free, PROVIDER_RULES, MODELS, TASKS, ADVISOR_TASKS, ROUTES, POOLS, QUOTA_BLOCK_PERCENT, QUOTA_BLOCK_RESET_MS, MAX_ATTEMPTS };
+  const data = { PROVIDER_RULES, MODELS, TASKS, ADVISOR_TASKS, ROUTES, MAX_ATTEMPTS };
   console.log(opts.json ? JSON.stringify(data, null, 2) : renderTable(data));
 }
 
@@ -727,7 +566,7 @@ function renderTable({ MODELS: ms, ROUTES: rs }) {
   const lines = [];
   for (const [key, m] of Object.entries(ms)) {
     lines.push(`\n[${m.label}] status=${m.status}${m.tasks ? ` tasks=${m.tasks.join(",")}` : ""}${m.vision ? ` vision=${m.vision}` : ""}`);
-    m.entries.forEach((e, i) => lines.push(`  ${i + 1}. ${e.provider} / ${e.id}  pool=${e.pool ?? "-"}  options=${JSON.stringify(e.options ?? {})}`));
+    m.entries.forEach((e, i) => lines.push(`  ${i + 1}. ${e.provider} / ${e.id}  options=${JSON.stringify(e.options ?? {})}`));
   }
   lines.push("\nROUTES（行内是「模型@harness」组合的优先级；行尾自动递补白名单）:");
   for (const [task, cands] of Object.entries(rs)) {
@@ -747,13 +586,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
   try {
     if (cmd === "check") checkCmd(opts);
     else if (cmd === "audit") auditCmd(opts);
-    else if (cmd === "named") await namedCmd(opts);
+    else if (cmd === "named") namedCmd(opts);
     else if (cmd === "table") tableCmd(opts);
     else if (cmd === "tasks") {
       for (const [k, v] of Object.entries(TASKS)) console.log(`${k.padEnd(14)} ${v}`);
     } else {
       // 默认 select：route.mjs --task X 与 route.mjs select --task X 等价
-      await selectCmd(opts);
+      selectCmd(opts);
     }
   } catch (e) {
     console.error(e.stack ?? e.message);
@@ -761,4 +600,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
   }
 }
 
-export { gateCheck, allowlistViolations, expandRoute, expandCandidates, whitelistCands, applyExpiryDemote, loadProviders, quotaBlock, resolveModel, findModel, validateOptions, injectOptions, auditRouteData };
+export { gateCheck, allowlistViolations, expandRoute, expandCandidates, whitelistCands, loadProviders, resolveModel, findModel, validateOptions, injectOptions, auditRouteData };

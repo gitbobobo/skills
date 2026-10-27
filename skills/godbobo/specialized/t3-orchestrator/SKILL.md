@@ -1,13 +1,13 @@
 ---
 name: t3-orchestrator
-description: T3 Code 多 harness 编排：route.mjs 裁决 harness/模型，delegate_task 派活、验收，限流/额度/过载自动换路续跑。仅限用户或技能点名时调用。
+description: T3 Code 多 harness 编排：route.mjs 裁决 harness/模型，delegate_task 派活、验收，失败自动换路续跑。仅限用户或技能点名时调用。
 ---
 
 用户调用本技能后，本线程余下的工作都按这里的规则进行。
 
 你是主代理：负责定方向、拆任务、派活、验收和汇报。真正的小任务直接完成，避免侦察和交接比实现更长；复杂实现按这里的规则委派。主代理自己中断由用户处理，本技能只管子代理。
 
-子代理与主代理同池时一起耗额度，池尽主代理也会中断：耗时长、改动多的子任务，其他池有同档候选时派到其他池。
+harness 只有三个：`pi` 经 cliproxyapi 调全部模型，额度与多提供商切换由 cliproxyapi 自动处理，是每个模型的首选入口；`codex`（GPT）和 `acpRegistry_factory_droid` 是 cliproxyapi 整体故障时的备用入口。主代理不查额度，失败就换路。
 
 ## 选目标由脚本裁决
 
@@ -20,6 +20,8 @@ node <技能目录>/scripts/route.mjs select --task <类型> [--caps-file /tmp/t
 node <技能目录>/scripts/route.mjs named <模型> [--provider <实例>] [--caps-file ...]
 # 换路：把已试过的入口（含失败和刚被跳过的）逐个 --exclude
 node <技能目录>/scripts/route.mjs select --task <类型> --exclude <provider/model> [--exclude ...]
+# cliproxyapi 整体故障（pi 各模型都连不上）：一次排除整个 harness
+node <技能目录>/scripts/route.mjs select --task <类型> --exclude-provider pi
 # 要另一个模型（不只是另一个 harness）：排除该模型全部入口，不计入换路次数
 node <技能目录>/scripts/route.mjs select --task <类型> --exclude-model <PICK 的 model=>
 # 手工拼的 target（含用户点名清单外组合）派发前兜底校验
@@ -28,24 +30,20 @@ node <技能目录>/scripts/route.mjs check --provider <id> --model <id> [--role
 
 - `--task` 取值见 `route.mjs tasks`：general（拿不准按它）、design（实现顾问）、review（代码审查、安全复核）。`--vision` 让候选按视觉分数降序（截图、UI 还原、UI/UX 方案咨询等看图任务用）。
 - `PICK` 为空看 `SKIPPED` 原因。`ALTERNATIVES` 即换路顺序（行内「模型@harness」组合 → 白名单递补）；`via=whitelist` 说明行内候选都不可用。
-- `PICK` 是额度裁决的终点：`select` 自己读共享冷却和各池额度窗口，豁免生效时 PICK 自带标注；`--refresh-quota` 强制实查。`t3-quota.mjs` 的读数只用于摸底与汇报，不是第二意见；与认知矛盾时先找豁免标注，确属数据陈旧或豁免未登记就向用户报告或修 `route-data.mjs`。
 - 不给 `--caps-file` 时退化为 `~/.t3/caches` 快照并告警。
 - 点名清单外的模型 `named` 不识别：先 `check --user-named` 验证再手工指定 target。
-- `needsRecovery: true` 的 pick：该入口/池有未清除失败记录，派发前按 [references/failures.md](references/failures.md) 做恢复探测。
 
 调整路由规则前可用沙盒页人工搭配输入、眼看每个候选的跳过原因：
 
 ```bash
-node <技能目录>/scripts/route-playground.mjs [--caps-file ...] [--quota-file ... | --no-quota]
+node <技能目录>/scripts/route-playground.mjs [--caps-file ...]
 # 产出自包含的 route-playground.html，浏览器直接打开
 ```
 
 ## 开工前
 
 1. 调一次 `orchestrator_capabilities` 并把返回 JSON 落盘（例如 `/tmp/t3-caps.json`），`--caps-file` 用它判断 `canRunChildTask`、模型清单和选项名。MCP 工具没出现时，按 T3 注入的说明直接调用一次，或用 `acp-mcp-call` 兜底（语法见 `t3-code` 技能）输出重定向到文件。落盘后跑 `route.mjs audit --caps-file /tmp/t3-caps.json` 核对路由数据与目录一致。caps 文件没有 TTL：每次开工重新落盘，快照超 30 分钟脚本会把「不可派/无此模型」类判定标为可能过期——见到告警就重调覆盖，不凭旧快照拍板。
-2. `node <技能目录>/scripts/t3-quota.mjs` 摸底各池额度并写穿快照供 `select` 复用（`--cached` 只读快照不触网）。
-3. `node <技能目录>/scripts/quota-state.mjs status` 读共享失败状态；每次换路也读。用法与池边界见 [references/quota-state.md](references/quota-state.md)。
-4. 指定实现、独立审查和最终验证三类职责。最终验证始终只有一个负责人（默认主代理，可明确交给一个验证子代理）；交接时先结束旧负责人的检查。
+2. 指定实现、独立审查和最终验证三类职责。最终验证始终只有一个负责人（默认主代理，可明确交给一个验证子代理）；交接时先结束旧负责人的检查。
 
 ## 派活
 
@@ -104,7 +102,7 @@ harness 拒绝执行工具时（例如 `Permission denied for this tool`、`was 
 
 ## 子代理失败时
 
-按 [references/failures.md](references/failures.md) 分类错误原文、记录共享冷却、核实旧尝试进度后续跑。
+按 [references/failures.md](references/failures.md) 分类错误原文、核实旧尝试进度后续跑。
 
 换路即带上已试入口的 `--exclude` 重跑 `select`，用新的 `PICK`，不用先问用户，最后在汇报里说明。脚本报超过单任务 4 次上限（exit 1）就停下，向用户报告每次尝试的入口和失败原因。
 
@@ -121,11 +119,10 @@ harness 拒绝执行工具时（例如 `Permission denied for this tool`、`was 
 结束时简短说明：
 
 - 每个子任务由哪个实例和模型完成，是否换过路、为什么换；
-- 验收跑了什么、结果如何；
-- 额度上的变化：哪个池报了用尽、什么时候重置。
+- 验收跑了什么、结果如何。
 
 ## 更新模型与路由规则
 
-用户要求更新模型与额度参考时，按 [references/models.md](references/models.md) 末尾的「更新来源与标准」执行：先列出改动建议，用户确认后再改。
+用户要求更新模型参考时，按 [references/models.md](references/models.md) 末尾的「更新来源与标准」执行：先列出改动建议，用户确认后再改。
 
 改选择规则只改 `scripts/route-data.mjs`，改完跑 `node --test scripts/route.test.mjs`。

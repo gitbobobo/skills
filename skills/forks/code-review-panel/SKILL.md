@@ -36,7 +36,7 @@ Pick reviewer models with the `t3-orchestrator` skill's `route.mjs select --task
 
 Reviewers read code and existing raw evidence by default. Route requests for heavy checks through the single final verification owner; reviewers do not start duplicate builds. Dispatch each reviewer as a read-only subagent — via the t3-code MCP `delegate_task`, or the harness's own read-only subagent mechanism for work that runs no commands.
 
-If a model is unavailable, rate-limited, or out of quota, follow the re-routing rules in `t3-orchestrator` — do not invent a separate fallback chain here.
+If a model is unavailable or its run fails, follow the re-routing rules in `t3-orchestrator` — do not invent a separate fallback chain here.
 
 Read `references/reviewer-prompt.md` and fill in the template with:
 1. The stated intent

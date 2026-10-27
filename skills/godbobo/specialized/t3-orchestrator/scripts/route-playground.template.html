@@ -18,9 +18,7 @@
   label { display: block; margin: 3px 0; cursor: pointer; }
   select, input[type=date] { width: 100%; background: var(--input, var(--card, var(--fb-card))); color: var(--foreground, var(--fb-foreground)); border: 1px solid var(--border, var(--fb-border)); border-radius: var(--radius, 6px); padding: 3px 6px; font: inherit; }
   .ctl { margin-bottom: 8px; }
-  .poolgrid label, .provgrid label { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
-  .poolgrid select { flex: 1; min-width: 0; padding: 1px 4px; font-size: 11.5px; }
-  .poolgrid .pid { width: 82px; font-family: var(--font-mono, monospace); font-size: 11px; color: var(--muted-foreground, var(--fb-muted-foreground)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .provgrid label { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
   .provgrid input { accent-color: var(--primary, var(--fb-primary)); }
   .provgrid .pid { font-family: var(--font-mono, monospace); font-size: 11px; }
   .provgrid .note { color: var(--warning, #e2b93b); font-size: 11px; margin-left: auto; }
@@ -31,7 +29,6 @@
   .row .tgt b { font-weight: 600; }
   .row .pv { color: var(--muted-foreground, var(--fb-muted-foreground)); }
   .tag { font-size: 10px; padding: 0 5px; border-radius: 4px; border: 1px solid var(--border, var(--fb-border)); color: var(--muted-foreground, var(--fb-muted-foreground)); white-space: nowrap; }
-  .tag.pool { color: var(--info, #6cb8f0); }
   .tag.via { color: var(--muted-foreground, var(--fb-muted-foreground)); }
   .tag.opt { font-family: var(--font-mono, monospace); color: var(--accent-foreground, var(--primary, var(--fb-primary))); }
   .row.pick { border-color: var(--success, #3fb950); background: color-mix(in srgb, var(--success, #3fb950) 10%, transparent); }
@@ -75,12 +72,8 @@
       <h3>限定 harness</h3>
       <select id="namedProvider"><option value="">（按入口优先级）</option></select>
     </div>
-    <h3>swe-2 免费期至</h3>
-    <div class="ctl"><input type="date" id="swe2free"></div>
     <h3>实例可用（canRunChildTask）</h3>
     <div class="ctl provgrid" id="provs"></div>
-    <h3>池状态</h3>
-    <div class="ctl poolgrid" id="pools"></div>
     <h3>已试入口 --exclude <a href="#" id="exclClear" style="font-weight:400;text-transform:none;letter-spacing:0">清空</a></h3>
     <div class="chips" id="exclChips"></div>
     <div class="foot">沙盒镜像 route.mjs 的展开与过滤逻辑；权威输出以 <code>route.mjs</code> 为准。<br>点击右侧候选行可把它标记为「已试」。</div>
@@ -89,31 +82,22 @@
 </div>
 <script id="route-data" type="application/json">__ROUTE_DATA__</script>
 <script id="caps-data" type="application/json">__CAPS__</script>
-<script id="quota-data" type="application/json">__QUOTA__</script>
 <script>
 const DATA = JSON.parse(document.getElementById('route-data').textContent);
 const CAPS = JSON.parse(document.getElementById('caps-data').textContent);
-const QUOTA = JSON.parse(document.getElementById('quota-data').textContent);
-const {MODELS, ROUTES, EXPIRY_DEMOTE, POOLS, PROVIDER_RULES, TASKS, ADVISOR_TASKS, QUOTA_BLOCK_PERCENT, QUOTA_BLOCK_RESET_MS, MAX_ATTEMPTS} = DATA;
-const NOW = Date.now();
+const {MODELS, ROUTES, PROVIDER_RULES, TASKS, ADVISOR_TASKS, MAX_ATTEMPTS} = DATA;
 
 // ---------- UI 状态 ----------
 const S = {
   mode: 'auto', task: 'general', vision: false,
-  named: '', namedProvider: '', swe2Until: DATA.SWE2_FREE_UNTIL,
+  named: '', namedProvider: '',
   provOff: new Set(),           // 勾选掉 = canRunChildTask false
-  poolState: {},                // poolId -> ok|quota|cooldown|recovery
   excluded: new Set(),
 };
-const PROVS = Object.keys(POOLS).length ? [...new Set(Object.values(MODELS).flatMap(m=>m.entries.map(e=>e.provider)))] : [];
+const PROVS = [...new Set(Object.values(MODELS).flatMap(m=>m.entries.map(e=>e.provider)))];
 const capsMap = Object.fromEntries(CAPS.providers.map(p=>[p.id,p]));
-// 默认按真实 caps/quota 初始化
+// 默认按真实 caps 初始化
 for (const p of PROVS) if (capsMap[p] && capsMap[p].canRunChildTask === false) S.provOff.add(p);
-for (const [pid,def] of Object.entries(POOLS)) {
-  const row = QUOTA.find(r=>r.key===def.quotaKey);
-  const blocked = row?.windows?.some(w=>def.windows.includes(w.label) && Number(w.usedPercent)>=QUOTA_BLOCK_PERCENT && w.resetMs-NOW>QUOTA_BLOCK_RESET_MS);
-  S.poolState[pid] = blocked ? 'quota' : 'ok';
-}
 
 // ---------- 逻辑镜像（与 route.mjs 相同） ----------
 const entryId = e => `${e.provider}/${e.id}`;
@@ -125,21 +109,9 @@ function expandCandidates(cands, stream, seen, via) {
       const k = entryId(e); if (seen.has(k)) return; seen.add(k);
       stream.push({model:cand.model, status:m.status, vision:m.vision??0,
         provider:e.provider, id:e.id, options:{...(e.options||{}), ...(i===0?(cand.options||{}):{})},
-        pool:e.pool, via:i===0?(cand.via??via):'same-model'});
+        via:i===0?(cand.via??via):'same-model'});
     });
   }
-}
-function applyExpiryDemote(taskKey,cands){
-  if (swe2Free()) return cands;
-  const out=[...cands];
-  for(const d of (EXPIRY_DEMOTE||[])){
-    if(d.task!==taskKey)continue;
-    const from=out.findIndex(c=>c.model===d.model); if(from<0)continue;
-    const [moved]=out.splice(from,1);
-    let below=-1; out.forEach((c,i)=>{if(c.model===d.below)below=i;});
-    out.splice(below<0?from:below+1,0,moved);
-  }
-  return out;
 }
 function whitelistCands(taskKey){
   const adv=(ADVISOR_TASKS||[]).includes(taskKey);
@@ -151,10 +123,9 @@ function taskViolation(k,task){
 }
 function expandRoute(taskKey) {
   const stream=[]; const seen=new Set();
-  expandCandidates(applyExpiryDemote(taskKey,ROUTES[taskKey]||[]),stream,seen,'route');
+  expandCandidates(ROUTES[taskKey]||[],stream,seen,'route');
   expandCandidates(whitelistCands(taskKey),stream,seen,'whitelist'); return stream;
 }
-function swe2Free(){ return NOW < Date.parse(S.swe2Until); }
 function injectOptions(item){
   const options={...(item.options||{})};
   if (item.provider==='acpRegistry_factory_droid' && options.autonomy_level===undefined) options.autonomy_level='auto-high';
@@ -174,21 +145,10 @@ function gateEntry(item,named,task){
   if (!info) reasons.push('实例不在 capabilities 清单');
   else if (S.provOff.has(item.provider)) reasons.push('实例不可派子任务'+(info.constraints?.length?`（${info.constraints.join('; ')}）`:''));
   else if (!info.models.some(m=>m.id===item.id)) reasons.push('该实例模型清单无此 ID');
-  const ps = S.poolState[item.pool];
-  // 池冷却记录在 quota-state.mjs 只会是 quota 类——免费期内不拦 swe-2
-  if (ps==='cooldown' && !(item.model==='swe-2'&&swe2Free())) reasons.push('池冷却中');
-  if (ps==='quota' && !(item.model==='swe-2'&&swe2Free())) {
-    const def=POOLS[item.pool], row=QUOTA.find(r=>r.key===def?.quotaKey);
-    const w=row?.windows?.find(x=>def.windows.includes(x.label)&&Number(x.usedPercent)>=QUOTA_BLOCK_PERCENT&&x.resetMs-NOW>QUOTA_BLOCK_RESET_MS);
-    reasons.push(`额度池 ${item.pool} ${w?`${w.label} ${Math.round(w.usedPercent)}%，${new Date(w.resetMs).toISOString().slice(0,13)}Z 重置`:''}`);
-  }
   return reasons;
 }
 function finalize(item){
-  const recovery = S.poolState[item.pool]==='recovery';
-  return {providerInstanceId:item.provider, model:item.id, modelKey:item.model, family:item.family,
-    options:injectOptions(item), pool:item.pool??null, via:item.via, needsRecovery:recovery,
-    swe2FreeExempt:(item.model==='swe-2'&&swe2Free())||undefined};
+  return {providerInstanceId:item.provider, model:item.id, modelKey:item.model, options:injectOptions(item), via:item.via};
 }
 function resolveModel(q){
   q=String(q).toLowerCase();
@@ -214,7 +174,7 @@ function namedStream(){
   const entries=S.namedProvider?m.entries.filter(e=>e.provider===S.namedProvider):m.entries;
   const stream=[]; const seen=new Set();
   for(const e of entries){ const k=entryId(e); if(seen.has(k))continue; seen.add(k);
-    stream.push({model:S.named,status:m.status,vision:m.vision??0,provider:e.provider,id:e.id,options:{...e.options},pool:e.pool,via:'named'}); }
+    stream.push({model:S.named,status:m.status,vision:m.vision??0,provider:e.provider,id:e.id,options:{...e.options},via:'named'}); }
   return [{stream}];
 }
 
@@ -229,7 +189,7 @@ function rowHtml(item,i,status){
   const cls=status==='pick'?'row pick':status==='skip'?'row skip':status==='excl'?'row excluded':'row';
   const res=item.reasons?.length?`<span class="reason">${esc(item.reasons.join('；'))}</span>`:'';
   const tag=item.status&&item.status!=='auto'?`<span class="tag">${item.status}</span>`:'';
-  return `<div class="${cls}" data-e="${esc(entryId(item))}"><span class="n">${i+1}</span><span class="tgt"><span class="pv">${esc(item.provider)}</span> / <b>${esc(item.id)}</b></span><span class="tag pool">${esc(item.pool||'-')}</span><span class="tag via">${esc(item.via)}</span>${tag}${optTags(item)}${res}</div>`;
+  return `<div class="${cls}" data-e="${esc(entryId(item))}"><span class="n">${i+1}</span><span class="tgt"><span class="pv">${esc(item.provider)}</span> / <b>${esc(item.id)}</b></span><span class="tag via">${esc(item.via)}</span>${tag}${optTags(item)}${res}</div>`;
 }
 function render(){
   const out=$('out');
@@ -271,10 +231,7 @@ function init(){
   const nmSel=$('namedModel');for(const[k,m]of Object.entries(MODELS)){const o=document.createElement('option');o.value=k;o.textContent=`${m.label}（${m.status}）`;nmSel.appendChild(o);}nmSel.value='swe-2';S.named='swe-2';
   const npSel=$('namedProvider');for(const p of PROVS){const o=document.createElement('option');o.value=p;o.textContent=p;npSel.appendChild(o);}
   const pg=$('provs');for(const p of PROVS){const c=capsMap[p];pg.innerHTML+=`<label><input type="checkbox" data-p="${esc(p)}" ${S.provOff.has(p)?'':'checked'}><span class="pid">${esc(p)}</span>${c&&c.canRunChildTask===false?`<span class="note" title="${esc((c.constraints||[]).join(';'))}">实时不可用</span>`:''}</label>`;}
-  const pl=$('pools');for(const pid of Object.keys(POOLS)){pl.innerHTML+=`<label><span class="pid">${esc(pid)}</span><select data-pool="${esc(pid)}"><option value="ok">正常</option><option value="quota">额度≥90%&>24h</option><option value="cooldown">冷却中</option><option value="recovery">待恢复探测</option></select></label>`;}
-  pl.querySelectorAll('select').forEach(s=>{s.value=S.poolState[s.dataset.pool];s.addEventListener('change',()=>{S.poolState[s.dataset.pool]=s.value;render();});});
   pg.querySelectorAll('input').forEach(cb=>cb.addEventListener('change',()=>{cb.checked?S.provOff.delete(cb.dataset.p):S.provOff.add(cb.dataset.p);render();}));
-  $('swe2free').value=S.swe2Until;$('swe2free').addEventListener('change',e=>{S.swe2Until=e.target.value;render();});
   taskSel.addEventListener('change',e=>{S.task=e.target.value;render();});
   $('vision').addEventListener('change',e=>{S.vision=e.target.checked;render();});
   nmSel.addEventListener('change',e=>{S.named=e.target.value;render();});
@@ -286,7 +243,7 @@ function init(){
 init();render();
 // 自测：把各任务的 PICK 打到 console，与 route.mjs select 输出对照
 try{
-  const save={...S,provOff:new Set(S.provOff),poolState:{...S.poolState},excluded:new Set()};
+  const save={...S,provOff:new Set(S.provOff),excluded:new Set()};
   for(const t of Object.keys(TASKS)){
     S.mode='auto';S.task=t;S.vision=false;
     const g=taskStream()[0];
@@ -294,7 +251,7 @@ try{
     const line=a[0]?a[0].provider+'/'+a[0].id:'NONE';
     console.log('SELFTEST select',t,'→',line);
   }
-  for(const nm of ['swe-2','grok-4.6','gpt-6.1-sol','grok-4.7']){
+  for(const nm of ['swe-2','gpt-6.1-sol','grok-4.7']){
     S.mode='named';S.named=nm;S.namedProvider='';
     const g=namedStream()[0];const a=g.stream.filter(i=>!gateEntry(i,true).length);
     console.log('SELFTEST named',nm,'→',a[0]?a[0].provider+'/'+a[0].id:'NONE');

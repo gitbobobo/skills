@@ -53,7 +53,7 @@ PR 收尾：对最新目标分支一次性整合（默认 merge）并解决冲�
 
 ### t3-orchestrator
 
-T3 Code 多 harness 编排：选 harness/模型由 `route.mjs` 按固定规则裁决（`route-data.mjs` 是唯一事实源，`route.mjs audit` 持续核对路由数据与实时目录一致，`--caps-file` 能力快照超 30 分钟自动告警并标注可疑判定），delegate_task 派活验收（任务模板含执行环境声明，须写明目标 shell 方言），限流、额度用尽、过载时自动换路续跑；实现顾问由 `--task design` 单独选出、派不派由主代理判断，Opus 只做实现顾问，不做代码/安全评审；Cursor 只用 Grok（按 Dashboard「Cursor Models」额度判断），三方模型一律不调用；附 `route-playground.mjs` 生成的可视化路由沙盒，供人工搭配输入排查规则问题。专用技能，仅限用户或技能点名时调用。
+T3 Code 多 harness 编排：只用 pi / codex / factory droid 三个 harness，pi 经 cliproxyapi 调全部模型（额度由 cliproxyapi 自动路由），codex、droid 作为 cliproxyapi 故障时的备用入口。选 harness/模型由 `route.mjs` 按固定规则裁决（`route-data.mjs` 是唯一事实源，`route.mjs audit` 核对路由数据与实时目录），delegate_task 派活验收，失败自动换路续跑；实现顾问由 `--task design` 单独选出，Opus 只做实现顾问；附 `route-playground.mjs` 可视化路由沙盒。专用技能，仅限用户或技能点名时调用。
 
 详见 [skills/godbobo/specialized/t3-orchestrator/SKILL.md](skills/godbobo/specialized/t3-orchestrator/SKILL.md)。
 

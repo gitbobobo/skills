@@ -1,6 +1,6 @@
 ---
 name: t3-code
-description: 本机 T3 Code 运行状态的内部知识：状态数据库布局、会话记录查询方法、delegate_task 编排与 ACP 通道要点。分析 T3 会话、做复盘、排查编排或额度问题时使用；监听 PR 审查或等子任务前先读「监听与唤醒」；收尾回收孤儿工作树跑 scripts/t3-worktree-gc.mjs。
+description: 本机 T3 Code 运行状态的内部知识：状态数据库布局、会话记录查询方法、delegate_task 编排与 ACP 通道要点。分析 T3 会话、做复盘、排查编排问题时使用；监听 PR 审查或等子任务前先读「监听与唤醒」；收尾回收孤儿工作树跑 scripts/t3-worktree-gc.mjs。
 ---
 
 # t3-code 本机知识
@@ -107,4 +107,3 @@ node <技能目录>/scripts/t3-worktree-gc.mjs --root <dir>  # 单独指定扫�
 - `mcp_list_tools` 每次会话都重查完整目录，token 开销不小。
 - `command_execution` 输出留存不全（见上节），分析失败命令时 stderr 多半拿不到，只能看退出码。
 
-额度查询用 t3-orchestrator 技能的 `scripts/t3-quota.mjs`。
