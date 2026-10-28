@@ -8,11 +8,13 @@
 //
 // 用法：
 //   node t3-worktree-gc.mjs              # dry-run：逐目录打印结论，不删任何东西
-//   node t3-worktree-gc.mjs --apply      # 真正执行 git worktree remove
+//   node t3-worktree-gc.mjs --apply      # 真正执行回收
 //   node t3-worktree-gc.mjs --root <dir> # 单独指定扫描根
 //   node t3-worktree-gc.mjs --purge-build [--apply]
 //                                        # 对因脏树/未推送等 git 原因保留的工作树，
 //                                        # 只删可重建的构建产物目录（见 purgeTargets）
+//   --measure-size                       # 显式运行 du 统计候选产物大小（可能慢）
+//   --diagnose                           # 对已阻断的树也收集 git 原因
 //
 // 环境变量 T3CODE_HOME 覆盖 ~/.t3（worktrees=<home>/worktrees、
 // 数据库=<home>/userdata/statev2.sqlite），主要给测试夹具用。
@@ -84,7 +86,7 @@
 // 退回 sqlite3 -readonly -json CLI，都不行视为数据库缺席。
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, rmdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, rmdirSync, statSync, lstatSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, platform } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
@@ -93,25 +95,35 @@ const req = createRequire(import.meta.url);
 
 // ---------- 参数 ----------
 const args = process.argv.slice(2);
+const usage = "用法：node t3-worktree-gc.mjs [--apply] [--purge-build [--measure-size]] [--diagnose] [--root <dir>]";
 let apply = false;
 let rootOverride = null;
 let purgeBuild = false;
+let measureSize = false;
+let diagnose = false;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--apply") apply = true;
   else if (args[i] === "--purge-build") purgeBuild = true;
+  else if (args[i] === "--measure-size") measureSize = true;
+  else if (args[i] === "--diagnose") diagnose = true;
   else if (args[i] === "--root") {
     const v = args[++i];
     // 缺值/空白/以 -- 开头：拒绝静默回退——resolve("") 会落到调用者 cwd，
     // --apply --root "$空变量" 会把 cwd 下的目录当工作树根扫描
     if (v === undefined || !v.trim() || v.startsWith("--")) {
-      console.error(`--root 需要目录参数\n用法：node t3-worktree-gc.mjs [--apply] [--purge-build] [--root <dir>]`);
+      console.error(`--root 需要目录参数\n${usage}`);
       process.exit(2);
     }
     rootOverride = v;
   } else {
-    console.error(`未知参数：${args[i]}\n用法：node t3-worktree-gc.mjs [--apply] [--purge-build] [--root <dir>]`);
+    console.error(`未知参数：${args[i]}\n${usage}`);
     process.exit(2);
   }
+}
+
+if (measureSize && !purgeBuild) {
+  console.error(`--measure-size 需要 --purge-build\n${usage}`);
+  process.exit(2);
 }
 
 const t3Home = process.env.T3CODE_HOME || join(homedir(), ".t3");
@@ -121,7 +133,16 @@ const isWindows = platform() === "win32";
 
 // ---------- 工具 ----------
 // 数组传参，禁止拼 shell 字符串；失败不抛异常，由调用处按保守策略处理。
+const progress = (text) => console.error(`[进度] ${text}`);
 function shErr(cmd, argv, opts = {}) {
+  const started = performance.now();
+  const heavy = ["du", "lsof"].includes(cmd) || argv.some((a) => ["status", "ls-files", "fetch", "submodule", "cherry", "patch-id", "diff", "log"].includes(a));
+  const label = `${cmd} ${argv.join(" ")}`;
+  if (heavy) progress(`开始 ${label}`);
+  const done = (result) => {
+    const ms = Math.round(performance.now() - started);
+    if (heavy || ms >= 1000) progress(`${result} ${label}（${ms}ms）`);
+  };
   try {
     const out = execFileSync(cmd, argv, {
       encoding: "utf8",
@@ -132,8 +153,10 @@ function shErr(cmd, argv, opts = {}) {
       cwd: opts.cwd,
       env: opts.env ? { ...process.env, ...opts.env } : process.env,
     });
+    done("完成");
     return { ok: true, out: out.trim(), err: "" };
   } catch (e) {
+    done(`失败 ${e.code ?? e.status ?? "unknown"}${e.signal ? ` signal=${e.signal}` : ""}`);
     return { ok: false, out: "", err: String(e.stderr?.toString() || e.message).trim() };
   }
 }
@@ -807,6 +830,7 @@ function purgeTargets(dir) {
   if (out === null) return null;
   const found = [];
   const walk = (rel, depth) => {
+    if (purgePathReason(dir, rel)) return;
     const abs = join(dir, rel);
     const name = rel.replace(/\/$/, "").split("/").pop();
     if (isPurgeTarget(abs, name)) return found.push(rel.replace(/\/$/, ""));
@@ -821,19 +845,64 @@ function purgeTargets(dir) {
   for (const p of out.split("\0")) if (p.endsWith("/")) walk(p, 0);
   return found;
 }
+// 每个路径段都必须是真目录；尤其阻断 Windows junction 和祖先链接。
+function purgePathReason(dir, rel) {
+  const abs = resolve(dir, rel);
+  const r = relative(dir, abs);
+  if (!r || r === ".." || r.startsWith(`..${sep}`) || resolve(dir, r) !== abs || !inside(abs, dir))
+    return "目标不在工作树内";
+  let p = dir;
+  try {
+    if (lstatSync(p).isSymbolicLink()) return "工作树是符号链接/junction";
+    for (const part of r.split(sep)) {
+      p = join(p, part);
+      const st = lstatSync(p);
+      if (st.isSymbolicLink() || !st.isDirectory()) return "目标或祖先不是普通目录（符号链接/junction）";
+    }
+    if (!inside(realpathSync(abs), realpathSync(dir))) return "目标 realpath 越界";
+  } catch {
+    return "目标目录不可读取";
+  }
+  return null;
+}
+function purgeTargetReason(dir, rel) {
+  const pathReason = purgePathReason(dir, rel);
+  if (pathReason) return pathReason;
+  const abs = join(dir, rel);
+  if (!isPurgeTarget(abs, rel.split("/").pop())) return "不再符合构建产物规则";
+  const NF = ["-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-C", dir];
+  // literal pathspec 防目标名中的通配符改变查询范围；包括强制添加/索引隐藏文件。
+  const spec = `:(literal)${rel}`;
+  const tracked = sh("git", [...NF, "ls-files", "--cached", "-z", "--", spec]);
+  if (tracked === null || tracked) return "目标含跟踪文件或跟踪检查失败";
+  const untracked = sh("git", [...NF, "ls-files", "-o", "--exclude-standard", "-z", "--", spec]);
+  if (untracked === null || untracked) return "目标含非 ignored 文件或检查失败";
+  if (!shErr("git", [...NF, "check-ignore", "-q", "--", `${rel}/`]).ok) return "目标不再是 ignored 目录";
+  // Git 检查期间路径或标记也可能被替换，再检查一次。
+  return purgePathReason(dir, rel) || (!isPurgeTarget(abs, rel.split("/").pop()) ? "不再符合构建产物规则" : null);
+}
 function duBytes(abs) {
   const o = sh("du", ["-sk", abs], { timeout: 120000 });
-  return o ? Number(o.split(/\s/)[0]) * 1024 : 0;
+  const kb = o && /^\d+(?:\s|$)/.test(o) ? Number(o.split(/\s/)[0]) : NaN;
+  return Number.isFinite(kb) ? kb * 1024 : null;
 }
-const fmtBytes = (b) => (b >= 2 ** 30 ? `${(b / 2 ** 30).toFixed(1)}G` : `${Math.round(b / 2 ** 20)}M`);
+const fmtBytes = (b) => (b === null ? "未知" : b >= 2 ** 30 ? `${(b / 2 ** 30).toFixed(1)}G` : `${Math.round(b / 2 ** 20)}M`);
 
 // ---------- 主流程 ----------
 const rows = []; // { verdict, rel, branch, detail }
 const counts = { delete: 0, deleted: 0, skip: 0, "not-a-worktree": 0, failed: 0, purge: 0, purged: 0 };
 let purgeTotal = 0;
+let purgeUnknown = false;
+const addPurgeBytes = (sized) => {
+  for (const [, b] of sized) {
+    if (b === null) purgeUnknown = true;
+    else purgeTotal += b;
+  }
+};
 const report = (verdict, rel, detail, branch) => {
   rows.push({ verdict, rel, detail, branch });
   counts[verdict]++;
+  console.log(`${verdict.padEnd(14)} ${rel}${branch ? `  branch=${branch}` : ""}${detail ? `  ${detail}` : ""}`);
 };
 
 if (!existsSync(scanRoot)) {
@@ -841,6 +910,8 @@ if (!existsSync(scanRoot)) {
   process.exit(0);
 }
 
+console.log(`扫描根：${scanRoot}${apply ? "（--apply）" : "（dry-run）"}`);
+progress("读取线程绑定与进程占用快照");
 const dbSnap = snapshotDb();
 const occSnap = computeOccupants();
 const cwdReal = tryReal(process.cwd()) ?? norm(process.cwd());
@@ -850,8 +921,10 @@ let inUseDirs = 0; // 扫描期判定为「在用」（未终结线程绑定/进
 // git 路径（ls-files 等）恒为 /——两种方言混在一行不利于下游按 / 匹配
 const relOf = (p) => (relative(scanRoot, p) || p).replaceAll(sep, "/");
 
+progress("收集候选工作树");
 for (const dir of candidates(scanRoot)) {
   const rel = relOf(dir);
+  progress(`扫描 ${rel}`);
   const reasons = [];
   const notes = [];
   const wtReal = tryReal(dir) ?? norm(dir);
@@ -912,6 +985,11 @@ for (const dir of candidates(scanRoot)) {
   reasons.push(...sn.reasons);
   if (sn.inUse) inUseDirs++;
 
+  // 已有不可回收的硬阻断时无需遍历 ignored 文件或联网；诊断模式才收集全部原因。
+  if (reasons.length && !diagnose) {
+    report("skip", rel, [...reasons, ...notes].join("；"), branch);
+    continue;
+  }
   // f/g. git 侧判定（未提交变更、珍贵忽略文件、HEAD 已推送）
   reasons.push(...gitStateReasons(dir, notes, gitCommon));
 
@@ -922,25 +1000,38 @@ for (const dir of candidates(scanRoot)) {
     if (purgeBuild && !inside(cwdReal, wtReal) && sn.reasons.length === 0) {
       const targets = purgeTargets(dir);
       if (targets?.length) {
-        const sized = targets.map((t) => [t, duBytes(join(dir, t))]);
-        const sum = sized.reduce((a, [, b]) => a + b, 0);
-        const list = sized.map(([t, b]) => `${t}(${fmtBytes(b)})`).join("、");
+        const sized = targets.map((t) => [t, measureSize ? duBytes(join(dir, t)) : null]);
+        const sum = sized.some(([, b]) => b === null) ? null : sized.reduce((a, [, b]) => a + b, 0);
+        const sizeLabel = measureSize ? fmtBytes(sum) : "未统计（--measure-size 可统计）";
+        const list = sized.map(([t, b]) => measureSize ? `${t}(${fmtBytes(b)})` : t).join("、");
         if (!apply) {
-          purgeTotal += sum;
-          report("purge", rel, `可清构建产物 ${fmtBytes(sum)}：${list}`, branch);
-        } else if (snapshotReasons(dir, wtReal, snapshotDb(), computeOccupants(), []).reasons.length) {
-          report("skip", rel, "删除产物前复查发现线程/占用阻断", branch);
+          addPurgeBytes(sized);
+          report("purge", rel, `可清构建产物 ${sizeLabel}：${list}`, branch);
         } else {
+          // 整机占用扫描每棵树的删除阶段只做一次；逐目标仍刷新线程绑定。
+          const purgeOccupants = computeOccupants();
           const failed = [];
-          for (const [t] of sized) {
+          const removed = [];
+          for (const entry of sized) {
+            const [t] = entry;
+            const blocked = snapshotReasons(dir, wtReal, snapshotDb(), purgeOccupants, []).reasons;
+            const targetReason = purgeTargetReason(dir, t);
+            if (blocked.length || targetReason) {
+              report("skip", rel, `删除产物前复查发现阻断：${t}（${[...blocked, targetReason].filter(Boolean).join("；")}）`, branch);
+              continue;
+            }
+            progress(`删除产物 ${rel}/${t}`);
+            const started = performance.now();
             try {
               rmSync(join(dir, t), { recursive: true, maxRetries: 3, retryDelay: 300 });
             } catch {}
+            progress(`删除产物结束 ${rel}/${t}（${Math.round(performance.now() - started)}ms）`);
             if (existsSync(join(dir, t))) failed.push(t);
+            else removed.push(entry);
           }
-          purgeTotal += sized.filter(([t]) => !failed.includes(t)).reduce((a, [, b]) => a + b, 0);
+          addPurgeBytes(removed);
           if (failed.length) report("failed", rel, `产物删除失败：${failed.join("、")}`, branch);
-          else report("purged", rel, `已清构建产物 ${fmtBytes(sum)}：${list}`, branch);
+          if (removed.length) report("purged", rel, `已清构建产物${measureSize ? "" : "（未统计）"}：${removed.map(([t, b]) => measureSize ? `${t}(${fmtBytes(b)})` : t).join("、")}`, branch);
         }
       }
     }
@@ -970,6 +1061,8 @@ for (const dir of candidates(scanRoot)) {
   // 进程级超时上限，被砍在半途只会留下「tracked 全 D」的半删残留。
   // 脏树/未推送等兜底核验已在上面复查段完成；Windows 上文件占用会抛错
   // 走 failed，与「靠删除失败兜底」的既定策略一致。
+  progress(`删除工作树 ${rel}`);
+  const deleteStarted = performance.now();
   try {
     rmSync(dir, { recursive: true, maxRetries: 3, retryDelay: 300 });
   } catch {}
@@ -977,6 +1070,7 @@ for (const dir of candidates(scanRoot)) {
     report("failed", rel, "目录删除失败（占用或权限）", branch);
     continue;
   }
+  progress(`删除工作树完成 ${rel}（${Math.round(performance.now() - deleteStarted)}ms）`);
   // 注销 worktree 注册项：dir 已消失，prune 直接清掉 admin 记录
   shErr("git", ["--git-dir", gitCommon, "worktree", "prune"]);
   if (branch) {
@@ -1015,15 +1109,11 @@ if (apply) {
 }
 
 // ---------- 输出 ----------
-console.log(`扫描根：${scanRoot}${apply ? "（--apply）" : "（dry-run）"}`);
-for (const r of rows) {
-  console.log(`${r.verdict.padEnd(14)} ${r.rel}${r.branch ? `  branch=${r.branch}` : ""}${r.detail ? `  ${r.detail}` : ""}`);
-}
 const total = rows.length;
 console.log(
   `汇总：共 ${total} 个目录 — 可删 ${counts.delete} / 已删 ${counts.deleted} / skip ${counts.skip} / not-a-worktree ${counts["not-a-worktree"]} / failed ${counts.failed}`
 );
-if (purgeBuild) console.log(`构建产物：可清 ${counts.purge} / 已清 ${counts.purged}，共 ${fmtBytes(purgeTotal)}`);
+if (purgeBuild) console.log(`构建产物：可清 ${counts.purge} / 已清 ${counts.purged}，${!measureSize ? "空间未统计" : purgeUnknown ? `已知 ${fmtBytes(purgeTotal)}，另有未知大小` : `共 ${fmtBytes(purgeTotal)}`}`);
 console.log(`在用工作树（绑定线程未终结或有进行中 run）：${inUseDirs} 个`);
 if (!apply && counts.delete + counts.purge > 0) console.log("（dry-run：加 --apply 执行删除）");
 // 有 requested 删除失败时退出码非 0——自动化按退出码判清理成败

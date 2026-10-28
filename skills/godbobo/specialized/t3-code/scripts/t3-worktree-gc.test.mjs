@@ -10,12 +10,12 @@
 
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { existsSync, chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { platform, tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { after, before, test } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const req = createRequire(import.meta.url);
 const SCRIPT = fileURLToPath(new URL("./t3-worktree-gc.mjs", import.meta.url));
@@ -450,6 +450,163 @@ test("--root 缺值：报错退出而非静默回退 ~/.t3", () => {
     assert.equal(r.status, 2, argv.join(" "));
     assert.match(r.stderr, /--root 需要目录参数/);
   }
+});
+
+// 在真实 CLI 的 child_process 边界记录调用/模拟 du；不加生产环境测试开关。
+function probeGc({ active = false, measure = false, apply = false, diagnose = false, target = ".build", mutation = null, duFail = false, posixOccupants = false } = {}) {
+  const root = mkdtempSync(join(tmp, "probe-"));
+  const wt = join(root, "tree");
+  git(["-C", mainRepo, "worktree", "add", "--detach", wt]);
+  writeFileSync(join(wt, "wip.txt"), "keep\n");
+  mkdirSync(join(wt, target), { recursive: true });
+  writeFileSync(join(wt, target, "a.o"), "artifact\n");
+  if (target !== ".build") mkdirSync(join(wt, target, "ModuleCache.noindex"));
+  if (posixOccupants) {
+    mkdirSync(join(wt, "node_modules"));
+    writeFileSync(join(wt, "node_modules", "a.js"), "artifact\n");
+  }
+  if (active) {
+    const { DatabaseSync } = req("node:sqlite");
+    const db = new DatabaseSync(dbPath);
+    insThread(db, { id: root, wt });
+    db.close();
+  }
+  const trace = join(root, "trace.jsonl");
+  const hook = join(root, "hook.mjs");
+  writeFileSync(hook, `
+import cp from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import { syncBuiltinESMExports } from 'node:module';
+if (${posixOccupants}) os.platform = () => 'darwin';
+const original = cp.execFileSync;
+const artifactPath = ${JSON.stringify(join(wt, target))};
+let mutated = false;
+const record = (v) => fs.appendFileSync(${JSON.stringify(trace)}, JSON.stringify(v) + '\\n');
+for (const [name, stream] of [['stdout', process.stdout], ['stderr', process.stderr]]) {
+  const write = stream.write.bind(stream);
+  stream.write = (text, ...rest) => { record({stream: name, text: String(text)}); return write(text, ...rest); };
+}
+cp.execFileSync = function(cmd, args, opts) {
+  record({cmd, args});
+  if (${posixOccupants} && cmd === 'lsof') return '';
+  if (cmd === 'du') {
+    if (${duFail}) throw new Error('simulated du failure');
+    return '8\\tartifact\\n';
+  }
+  if (!mutated && cmd === 'git' && args.includes('--cached')) {
+    mutated = true;
+    ${mutation || ""}
+  }
+  return original.call(this, cmd, args, opts);
+};
+syncBuiltinESMExports();
+`);
+  const result = spawnSync(process.execPath, ["--import", pathToFileURL(hook).href, SCRIPT, "--root", root, "--purge-build", ...(measure ? ["--measure-size"] : []), ...(diagnose ? ["--diagnose"] : []), ...(apply ? ["--apply"] : [])], {
+    cwd: tmp, encoding: "utf8", env: { ...process.env, T3CODE_HOME: t3home },
+  });
+  const calls = existsSync(trace) ? readFileSync(trace, "utf8").trim().split("\n").map(JSON.parse) : [];
+  return { ...result, calls, wt };
+}
+
+test("purge 默认不运行 du，且输出阶段进度", () => {
+  const r = probeGc();
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.calls.filter((c) => c.cmd === "du").length, 0);
+  assert.match(r.stdout, /^purge\s.*\.build/m);
+  assert.match(r.stdout, /未统计/);
+  assert.match(r.stderr, /进度.*tree/);
+  assert.match(r.stderr, /ls-files/);
+  const firstGit = r.calls.findIndex((c) => c.cmd === "git");
+  const header = r.calls.findIndex((c) => c.stream === "stdout" && c.text.startsWith("扫描根："));
+  assert.ok(header >= 0 && header < firstGit, "首次 git 调用前即输出扫描根");
+  const fetch = r.calls.findIndex((c) => c.args?.includes("fetch"));
+  assert.ok(fetch > 0);
+  assert.match(r.calls[fetch - 1].text, /进度.*开始.*fetch/, "慢命令执行前即输出阶段信息");
+  const report = r.calls.findIndex((c) => c.stream === "stdout" && c.text.startsWith("skip "));
+  const discovery = r.calls.findIndex((c) => c.args?.includes("--directory"));
+  assert.ok(report >= 0 && report < discovery, "先输出树的结论，再发现/统计产物");
+});
+
+test("默认 apply 同样跳过空间统计", () => {
+  const r = probeGc({ apply: true });
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(!r.calls.some((c) => c.cmd === "du"));
+  assert.match(r.stdout, /^purged\s.*未统计/m);
+  assert.ok(!existsSync(join(r.wt, ".build")));
+});
+
+test("POSIX 占用扫描按树而非按产物执行，且开始前有日志", () => {
+  const r = probeGc({ apply: true, posixOccupants: true });
+  assert.equal(r.status, 0, r.stderr);
+  const scans = r.calls.flatMap((c, i) => c.cmd === "lsof" ? [i] : []);
+  assert.equal(scans.length, 2, "扫描期一次 + 该树删除阶段一次，不随目标数增加");
+  for (const i of scans) assert.match(r.calls[i - 1].text, /进度.*开始 lsof/);
+  assert.match(r.stdout, /^purged\s.*\.build.*node_modules/m);
+});
+
+test("--measure-size 单独使用拒绝执行", () => {
+  const r = spawnSync(process.execPath, [SCRIPT, "--measure-size"], { encoding: "utf8", cwd: tmp });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /--measure-size 需要 --purge-build/);
+});
+
+test("活跃树提前跳过 git 重检查", () => {
+  const r = probeGc({ active: true, apply: true });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^skip\s.*未终结/m);
+  assert.ok(!r.calls.some((c) => c.args?.some((a) => ["status", "ls-files", "fetch"].includes(a))));
+  assert.ok(existsSync(join(r.wt, ".build", "a.o")));
+});
+
+test("诊断模式收集活跃树的 git 原因，但不清其产物", () => {
+  const r = probeGc({ active: true, diagnose: true, apply: true });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^skip\s.*未终结.*未提交文件/m);
+  assert.ok(r.calls.some((c) => c.args?.includes("status")));
+  assert.ok(existsSync(join(r.wt, ".build", "a.o")));
+});
+
+test("显式统计成功显示大小", () => {
+  const r = probeGc({ measure: true });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.calls.filter((c) => c.cmd === "du").length, 1);
+  assert.match(r.stdout, /^purge\s.*\.build\(0M\)/m);
+  assert.doesNotMatch(r.stdout, /未知|未统计/);
+});
+
+test("显式统计失败显示未知而非 0M，仍可清理", () => {
+  const r = probeGc({ measure: true, apply: true, duFail: true });
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(r.calls.some((c) => c.cmd === "du"));
+  assert.match(r.stdout, /^purged\s.*未知/m);
+  assert.ok(!existsSync(join(r.wt, ".build")));
+});
+
+test("purge 删除前阻断新增跟踪文件/非 ignored 文件/junction 越界（默认与统计模式）", () => {
+  for (const measure of [false, true]) for (const [mutation, reason] of [
+    [`original('git', ['-c', 'core.fsmonitor=false', '-C', artifactPath + '/..', 'add', '-f', '.build/a.o']);`, /目标含跟踪文件/],
+    [`fs.writeFileSync(artifactPath + '/../.gitignore', '.build/*\\n!.build/a.o\\n');`, /目标含非 ignored 文件/],
+    [`fs.writeFileSync(artifactPath + '/../.gitignore', '!/.build/\\n!/.build/**\\n');`, /目标含非 ignored 文件/],
+    [`fs.renameSync(artifactPath, artifactPath + '-saved'); fs.symlinkSync(artifactPath + '-saved', artifactPath, ${JSON.stringify(isWindows ? "junction" : "dir")});`, /符号链接\/junction/],
+  ]) {
+    const r = probeGc({ measure, apply: true, mutation });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /删除产物前复查.*阻断/);
+    assert.match(r.stdout, reason);
+    assert.ok(existsSync(join(r.wt, ".build", "a.o")));
+    if (mutation.includes("!.build/a.o")) {
+      // 目录本身依然命中 ignore：仅靠 check-ignore 不能挡住此用例。
+      git(["-c", "core.fsmonitor=false", "-C", r.wt, "check-ignore", "-q", ".build/"]);
+    }
+  }
+});
+
+test("purge 删除前重新确认产物标记", () => {
+  const r = probeGc({ apply: true, target: ".tmp/derived", mutation: `fs.renameSync(artifactPath + '/ModuleCache.noindex', artifactPath + '/old-cache');` });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /删除产物前复查.*不再符合构建产物规则/);
+  assert.ok(existsSync(join(r.wt, ".tmp", "derived", "a.o")));
 });
 
 test("--apply：只删可删工作树并清理本地分支", () => {

@@ -76,12 +76,16 @@ T3 线程绑定的工作树（`~/.t3/worktrees/<项目分组>/<名>`）在线程
 
 ```bash
 node <技能目录>/scripts/t3-worktree-gc.mjs               # dry-run：逐目录打印结论
-node <技能目录>/scripts/t3-worktree-gc.mjs --apply       # 真正执行 git worktree remove
+node <技能目录>/scripts/t3-worktree-gc.mjs --apply       # 真正执行回收
 node <技能目录>/scripts/t3-worktree-gc.mjs --root <dir>  # 单独指定扫描根
 node <技能目录>/scripts/t3-worktree-gc.mjs --purge-build [--apply]  # 附带清理保留树的构建产物
+node <技能目录>/scripts/t3-worktree-gc.mjs --purge-build --measure-size  # 显式统计候选产物大小
+node <技能目录>/scripts/t3-worktree-gc.mjs --diagnose    # 对已阻断的树也收集 git 原因
 ```
 
-`--purge-build`：工作树因 git 原因保留（脏树、未推送、珍贵文件、unbound 半删残留）、但没有未终结线程、活跃 run 或不可归因的进程占用时，只删其中可重建的构建产物：cargo `target`（带 `.rustc_info.json`/`CACHEDIR.TAG`/`.fingerprint`）、`.build`、`node_modules`、`.gradle`、Xcode 派生数据（`DerivedData`，或含 `ModuleCache.noindex`/`Build/Intermediates.noindex` 的目录，在 ignored 目录内最多向下找两层）。只认 ignored 目录，不碰跟踪文件、未提交文件和其他 ignored 内容。多个工作树并行、磁盘吃紧时，用它代替删树来回收空间。
+扫描根与逐树结论实时写 stdout，阶段开始/结束、命令耗时及超时失败写 stderr；需要完整日志时用 `> gc.log 2>&1`，不要管道截断退出码。默认遇到 self、线程/占用或数据库阻断就跳过 git 重检查；排查全部原因时用 `--diagnose`（会增加遍历和联网成本）。
+
+`--purge-build`：工作树因 git 原因保留（脏树、未推送、珍贵文件、unbound 半删残留）、但没有未终结线程、活跃 run 或不可归因的进程占用时，只删其中可重建的构建产物：cargo `target`（带 `.rustc_info.json`/`CACHEDIR.TAG`/`.fingerprint`）、`.build`、`node_modules`、`.gradle`、Xcode 派生数据（`DerivedData`，或含 `ModuleCache.noindex`/`Build/Intermediates.noindex` 的目录，在 ignored 目录内最多向下找两层）。只认 ignored 目录，不碰跟踪文件、未提交文件和其他 ignored 内容。多个工作树并行、磁盘吃紧时，用它代替删树来回收空间。默认只列目标，不运行 `du`；需要空间估算才加 `--measure-size`（逐目标遍历可能很慢，失败显示「未知」，不影响清理资格）。每棵树进入产物删除阶段时重拍一次进程占用快照，避免逐产物重复全机扫描；每个目标删除前刷新绑定并结合该占用快照检查，再核验 ignored 规则、跟踪与非 ignored 文件、产物标记和路径边界；目标及树内祖先是符号链接/junction 时保留。复查收窄并发窗口，不是原子锁；不要同时手动改写正在清理的目录。
 
 全部满足才删，任一不满足则 skip 并注明原因：
 
