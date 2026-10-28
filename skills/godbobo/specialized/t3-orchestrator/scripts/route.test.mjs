@@ -3,7 +3,7 @@
 // 固定输入固定输出：caps 用 fixture，不触网不读本机缓存。
 import { test } from "node:test";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, symlinkSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -228,9 +228,20 @@ test("select: 无 caps-file 时 pi 读 pi --list-models、其余读 T3_CACHE_DIR
   try {
     // 陈旧 pi.json 不再参与判断
     writeFileSync(join(dir, "pi.json"), JSON.stringify({ enabled: true, status: "ready", auth: { status: "authenticated" }, models: [{ slug: "commandcode/old" }] }));
-    const bin = join(dir, "fake-pi");
-    writeFileSync(bin, "#!/bin/sh\nprintf 'provider     model                context\\ncliproxyapi  glm-5.3-flash        500K\\ncliproxyapi  gpt-6.1-sol  500K\\n'\n", { mode: 0o755 });
-    const env = { ...process.env, T3_CACHE_DIR: dir, T3_PI_BIN: bin };
+    // 只替换假 CLI 的启动边界，用 Node 启动它；避免依赖 Windows 不支持的 shebang。
+    const bin = join(dir, "fake-pi.mjs");
+    writeFileSync(bin, `if (process.argv[2] !== '--list-models') process.exit(2);\nconsole.log('provider model context\\ncliproxyapi glm-5.3-flash 500K\\ncliproxyapi gpt-6.1-sol 500K');\n`);
+    const hook = join(dir, "launch-fixture.mjs");
+    writeFileSync(hook, `
+import cp from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+const spawn = cp.spawnSync;
+cp.spawnSync = (cmd, args, opts) => cmd === ${JSON.stringify(bin)}
+  ? spawn(process.execPath, [cmd, ...args], opts)
+  : spawn(cmd, args, opts);
+syncBuiltinESMExports();
+`);
+    const env = { ...process.env, T3_CACHE_DIR: dir, T3_PI_BIN: bin, NODE_OPTIONS: `${process.env.NODE_OPTIONS || ""} --import=${pathToFileURL(hook).href}` };
     const r = run(["select", "--task", "general"], { env });
     eq(pickOf(r), "pi/cliproxyapi/glm-5.3-flash");
     if (!r.stdout.includes("降级模式")) throw new Error(r.stdout);
