@@ -1,0 +1,148 @@
+#!/usr/bin/env node
+// 巡检快照：经 T3 MCP 的 HTTP 端点一次性收集所有环境的候选线程与尾部消息，
+// 只输出判定需要的字段，避免把 t3_thread_list / t3_thread_read 的原始大 JSON 灌进上下文。
+//
+// 用法：node patrol-snapshot.mjs [--self <本线程 id>] [--tail 4] [--chars 600]
+// 依赖环境变量 T3_MCP_URL、T3_MCP_BEARER_TOKEN（T3 注入；缺席时退出码 2，改用 MCP 工具手工取证）。
+
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+const args = process.argv.slice(2);
+const opt = (name, dflt) => {
+  const i = args.indexOf(`--${name}`);
+  return i >= 0 && args[i + 1] ? args[i + 1] : dflt;
+};
+const SELF = opt("self", null);
+const TAIL = Number(opt("tail", 4));
+const CHARS = Number(opt("chars", 600));
+const ACTIVE_MS = 2 * 3600 * 1000; // 判在跑线程数的窗口
+
+const URL_ = process.env.T3_MCP_URL;
+const TOKEN = process.env.T3_MCP_BEARER_TOKEN;
+
+let sid = null;
+let seq = 0;
+async function rpc(method, params) {
+  const headers = {
+    "content-type": "application/json",
+    accept: "application/json, text/event-stream",
+    authorization: `Bearer ${TOKEN}`,
+  };
+  if (sid) headers["mcp-session-id"] = sid;
+  const res = await fetch(URL_, { method: "POST", headers, body: JSON.stringify({ jsonrpc: "2.0", id: ++seq, method, params }) });
+  sid = res.headers.get("mcp-session-id") || sid;
+  const text = await res.text();
+  const m = text.match(/^data: (.*)$/m);
+  const msg = JSON.parse(m ? m[1] : text);
+  if (msg.error) throw new Error(`${method}: ${msg.error.message}`);
+  return msg.result;
+}
+async function call(name, args) {
+  const r = await rpc("tools/call", { name, arguments: args });
+  if (r.isError) throw new Error(`${name}: ${r.content?.[0]?.text ?? "error"}`);
+  return r.structuredContent ?? JSON.parse(r.content[0].text);
+}
+
+const clip = (s, n = CHARS) => {
+  const t = String(s ?? "").replace(/\s+/g, " ").trim();
+  return t.length > n ? `${t.slice(0, n)}…` : t;
+};
+const isReviewBot = (t) => /^代码审查 · PR #\d+/.test(t.title);
+const isSubagent = (t) => t.parentThreadId || t.threadId.startsWith("thread:delegated-task:");
+
+async function listAll(environmentId) {
+  const out = [];
+  let cursor = 0;
+  for (;;) {
+    const page = await call("t3_thread_list", { allProjects: true, settled: false, limit: 100, cursor, ...(environmentId ? { environmentId } : {}) });
+    out.push(...page.threads);
+    if (page.nextCursor == null) return out;
+    cursor = page.nextCursor;
+  }
+}
+
+async function tailOf(environmentId, t) {
+  const env = environmentId ? { environmentId } : {};
+  // 读首条用户消息（任务原文）与尾部若干条消息；只留 user/assistant 文本。
+  const head = await call("t3_thread_read", { threadId: t.threadId, limit: 1, maxCharsPerItem: CHARS, ...env });
+  // 尾部窗口里可能全是工具调用而没有消息（默认视图只回消息），窗口逐级放大到读到为止。
+  let meta = head;
+  let msgs = [];
+  for (const back of [40, 200, 1000]) {
+    let after = Math.max(0, (t.itemCount ?? 0) - back);
+    const items = [];
+    for (let guard = 0; guard < 20; guard++) {
+      const r = await call("t3_thread_read", { threadId: t.threadId, afterPosition: after, limit: 50, maxCharsPerItem: CHARS, ...env });
+      meta = r;
+      items.push(...r.items);
+      if (!r.hasMore || r.nextPosition == null) break;
+      after = r.nextPosition;
+    }
+    msgs = items.filter((i) => i.type === "user_message" || i.type === "assistant_message");
+    if (msgs.length >= TAIL || after === 0) break;
+  }
+  const first = head.items.find((i) => i.type === "user_message");
+  return {
+    task: clip(first?.text, 300),
+    pendingRequestCount: meta.thread?.pendingRequestCount ?? 0,
+    runs: (meta.recentRuns ?? []).slice(0, 3).map((r) => `${r.ordinal}:${r.status}${r.startedAt ? "" : "(未启动)"}@${r.completedAt ?? r.startedAt ?? r.requestedAt}`),
+    tail: msgs.slice(-TAIL).map((i) => `[${i.updatedAt?.slice(5, 16)} ${i.type === "user_message" ? (i.createdBy === "user" ? "用户" : "注入") : "代理"}] ${clip(i.text)}`),
+  };
+}
+
+async function snapshotEnv(env) {
+  const now = Date.now();
+  const all = await listAll(env.isLocal ? null : env.environmentId);
+  const top = all.filter((t) => !isSubagent(t));
+  const active = top.filter((t) => now - Date.parse(t.updatedAt) < ACTIVE_MS).length;
+  const candidates = top.filter((t) => !isReviewBot(t) && t.threadId !== SELF);
+  const threads = await Promise.all(
+    candidates.map(async (t) => {
+      const base = {
+        id: t.threadId,
+        link: t.link,
+        title: clip(t.title, 80),
+        createdBy: t.createdBy,
+        status: t.status,
+        updatedAt: t.updatedAt,
+        projectId: t.projectId,
+        model: `${t.providerInstanceId}/${t.model}`,
+        prs: (t.pullRequests ?? []).map((p) => `${p.repository}#${p.number}:${p.state}`),
+      };
+      try {
+        return { ...base, ...(await tailOf(env.isLocal ? null : env.environmentId, t)) };
+      } catch (e) {
+        return { ...base, error: String(e.message ?? e) };
+      }
+    }),
+  );
+  return { environmentId: env.environmentId, label: env.label, activeTopLevel: active, threads };
+}
+
+async function main() {
+  if (!URL_ || !TOKEN) {
+    console.error("缺少 T3_MCP_URL / T3_MCP_BEARER_TOKEN：改用 MCP 工具按技能步骤手工取证。");
+    process.exit(2);
+  }
+  await rpc("initialize", { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "t3-patrol", version: "1" } });
+  const links = await call("t3_environment_links", {});
+  const envs = [{ environmentId: links.environmentId, label: "本机", isLocal: true }];
+  const unreachable = [];
+  for (const l of links.links ?? []) {
+    if (l.status === "reachable") envs.push({ environmentId: l.environmentId, label: l.label });
+    else unreachable.push({ environmentId: l.environmentId, label: l.label, status: l.status, error: l.lastError });
+  }
+  const results = await Promise.all(
+    envs.map((e) => snapshotEnv(e).catch((err) => ({ environmentId: e.environmentId, label: e.label, error: String(err.message ?? err) }))),
+  );
+  console.log(JSON.stringify({ generatedAt: new Date().toISOString(), unreachable, environments: results }, null, 1));
+}
+
+// 技能常经符号链接安装：比较 realpath，否则直接运行时静默不执行。
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
+  main().catch((e) => {
+    console.error(e.stack ?? String(e));
+    process.exit(1);
+  });
+}

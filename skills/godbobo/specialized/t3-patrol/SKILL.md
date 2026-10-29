@@ -24,27 +24,32 @@ description: 跨 T3 环境巡检未结线程：概括各线程在做什么，按
 
 对照表只留在本线程的对话里，不写文件：定时任务都在同一个线程里运行，之后几轮从上下文读取即可。
 
-## 1. 圈定线程
+## 1. 收集快照
 
-1. 每个可达环境调 `t3_thread_list`（`allProjects:true`、`settled:false`，按 `nextCursor` 翻完所有页），只保留顶层线程。返回体很大，每条只记 `threadId`（原样复制，不要手抄）、标题、`status`、`updatedAt`、`pullRequests`。以下几类剔除：
-   - 子代理线程（`parentThreadId` 非空，或 id 形如 `thread:delegated-task:*`）：子代理失败多半是额度或网络问题，主代理自己会换路，巡检只关心 issue/PR 有没有往前走；
-   - 标题形如「代码审查 · PR #N」的线程：Fast Ship 平台自动触发，会自动回收；
-   - 本线程，以及以往运行巡检的线程。巡检新建的交接线程是正常的工作线程，照常巡检。
+线程列表和线程内容的原始返回很大，直接调 MCP 工具读会塞满上下文。先跑快照脚本，它经 T3 MCP 的 HTTP 端点一次性收集所有环境，只输出判定要用的字段：
 
-**完成标准**：每个可达环境的未结顶层线程都在候选清单上，并且清单就是全部（分页已翻完）。
+```bash
+node <技能目录>/scripts/patrol-snapshot.mjs --self <本线程 id> > /tmp/t3-patrol-snapshot.json
+```
 
-## 2. 逐线程取证
+- 输出每个环境的 `activeTopLevel`（「收尾之后」第 3 步用的在跑线程数）和候选线程。候选线程已剔除子代理线程、「代码审查 · PR #N」线程（Fast Ship 平台自动触发、自动回收）和本线程；每个带 `link`、`status`、`updatedAt`、`prs`、最近 3 次 run、`pendingRequestCount`、`task`（首条用户消息）和 `tail`（最后 4 条消息，每条截到 600 字）。
+- 用 `jq` 或 `read` 按环境分段读这个文件，不要整份 `cat`。某个线程的 `tail` 不够判断时，再单独用 `t3_thread_read` 补读那一个线程（`afterPosition` 取 `itemCount - 60`，`limit` 10，`maxCharsPerItem` 1500）。
+- 以往运行巡检的线程也会出现在候选里（标题含 t3-patrol 或巡检），判定时跳过。
+- 脚本退出码 2 表示缺 `T3_MCP_URL`/`T3_MCP_BEARER_TOKEN`：改用 `t3_thread_list`（`allProjects:true`、`settled:false`，按 `nextCursor` 翻完）和上面的 `t3_thread_read` 参数手工取证，取到的每条只记判定要用的字段。
 
-对每个候选线程：
+**完成标准**：每个可达环境都有快照，失败的环境或线程（`error` 字段）已用 MCP 工具补读或记进报告。
 
-1. 用 `t3_thread_read` 读尾部消息：`afterPosition` 取 `itemCount - 60`（不小于 0），`limit` 取 10，`maxCharsPerItem` 取 1500；`hasMore` 为真就继续往后翻，直到读到最新一条。不要从 0 开始翻。
-2. 读最近几次 run 的状态（`recentRuns`）和关联 PR 的 `state`。`pendingRequestCount` 大于 0 时，用 `t3_pending_request`（`action:"list"`，带 `threadId` 和 `environmentId`）读出待答问题。
-3. 从首条用户消息和最近的汇报里，用一句**具体的话**写清它在做什么：哪个 issue/PR、要解决什么问题（例如「PR #636：把 Android 的 test-hygiene 门禁对齐到桌面和 OHOS」）。只写「实施 Fast Ship 问题 157d51e8」这种话，用户没法判断。
-4. 怀疑监听掉了时才查 PR，只取最新一条审查和评论的时间，和线程最后一条消息比较：`gh pr view <N> --repo <owner/repo> --json headRefOid,reviews,comments,statusCheckRollup --jq '{head:.headRefOid, review:(.reviews|last|.submittedAt), comment:(.comments|last|.createdAt), checks:[.statusCheckRollup[]|.conclusion]|unique}'`。
+## 2. 写清每个线程在做什么
+
+1. `pendingRequestCount` 大于 0 时，用 `t3_pending_request`（`action:"list"`，带 `threadId` 和 `environmentId`）读出待答问题。
+2. 从 `task` 和 `tail` 里，用一句**具体的话**写清它在做什么：哪个 issue/PR、要解决什么问题（例如「PR #636：把 Android 的 test-hygiene 门禁对齐到桌面和 OHOS」）。只写「实施 Fast Ship 问题 157d51e8」这种话，用户没法判断。
+3. 怀疑监听掉了时才查 PR，只取最新一条审查和评论的时间，和线程最后一条消息比较：`gh pr view <N> --repo <owner/repo> --json headRefOid,reviews,comments,statusCheckRollup --jq '{head:.headRefOid, review:(.reviews|last|.submittedAt), comment:(.comments|last|.createdAt), checks:[.statusCheckRollup[]|.conclusion]|unique}'`。
 
 ## 3. 判定并行动
 
-每个线程按下表**从上往下**取第一条命中的规则，一个线程只采取一个动作。发出去的消息一律以 `【巡检】` 开头，下一轮靠这个前缀认出自己发过什么。发消息用 `t3_thread_send`，带上该环境的 `environmentId`，`mode:"auto"`。
+每个线程按下表**从上往下**取第一条命中的规则，一个线程只采取一个动作。
+
+**settle 只有一个入口**：PR 已合并、`$pr-finish` 跑完，按「收尾之后」交接完再 settle。没有 PR 或 issue 的线程是用户自己开的，可能置顶着要停留一段时间，巡检不 settle、不归档，最多列进报告。发出去的消息一律以 `【巡检】` 开头，下一轮靠这个前缀认出自己发过什么。发消息用 `t3_thread_send`，带上该环境的 `environmentId`，`mode:"auto"`。
 
 | 现状 | 动作 |
 | --- | --- |
@@ -60,7 +65,7 @@ description: 跨 T3 环境巡检未结线程：概括各线程在做什么，按
 | PR 已经收敛：最新 HEAD 上所有在等的审查者都给出了通过结论、检查全绿，主代理在等合并或收尾 | 发「【巡检】使用 $pr-finish 技能收尾」 |
 | PR 已合并，`$pr-finish` 已跑完（尾部是收尾汇报） | 按下节「收尾之后」交接并 settle |
 | 在等监听或子任务，没有过期迹象 | 不打扰 |
-| 没有 PR 的一次性任务（排查、配置、问答），已经交付结论，用户还没回复 | 不打扰，列进报告的「已交付」一节，由用户验收后自己 settle |
+| 没有 PR 的线程（排查、配置、问答、文档修改等），代理已经交付结论，用户还没回复 | 不打扰，列进报告的「已交付」一节，由用户自己决定是否 settle |
 
 **拿不准时**：问题说不清是不是产品决策，就当成产品决策，交给用户。授权超出原任务（合并原任务之外的 PR、删数据、动生产环境、往主分支直推）一律交给用户。
 
@@ -75,7 +80,7 @@ description: 跨 T3 环境巡检未结线程：概括各线程在做什么，按
    设备在对照表里找不到、目标环境不可达、目标环境里没有这个仓库的项目，或者交接写的是「以后再安排」：都不交接，列进「需要你决定」，来源线程先不 settle。
 
 2. **查重**：在目标环境用 `t3_thread_search` 搜 PR 号和来源线程 id，已有线程接过这段工作就跳过新建。
-3. **看容量**：远程环境拿不到负载和磁盘信息，以在跑线程数为准：未 settle、最近 2 小时内有更新的顶层线程（含「代码审查 · PR #N」线程，不含子代理线程）。等审查的线程在两轮之间会暂时变成 completed，但仍占着工作树和编译资源，所以不能只数 `status` 为 running 的。在跑线程已达 5 个就本轮不建。目标是本机时另外跑 `df -h ~` 看剩余空间，不足 20 GB 也不建。满了就把这次交接记成「等待空位」：来源线程先不 settle，下一轮重新检查；同一环境有多个交接在等时，按来源线程收尾的先后顺序建，建到上限为止。
+3. **看容量**：远程环境拿不到负载和磁盘信息，以在跑线程数为准（快照里的 `activeTopLevel`）：未 settle、最近 2 小时内有更新的顶层线程（含「代码审查 · PR #N」线程，不含子代理线程）。等审查的线程在两轮之间会暂时变成 completed，但仍占着工作树和编译资源，所以不能只数 `status` 为 running 的。在跑线程已达 5 个就本轮不建。目标是本机时另外跑 `df -h ~` 看剩余空间，不足 20 GB 也不建。满了就把这次交接记成「等待空位」：来源线程先不 settle，下一轮重新检查；同一环境有多个交接在等时，按来源线程收尾的先后顺序建，建到上限为止。
 4. **新建线程**：`t3_thread_launch` 带上目标环境的 `environmentId`；`projectId` 取目标环境里同一仓库的项目（`t3_thread_list` 找同仓库的近期线程，用它的 `projectId`）；`modelSelection` 取 `{instanceId:<该项目最近一个顶层线程的 providerInstanceId>, model:<它的 model>}`；`workspaceStrategy` 取 `{type:"worktree", baseRef:<仓库默认分支>, startFromOrigin:true}`；标题用一句话写清这段工作，用该项目以往标题的语言和写法。`message` 原样贴交接提示词，开头如有斜杠命令就保持在第一行，末尾另起一行写 `> 交接自 <来源线程 link>`。交接写的是多段接力（如「先发 A 设备，合并后换新 PR 号再发 B 设备」），本轮只建第一段，并在 message 末尾再加一行 `> 后续：合并后按同一提示词换新 PR 号交接给 <下一台设备>`，让新线程收尾时给出下一段的交接。
 5. **settle 来源线程**：交接线程建好，或者收尾汇报里本来就没有交接，就用 `t3_thread_organize`（`action:"settle"`，带来源环境的 `environmentId`）settle 来源线程。收尾汇报里提到的遗留事项照抄进报告，由用户决定要不要建 issue。
 
