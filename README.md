@@ -57,6 +57,12 @@ T3 Code 多 harness 编排：只用 pi / codex / factory droid 三个 harness，
 
 详见 [skills/godbobo/specialized/t3-orchestrator/SKILL.md](skills/godbobo/specialized/t3-orchestrator/SKILL.md)。
 
+### t3-patrol
+
+跨 T3 环境巡检未结线程：逐个读线程尾部，用具体的话概括每个线程在做什么，再按用户惯常的处理方式回话推进：报错了就让它继续，原任务已覆盖的授权直接放行，技术取舍按根治方向拍板，监听掉了就让它重新挂上，PR 久审不收敛时提醒它做收敛审计，PR 收敛后让它收尾；收尾后按交接提示词在目标设备的环境新建线程继续，再 settle 来源线程。只有产品决策、超出授权的动作交回用户。适合挂成每小时一次的定时任务。专用技能。
+
+详见 [skills/godbobo/specialized/t3-patrol/SKILL.md](skills/godbobo/specialized/t3-patrol/SKILL.md)。
+
 ### html-preview
 
 通过 HTML Preview REST API 上传、管理 HTML/ZIP 预览页并生成分享链接（需 API Key）。专用技能，配合同名服务使用。
