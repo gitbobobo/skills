@@ -1,6 +1,6 @@
 ---
 name: t3-code
-description: 本机 T3 Code 运行状态的内部知识：状态数据库布局、会话记录查询方法、delegate_task 编排与 ACP 通道要点。分析 T3 会话、做复盘、排查编排问题时使用；监听 PR 审查或等子任务前先读「监听与唤醒」；收尾回收孤儿工作树跑 scripts/t3-worktree-gc.mjs。
+description: 本机 T3 Code 运行状态的内部知识：状态数据库布局、本机会话查询、delegate_task 编排与 ACP 通道要点。复盘本机会话、排查编排问题时使用；跨环境线程用 T3 MCP 工具读（见「子线程取证」）；监听 PR 审查或等子任务前先读「监听与唤醒」；收尾回收孤儿工作树跑 scripts/t3-worktree-gc.mjs。
 ---
 
 # t3-code 本机知识
@@ -68,6 +68,7 @@ T3 在事件到达时唤醒本线程。等外部结果时登记监听，然后�
 ## 子线程取证（t3_thread_read）
 
 - 默认视图只回消息项；工具调用与文件写入要用 `view:"activity"`。找子代理回报或某次写入，从尾部 position 往回翻，不要从 0 分页。
+- 跨环境复盘先跑 `node <技能目录>/scripts/t3-activity-scan.mjs --hours 24 --self <本线程 id> > scan.json`：经 T3 MCP 端点收集本机与所有已连接环境窗口期内活跃的线程，每个带读过的 `skillReads`、`$技能名` 提及和用户消息。活跃按最近一次 run 或创建时间判断：`t3_thread_list` 的 `updatedAt` 会被同步批量刷新，用它筛会把几百个老线程算进来。再对关心的线程用 `t3_thread_read` 补读细节。
 - `file_change` 项的 `originalFile` 带编辑前全量快照：未跟踪文件被改毁时，取该文件最后一个 file_change 的 `originalFile` 重建——这是此类事故的最后恢复途径。
 
 ## 工作树回收（t3-worktree-gc）
