@@ -769,20 +769,23 @@ function gitStateReasons(dir, notes, gitCommon, refetch = false) {
 
   // assume-unchanged/skip-worktree 标记的本地修改对 status 隐身：
   // ls-files -v 标签小写（assume-unchanged）或 S（skip-worktree）一律阻断
-  const lv = sh("git", [...NF, "-C", dir, "ls-files", "-v", "-z"]);
-  if (lv === null) reasons.push("git ls-files -v 执行失败");
+  // git 子模块（索引里 mode 160000 的 gitlink）：内部 ignored/未推送状态对所有外层检查不可见，
+  // 且 worktree remove 对含子模块的工作树本就要求双重 --force——一律阻断。
+  // 与标记检查合并成一次 ls-files -s -v（每行「<标签> <mode> <oid> <stage>\t<path>」），
+  // 比 git submodule status 快一个数量级，且连没有 .gitmodules 映射的 gitlink 也能识别。
+  const lv = sh("git", [...NF, "-C", dir, "ls-files", "-s", "-v", "-z"]);
+  if (lv === null) reasons.push("git ls-files -s -v 执行失败");
   else {
-    const flagged = lv.split("\0").filter((l) => /^[a-zS] /.test(l)).map((l) => l.slice(2));
+    const entries = lv.split("\0").filter(Boolean).map((l) => {
+      const tab = l.indexOf("\t");
+      return { tag: l[0], mode: l.slice(2, l.indexOf(" ", 2)), path: l.slice(tab + 1) };
+    });
+    const flagged = entries.filter((e) => /^[a-zS]$/.test(e.tag)).map((e) => e.path);
     if (flagged.length)
       reasons.push(`含 assume-unchanged/skip-worktree 标记文件 ${flagged.length} 个（${flagged.slice(0, 8).join("、")}${flagged.length > 8 ? "、…" : ""}）`);
+    const subs = new Set(entries.filter((e) => e.mode === "160000").map((e) => e.path));
+    if (subs.size) reasons.push(`含 git 子模块（其内部本地状态不可评估）：${subs.size} 个`);
   }
-
-  // git 子模块：内部 ignored/未推送状态对所有外层检查不可见，且
-  // worktree remove 对含子模块的工作树本就要求双重 --force——一律阻断
-  const subs = sh("git", [...NF, "-C", dir, "submodule", "status"]);
-  if (subs === null) reasons.push("git submodule status 执行失败");
-  else if (subs.split("\n").filter(Boolean).length)
-    reasons.push(`含 git 子模块（其内部本地状态不可评估）：${subs.split("\n").filter(Boolean).length} 个`);
 
   if (sh("git", ["--git-dir", gitCommon, "remote", "get-url", "origin"]) === null)
     reasons.push("无 origin 远端配置");
@@ -873,13 +876,17 @@ function purgeTargetReason(dir, rel) {
   const NF = ["-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-C", dir];
   // literal pathspec 防目标名中的通配符改变查询范围；包括强制添加/索引隐藏文件。
   const spec = `:(literal)${rel}`;
-  const tracked = sh("git", [...NF, "ls-files", "--cached", "-z", "--", spec]);
-  if (tracked === null || tracked) return "目标含跟踪文件或跟踪检查失败";
-  const untracked = sh("git", [...NF, "ls-files", "-o", "--exclude-standard", "-z", "--", spec]);
-  if (untracked === null || untracked) return "目标含非 ignored 文件或检查失败";
-  if (!shErr("git", [...NF, "check-ignore", "-q", "--", `${rel}/`]).ok) return "目标不再是 ignored 目录";
-  // Git 检查期间路径或标记也可能被替换，再检查一次。
-  return purgePathReason(dir, rel) || (!isPurgeTarget(abs, rel.split("/").pop()) ? "不再符合构建产物规则" : null);
+  const gitReason = (() => {
+    const tracked = sh("git", [...NF, "ls-files", "--cached", "-z", "--", spec]);
+    if (tracked === null || tracked) return "目标含跟踪文件或跟踪检查失败";
+    const untracked = sh("git", [...NF, "ls-files", "-o", "--exclude-standard", "-z", "--", spec]);
+    if (untracked === null || untracked) return "目标含非 ignored 文件或检查失败";
+    if (!shErr("git", [...NF, "check-ignore", "-q", "--", `${rel}/`]).ok) return "目标不再是 ignored 目录";
+    return null;
+  })();
+  // Git 检查期间路径或标记也可能被替换，再检查一次。路径原因优先报告：目录被换成
+  // 符号链接/junction 时 git 也会把它当成非 ignored 文件，那只是症状。
+  return purgePathReason(dir, rel) || gitReason || (!isPurgeTarget(abs, rel.split("/").pop()) ? "不再符合构建产物规则" : null);
 }
 function duBytes(abs) {
   const o = sh("du", ["-sk", abs], { timeout: 120000 });
