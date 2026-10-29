@@ -83,11 +83,28 @@ async function tailOf(environmentId, t) {
     if (msgs.length >= TAIL || after === 0) break;
   }
   const first = head.items.find((i) => i.type === "user_message");
+  const lastMsgAt = Date.parse(msgs.at(-1)?.updatedAt ?? "") || null;
   return {
+    ...(t.status === "running" ? await spinOf(environmentId, t, lastMsgAt) : {}),
     task: clip(first?.text, 300),
     pendingRequestCount: meta.thread?.pendingRequestCount ?? 0,
     runs: (meta.recentRuns ?? []).slice(0, 3).map((r) => `${r.ordinal}:${r.status}${r.startedAt ? "" : "(未启动)"}@${r.completedAt ?? r.startedAt ?? r.requestedAt}`),
     tail: msgs.slice(-TAIL).map((i) => `[${i.updatedAt?.slice(5, 16)} ${i.type === "user_message" ? (i.createdBy === "user" ? "用户" : "注入") : "代理"}] ${clip(i.text)}`),
+  };
+}
+
+// 在跑线程的空转迹象：最近 30 个工具调用里有几种不同命令、距最后一条消息多少分钟。
+// 退化循环会反复执行同一类命令，只看消息尾部时它和正常干活没有区别。
+async function spinOf(environmentId, t, lastMsgAt) {
+  const env = environmentId ? { environmentId } : {};
+  const r = await call("t3_thread_read", { threadId: t.threadId, view: "activity", afterPosition: Math.max(0, (t.itemCount ?? 0) - 40), limit: 60, maxCharsPerItem: 200, ...env });
+  const calls = r.items.filter((i) => i.type === "command_execution" || i.type === "dynamic_tool").slice(-30);
+  const norm = (i) => String(i.text ?? i.title ?? "").replace(/\s+/g, " ").slice(0, 120);
+  return {
+    recentToolCalls: calls.length,
+    distinctRecentCommands: new Set(calls.map(norm)).size,
+    sampleCommand: calls.length ? clip(norm(calls.at(-1)), 160) : null,
+    minutesSinceLastMessage: lastMsgAt ? Math.round((Date.now() - lastMsgAt) / 60000) : null,
   };
 }
 

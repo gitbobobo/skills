@@ -32,7 +32,7 @@ description: 跨 T3 环境巡检未结线程：概括各线程在做什么，按
 node <技能目录>/scripts/patrol-snapshot.mjs --self <本线程 id> > /tmp/t3-patrol-snapshot.json
 ```
 
-- 输出每个环境的 `activeTopLevel`（「收尾之后」第 3 步用的在跑线程数）和候选线程。候选线程已剔除子代理线程、「代码审查 · PR #N」线程（Fast Ship 平台自动触发、自动回收）和本线程；每个带 `link`、`status`、`updatedAt`、`prs`、最近 3 次 run、`pendingRequestCount`、`task`（首条用户消息）和 `tail`（最后 4 条消息，每条截到 600 字）。
+- 输出每个环境的 `activeTopLevel`（「收尾之后」第 3 步用的在跑线程数）和候选线程。候选线程已剔除子代理线程、「代码审查 · PR #N」线程（Fast Ship 平台自动触发、自动回收）和本线程；每个带 `link`、`status`、`updatedAt`、`prs`、最近 3 次 run、`pendingRequestCount`、`task`（首条用户消息）和 `tail`（最后 4 条消息，每条截到 600 字）；`status` 为 running 的另带空转迹象：`distinctRecentCommands`（最近 30 个工具调用里不同命令的个数）、`sampleCommand`、`minutesSinceLastMessage`。
 - 用 `jq` 或 `read` 按环境分段读这个文件，不要整份 `cat`。某个线程的 `tail` 不够判断时，再单独用 `t3_thread_read` 补读那一个线程（`afterPosition` 取 `itemCount - 60`，`limit` 10，`maxCharsPerItem` 1500）。
 - 以往运行巡检的线程也会出现在候选里（标题含 t3-patrol 或巡检），判定时跳过。
 - 脚本退出码 2 表示缺 `T3_MCP_URL`/`T3_MCP_BEARER_TOKEN`：改用 `t3_thread_list`（`allProjects:true`、`settled:false`，按 `nextCursor` 翻完）和上面的 `t3_thread_read` 参数手工取证，取到的每条只记判定要用的字段。
@@ -55,12 +55,13 @@ node <技能目录>/scripts/patrol-snapshot.mjs --self <本线程 id> > /tmp/t3-
 | --- | --- |
 | 本线程收到过「【巡检】收敛审计」，但之后 PR 描述里仍没有「交付范围」一节，或者它仍在逐条修审计划为范围外的意见（审计只交了建议、没有执行） | 第一次：发「【巡检】收敛路径没有落地：<它审计时定的范围与拆分结论>，但 PR 描述未更新、<仍在修的范围外意见>。这些拆分不涉及产品决策，由你直接执行，不要等我确认：本轮内按 pr-review-loop 把交付范围写进 PR 描述、拆出范围外改动、在账本记下收敛路径，然后再处理审查意见；范围外意见一律按 Consider 回复」。再次命中就列进「需要你决定」 |
 | PR 开了超过 48 小时，或审查超过 20 轮，最近 24 小时仍有新的 P0–P2 行内意见，且本线程 24 小时内没收到过「【巡检】收敛审计」 | 先取证：统计非本账号行内意见按文件和日期的分布（`gh api --paginate repos/<owner>/<repo>/pulls/<N>/comments --jq '.[]\|[.created_at[0:10],.path]\|@tsv'`），再看 PR 规模和标题。发「【巡检】收敛审计：<开了多久、多少意见、集中在哪些文件、最近的意见长什么样>。请暂停逐条修复，按 pr-review-loop 方向审计的定性（有限清单/开放反例/范围扩张）重新判断；定性后本轮内直接把路径落地（PR 描述写交付范围、拆出范围外改动、账本记收敛路径），不要只给建议、不要等我确认，落地后再继续处理审查意见」；你有倾向的判断也写进去。报告里单列 |
+| 正在运行，但在空转：`distinctRecentCommands` 小于 5，或 `minutesSinceLastMessage` 超过 60 | 发「【巡检】你在重复执行同一类命令（例：<sampleCommand>），停下来，汇报当前卡在哪一步、要拿到什么事实；换一种取证方法，或把这一步按收敛路径的最小做法完成」 |
 | 正在运行，且 `updatedAt` 在 30 分钟以内 | 不打扰 |
 | 上一条消息是 `【巡检】`，之后线程没有新的提交或实质进展 | 不再重复推，列进「需要你决定」，附上卡住的原因 |
 | 最近一次 run 是 failed / interrupted / cancelled，尾部是 `Connection error`、`model_usage_exhausted` 这类报错，或者没有活跃 run、最新 run 却停在 queued 超过 30 分钟 | 发「【巡检】继续」 |
 | 在等用户做**产品决策**：用户看得见的行为、文案、交互要改，需求和项目文档都没有给出答案 | 不代答，列进「需要你决定」，附上它给出的选项 |
 | 在请求原任务已经覆盖的授权：提交、推送、按模板建 PR、请求复审、重新挂监听 | 发「【巡检】同意，按原任务继续，后续同类步骤不用再问」 |
-| 在问技术取舍（方案、范围、修在哪个 PR、要不要结构整改） | 发「【巡检】按根治方向：选长期更干净正确的方案，在当前 PR 内处理；拿不准就咨询方向顾问后自行推进」 |
+| 在问技术取舍（方案、范围、修在哪个 PR、要不要结构整改） | 发「【巡检】按根治方向：选长期更干净正确的方案，在当前 PR 内处理；拿不准就咨询方向顾问后自行推进（用 `route.mjs select --task design` 选人，第二位带 `--exclude-model`）」 |
 | 说在等 PR 审查，线程却没有关联这个 PR（`pullRequests` 为空或不含它）：没有 PR 监听，审查结论到了也不会唤醒它 | 发「【巡检】本线程没有关联 PR #N，也没有挂 PR 监听，审查结论到了不会唤醒你。请用 `link_pull_request` 关联 <PR URL>，用 `watch_pull_request` 挂上审查与 CI 监听（工具不在列表里先用 tool_search 搜一次），然后立即重读最新审查意见与检查状态，按 pr-review-loop 继续」，PR 号从它最近的汇报里取 |
 | 说在等审查或等子任务，但 PR 上在它最后一条消息之后已经有新的审查结论或 CI 结果，线程却没被唤醒 | 发「【巡检】监听可能掉了：重新读取最新审查意见与检查状态，按 pr-review-loop 继续，并重新挂上监听」 |
 | PR 已经收敛：最新 HEAD 上所有在等的审查者都给出了通过结论、检查全绿，主代理在等合并或收尾 | 发「【巡检】使用 $pr-finish 技能收尾」 |
