@@ -62,7 +62,7 @@ node <技能目录>/scripts/patrol-snapshot.mjs --self <本线程 id> > /tmp/t3-
 | 在等用户做**产品决策**：用户看得见的行为、文案、交互要改，需求和项目文档都没有给出答案 | 不代答，列进「需要你决定」，附上它给出的选项 |
 | 在请求原任务已经覆盖的授权：提交、推送、按模板建 PR、请求复审、重新挂监听 | 发「【巡检】同意，按原任务继续，后续同类步骤不用再问」 |
 | 在问技术取舍（方案、范围、修在哪个 PR、要不要结构整改） | 发「【巡检】按根治方向：选长期更干净正确的方案，在当前 PR 内处理；拿不准就咨询方向顾问后自行推进（用 `route.mjs select --task design` 选人，第二位带 `--exclude-model`）」 |
-| 说在等 PR 审查，线程却没有关联这个 PR（`pullRequests` 为空或不含它），或快照里 PR 标了 `(unwatched)`：没有 PR 监听，审查结论到了也不会唤醒它 | 发「【巡检】本线程没有关联 PR #N，也没有挂 PR 监听，审查结论到了不会唤醒你。请用 `link_pull_request` 关联 <PR URL>，用 `watch_pull_request` 挂上审查与 CI 监听（工具不在列表里先用 tool_search 搜一次），然后立即重读最新审查意见与检查状态，按 pr-review-loop 继续」，PR 号从它最近的汇报里取 |
+| 说在等 PR 审查，线程却没有关联这个 PR（`pullRequests` 为空或不含它），或快照里 PR 标了 `(unwatched)`：没有 PR 监听，审查结论到了也不会唤醒它 | 发「【巡检】本线程没有关联 PR #N，也没有挂 PR 监听，审查结论到了不会唤醒你。请用 `link_pull_request` 关联 <PR URL>，用 `watch_pull_request` 挂上审查与 CI 监听（工具不在列表里先用 tool_search 搜一次），然后立即重读最新审查意见与检查状态，按 pr-review-loop 继续」，PR 号从它最近的汇报里取。**巡逻线程本地有 `watch_pull_request` 时，直接代挂**（传 `threadId`+`environmentId`+`url`），比让远程线程自己找更可靠——它所在 harness 的工具集可能搜不到这个工具 |
 | 说在等审查或等子任务，但 PR 上在它最后一条消息之后已经有新的审查结论或 CI 结果，线程却没被唤醒 | 发「【巡检】监听可能掉了：重新读取最新审查意见与检查状态，按 pr-review-loop 继续，并重新挂上监听」 |
 | PR 已经收敛：最新 HEAD 上所有在等的审查者都给出了通过结论、检查全绿，主代理在等合并或收尾。尾部出现「交还给你」「要不要 unwatch」「等你合并」这类话也算；英文线程里 `ready for merge`、`waiting for merge`、`converged`、总结收尾清单（What was done / Final state）同样算收敛信号——CONFLICTING 只是 main 前进的计数/文档冲突也按收敛处理 | 发「【巡检】使用 $pr-finish 技能收尾」 |
 | PR 已合并，`$pr-finish` 已跑完（尾部是收尾汇报，或后续消息里给过交接提示词） | 按下节「收尾之后」交接并 settle。PR 已合并的线程一律走这一行，不归入「已交付」；它上一轮被记为「等待空位」也是这一行，每轮重新看容量 |
