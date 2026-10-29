@@ -16,7 +16,8 @@ const opt = (name, dflt) => {
 const SELF = opt("self", null);
 const TAIL = Number(opt("tail", 4));
 const CHARS = Number(opt("chars", 600));
-const ACTIVE_MS = 2 * 3600 * 1000; // 判在跑线程数的窗口
+const ACTIVE_MS = 2 * 3600 * 1000; // 有在审 PR 的线程，最近一次 run 结束多久内仍算占用
+const LIVE = new Set(["preparing", "queued", "starting", "running", "waiting"]);
 
 const URL_ = process.env.T3_MCP_URL;
 const TOKEN = process.env.T3_MCP_BEARER_TOKEN;
@@ -88,6 +89,7 @@ async function tailOf(environmentId, t) {
     ...(t.status === "running" ? await spinOf(environmentId, t, lastMsgAt) : {}),
     task: clip(first?.text, 300),
     pendingRequestCount: meta.thread?.pendingRequestCount ?? 0,
+    lastRunEndedAt: (meta.recentRuns ?? []).map((r) => r.completedAt ?? r.startedAt ?? r.requestedAt).filter(Boolean).sort().at(-1) ?? null,
     runs: (meta.recentRuns ?? []).slice(0, 3).map((r) => `${r.ordinal}:${r.status}${r.startedAt ? "" : "(未启动)"}@${r.completedAt ?? r.startedAt ?? r.requestedAt}`),
     tail: msgs.slice(-TAIL).map((i) => `[${i.updatedAt?.slice(5, 16)} ${i.type === "user_message" ? (i.createdBy === "user" ? "用户" : "注入") : "代理"}] ${clip(i.text)}`),
   };
@@ -112,7 +114,6 @@ async function snapshotEnv(env) {
   const now = Date.now();
   const all = await listAll(env.isLocal ? null : env.environmentId);
   const top = all.filter((t) => !isSubagent(t));
-  const active = top.filter((t) => now - Date.parse(t.updatedAt) < ACTIVE_MS).length;
   const candidates = top.filter((t) => !isReviewBot(t) && t.threadId !== SELF);
   const threads = await Promise.all(
     candidates.map(async (t) => {
@@ -134,7 +135,20 @@ async function snapshotEnv(env) {
       }
     }),
   );
-  return { environmentId: env.environmentId, label: env.label, activeTopLevel: active, threads };
+  // 占用名额的线程：有活跃 run 的（含 Fast Ship 审查线程），或 PR 仍 open、最近 2 小时内跑过的（两轮审查之间
+  // 线程会暂时 completed，但工作树和编译资源还占着）。PR 已合并/关闭、没有 PR 又没在跑的线程不占名额。
+  // 不用 updatedAt：同步会批量刷新它。
+  const byId = new Map(threads.map((x) => [x.id, x]));
+  const occupying = top.filter((t) => {
+    if (LIVE.has(t.status)) return true;
+    const prs = t.pullRequests ?? [];
+    if (!prs.some((p) => p.state === "open")) return false;
+    const ended = Date.parse(byId.get(t.threadId)?.lastRunEndedAt ?? "");
+    return Number.isFinite(ended) && now - ended < ACTIVE_MS;
+  });
+  const active = occupying.length;
+  const occupyingTitles = occupying.map((t) => clip(t.title, 40));
+  return { environmentId: env.environmentId, label: env.label, activeTopLevel: active, occupying: occupyingTitles, threads };
 }
 
 async function main() {
