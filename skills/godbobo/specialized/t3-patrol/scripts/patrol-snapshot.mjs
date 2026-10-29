@@ -126,7 +126,7 @@ async function snapshotEnv(env) {
         updatedAt: t.updatedAt,
         projectId: t.projectId,
         model: `${t.providerInstanceId}/${t.model}`,
-        prs: (t.pullRequests ?? []).map((p) => `${p.repository}#${p.number}:${p.state}`),
+        prs: (t.pullRequests ?? []).map((p) => `${p.repository}#${p.number}:${p.state}${p.watching === false ? "(unwatched)" : ""}`),
       };
       try {
         return { ...base, ...(await tailOf(env.isLocal ? null : env.environmentId, t)) };
