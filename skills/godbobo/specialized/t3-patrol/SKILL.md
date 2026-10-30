@@ -34,7 +34,7 @@ description: 跨 T3 环境巡检未结线程：概括各线程在做什么，按
 node <技能目录>/scripts/patrol-snapshot.mjs --self <本线程 id> > /tmp/t3-patrol-snapshot.json
 ```
 
-- 输出每个环境的 `activeTopLevel` 与 `occupying`（「收尾之后」第 3 步用的占用名额线程数与标题）和候选线程清单 `environments[].candidates`（已剔除子代理线程、「代码审查 · PR #N」线程（Fast Ship 平台自动触发、自动回收）和本线程）；每个候选带 `link`、`status`、`updatedAt`、`prs`、最近 3 次 run、`pendingRequestCount`、`task`（首条用户消息）和 `tail`（最后 4 条消息，每条保留开头和结尾共 600 字：代理常在长汇报末尾才提问，结尾比开头重要）；`status` 为 running 的另带空转迹象：`distinctRecentCommands`（最近 30 个工具调用里不同命令的个数）、`sampleCommand`、`minutesSinceLastMessage`。
+- 输出每个环境的 `activeTopLevel` 与 `occupying`（「收尾之后」第 3 步用的占用名额线程数与标题）和候选线程清单 `environments[].candidates`（已剔除子代理线程、「代码审查 · PR #N」线程（Fast Ship 平台自动触发、自动回收）和本线程）；每个候选带 `link`、`status`、`updatedAt`、`prs`、`lastMsgAt`、最近 3 次 run、`pendingRequestCount`、`task`（首条用户消息）和 `tail`（最后 4 条消息，每条保留开头和结尾共 600 字：代理常在长汇报末尾才提问，结尾比开头重要）；`status` 为 running 的另带空转迹象：`distinctRecentCommands`（最近 30 个工具调用里不同命令的个数）、`sampleCommand`、`minutesSinceLastMessage`。`prs` 里除 `(unwatched)` 外还可能标 `(stale)`——挂了监听的 open PR 上、最新 review/评论时间晚于线程 `lastMsgAt`，说明新结论到了而线程没醒，按「监听掉了」那行处理（订阅存在 ≠ 事件真的唤醒了线程，必须对账）。
 - 用 `jq` 或 `read` 按环境分段读这个文件，不要整份 `cat`。某个线程的 `tail` 不够判断时，再单独用 `t3_thread_read` 补读那一个线程（`afterPosition` 取 `itemCount - 60`，`limit` 10，`maxCharsPerItem` 1500）。
 - 以往运行巡检的线程也会出现在候选里（标题含 t3-patrol 或巡检），判定时跳过。
 - 脚本退出码 2 表示缺 `T3_MCP_URL`/`T3_MCP_BEARER_TOKEN`：改用 `t3_thread_list`（`allProjects:true`、`settled:false`，按 `nextCursor` 翻完）和上面的 `t3_thread_read` 参数手工取证，取到的每条只记判定要用的字段。
@@ -67,7 +67,7 @@ node <技能目录>/scripts/patrol-snapshot.mjs --self <本线程 id> > /tmp/t3-
 | 在问遗留项怎么办（flaky、范围外缺陷、要不要跟进） | 发「【巡检】遗留项按性质处理：flaky 和基线问题记进仓库的登记文档（如 flaky 登记），之后统一处理；独立的问题在仓库用的问题追踪里各建一条（如 fast-ship issue），PR 汇报里附上链接；属于本需求后续段的才写交接提示词。处理完继续原流程」 |
 | 在问技术取舍（方案、范围、修在哪个 PR、要不要结构整改） | 发「【巡检】按根治方向：选长期更干净正确的方案，在当前 PR 内处理；拿不准就咨询方向顾问后自行推进（用 `route.mjs select --task design` 选人，第二位带 `--exclude-model`）」 |
 | 说在等 PR 审查，线程却没有关联这个 PR（`pullRequests` 为空或不含它），或快照里 PR 标了 `(unwatched)`：没有 PR 监听，审查结论到了也不会唤醒它 | 发「【巡检】本线程没有关联 PR #N，也没有挂 PR 监听，审查结论到了不会唤醒你。请用 `link_pull_request` 关联 <PR URL>，用 `watch_pull_request` 挂上审查与 CI 监听（工具不在列表里先用 tool_search 搜一次），然后立即重读最新审查意见与检查状态，按 pr-review-loop 继续」，PR 号从它最近的汇报里取。**巡逻线程本地有 `watch_pull_request` 时，直接代挂**（传 `threadId`+`environmentId`+`url`），比让远程线程自己找更可靠——它所在 harness 的工具集可能搜不到这个工具 |
-| 说在等审查或等子任务，但 PR 上在它最后一条消息之后已经有新的审查结论或 CI 结果，线程却没被唤醒 | 发「【巡检】监听可能掉了：重新读取最新审查意见与检查状态，按 pr-review-loop 继续，并重新挂上监听」 |
+| 说在等审查或等子任务，但 PR 上在它最后一条消息之后已经有新的审查结论或 CI 结果，线程却没被唤醒——快照 `prs` 标了 `(stale)` 的直接命中；没标但线程 `completed` 停着、尾部自称在等的，也用 PR 实况（`gh pr view` 的 `latestAt`）对 `lastMsgAt` 核实一次，`watching=true` 不算安全证据 | 发「【巡检】监听可能掉了：重新读取最新审查意见与检查状态，按 pr-review-loop 继续，并重新挂上监听」 |
 | PR 已经收敛：最新 HEAD 上所有在等的审查者都给出了通过结论、检查全绿，主代理在等合并或收尾。尾部出现「交还给你」「要不要 unwatch」「等你合并」这类话也算；英文线程里 `ready for merge`、`waiting for merge`、`converged`、总结收尾清单（What was done / Final state）同样算收敛信号——CONFLICTING 只是 main 前进的计数/文档冲突也按收敛处理 | 发「【巡检】使用 $pr-finish 技能收尾」 |
 | PR 已合并，`$pr-finish` 已跑完（尾部是收尾汇报，或后续消息里给过交接提示词） | 按下节「收尾之后」交接并 settle。PR 已合并的线程一律走这一行，不归入「已交付」；它上一轮被记为「等待空位」也是这一行，每轮重新看容量 |
 | 在等监听或子任务：先核 PR 实况——`prs` 标 `(unwatched)` 的先按「代挂监听」那行处理，再核审查者在不在途。有审查者在途（最新 HEAD 上有审查者没出结论、触发未超 40 分钟，或检查还在跑）→ 不打扰；没有 → 按「停滞」处理 | 不打扰 |

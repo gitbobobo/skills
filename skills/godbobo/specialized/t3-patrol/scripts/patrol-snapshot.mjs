@@ -99,7 +99,30 @@ async function tailOf(environmentId, t) {
     lastRunEndedAt: (meta.recentRuns ?? []).map((r) => r.completedAt ?? r.startedAt ?? r.requestedAt).filter(Boolean).sort().at(-1) ?? null,
     runs: (meta.recentRuns ?? []).slice(0, 3).map((r) => `${r.ordinal}:${r.status}${r.startedAt ? "" : "(未启动)"}@${r.completedAt ?? r.startedAt ?? r.requestedAt}`),
     tail: msgs.slice(-TAIL).map((i) => `[${i.updatedAt?.slice(5, 16)} ${i.type === "user_message" ? (i.createdBy === "user" ? "用户" : "注入") : "代理"}] ${clipEnds(i.text)}`),
+    lastMsgAt: msgs.at(-1)?.updatedAt ?? null,
   };
+}
+
+// PR 实况：open PR 的最新 review 时间与失败检查。watching=true 只代表订阅存在，
+// 不代表事件真的唤醒了线程——必须拿 PR 最新结论时间和线程最后消息对账，
+// 才能发现「挂了监听但事件没投递到/投递后线程没醒」的漏唤醒。
+async function prLiveOf(pr) {
+  const m = String(pr).match(/^(.+?)(#\d+):open/);
+  if (!m) return null;
+  const repo = m[1];
+  const num = m[2].slice(1);
+  try {
+    const { execFileSync } = await import("node:child_process");
+    const out = execFileSync("gh", [
+      "pr", "view", num, "--repo", repo,
+      "--json", "reviews,statusCheckRollup",
+      "--jq", "{review:(.reviews|last|.submittedAt), comment:(.comments|last|.createdAt), failChecks:[.statusCheckRollup[]|select(.conclusion==\"FAILURE\")|.name], pendingChecks:[.statusCheckRollup[]|select(.conclusion==\"\")|.name]|length}",
+    ], { encoding: "utf8", timeout: 20000, stdio: ["pipe", "pipe", "pipe"] });
+    const r = JSON.parse(out || "{}");
+    return { repo, num, latestAt: r.review ?? r.comment ?? null, failChecks: r.failChecks ?? [], pendingChecks: r.pendingChecks ?? 0 };
+  } catch {
+    return null;
+  }
 }
 
 // 在跑线程的空转迹象：最近 30 个工具调用里有几种不同命令、距最后一条消息多少分钟。
@@ -140,8 +163,20 @@ async function snapshotEnv(env) {
         // 「PR open 但没挂监听」是高频故障，每轮都要显式采。
         const tail = await tailOf(env.isLocal ? null : env.environmentId, t);
         const livePrs = (await call("list_thread_pull_requests", { threadId: t.threadId, ...(env.isLocal ? {} : { environmentId: env.environmentId }) }).catch(() => null))?.pullRequests;
+        // 挂了监听的 open PR 仍要对账：订阅存在 ≠ 事件真的唤醒了线程。
+        // latestAt 晚于线程最后消息说明有新结论而线程没反应——标 (stale)，按「监听掉了」处理。
+        const lastMsgMs = Date.parse(tail.lastMsgAt ?? "") || 0;
         const prs = livePrs
-          ? livePrs.map((p) => `${p.repository}#${p.number}:${p.state}${p.watching === false ? "(unwatched)" : ""}`)
+          ? await Promise.all(
+              livePrs.map(async (p) => {
+                let tag = `${p.repository}#${p.number}:${p.state}${p.watching === false ? "(unwatched)" : ""}`;
+                if (p.state === "open" && p.watching !== false) {
+                  const live = await prLiveOf(tag);
+                  if (live?.latestAt && Date.parse(live.latestAt) > lastMsgMs) tag += "(stale)";
+                }
+                return tag;
+              }),
+            )
           : base.prs;
         return { ...base, prs, ...tail };
       } catch (e) {
