@@ -49,6 +49,13 @@ const clip = (s, n = CHARS) => {
   const t = String(s ?? "").replace(/\s+/g, " ").trim();
   return t.length > n ? `${t.slice(0, n)}…` : t;
 };
+// 尾部消息保留首尾：代理常在长汇报末尾才提问或说「等你合并」，只截开头会把这句截掉。
+const clipEnds = (s, n = CHARS) => {
+  const t = String(s ?? "").replace(/\s+/g, " ").trim();
+  if (t.length <= n) return t;
+  const head = Math.floor(n * 0.4);
+  return `${t.slice(0, head)} …[略]… ${t.slice(t.length - (n - head))}`;
+};
 const isReviewBot = (t) => /^代码审查 · PR #\d+/.test(t.title);
 const isSubagent = (t) => t.parentThreadId || t.threadId.startsWith("thread:delegated-task:");
 
@@ -74,7 +81,7 @@ async function tailOf(environmentId, t) {
     let after = Math.max(0, (t.itemCount ?? 0) - back);
     const items = [];
     for (let guard = 0; guard < 20; guard++) {
-      const r = await call("t3_thread_read", { threadId: t.threadId, afterPosition: after, limit: 50, maxCharsPerItem: CHARS, ...env });
+      const r = await call("t3_thread_read", { threadId: t.threadId, afterPosition: after, limit: 50, maxCharsPerItem: 20000, ...env });
       meta = r;
       items.push(...r.items);
       if (!r.hasMore || r.nextPosition == null) break;
@@ -91,7 +98,7 @@ async function tailOf(environmentId, t) {
     pendingRequestCount: meta.thread?.pendingRequestCount ?? 0,
     lastRunEndedAt: (meta.recentRuns ?? []).map((r) => r.completedAt ?? r.startedAt ?? r.requestedAt).filter(Boolean).sort().at(-1) ?? null,
     runs: (meta.recentRuns ?? []).slice(0, 3).map((r) => `${r.ordinal}:${r.status}${r.startedAt ? "" : "(未启动)"}@${r.completedAt ?? r.startedAt ?? r.requestedAt}`),
-    tail: msgs.slice(-TAIL).map((i) => `[${i.updatedAt?.slice(5, 16)} ${i.type === "user_message" ? (i.createdBy === "user" ? "用户" : "注入") : "代理"}] ${clip(i.text)}`),
+    tail: msgs.slice(-TAIL).map((i) => `[${i.updatedAt?.slice(5, 16)} ${i.type === "user_message" ? (i.createdBy === "user" ? "用户" : "注入") : "代理"}] ${clipEnds(i.text)}`),
   };
 }
 

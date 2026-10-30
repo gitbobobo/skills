@@ -7,7 +7,9 @@ description: 跨 T3 环境巡检未结线程：概括各线程在做什么，按
 
 ## 0. 认环境
 
-每次运行先调 `t3_environment_links`：返回里的 `environmentId` 是本机，`links` 是其他已连接环境。不可达的环境在报告里记一笔，本轮跳过。
+每次运行先用 `read` 重读本 SKILL.md：定时任务长驻同一线程，技能可能在两轮之间更新过，判定表以本轮读到的版本为准。对照表这类环境事实可以沿用上下文，规则不行。
+
+然后调 `t3_environment_links`：返回里的 `environmentId` 是本机，`links` 是其他已连接环境。不可达的环境在报告里记一笔，本轮跳过。
 
 交接时要知道每个环境是哪台设备。本线程之前的回复里已经有「环境对照表」、且环境集合没变，就直接沿用；没有表，或者环境有增减，就重新认一遍：
 
@@ -32,7 +34,7 @@ description: 跨 T3 环境巡检未结线程：概括各线程在做什么，按
 node <技能目录>/scripts/patrol-snapshot.mjs --self <本线程 id> > /tmp/t3-patrol-snapshot.json
 ```
 
-- 输出每个环境的 `activeTopLevel` 与 `occupying`（「收尾之后」第 3 步用的占用名额线程数与标题）和候选线程。候选线程已剔除子代理线程、「代码审查 · PR #N」线程（Fast Ship 平台自动触发、自动回收）和本线程；每个带 `link`、`status`、`updatedAt`、`prs`、最近 3 次 run、`pendingRequestCount`、`task`（首条用户消息）和 `tail`（最后 4 条消息，每条截到 600 字）；`status` 为 running 的另带空转迹象：`distinctRecentCommands`（最近 30 个工具调用里不同命令的个数）、`sampleCommand`、`minutesSinceLastMessage`。
+- 输出每个环境的 `activeTopLevel` 与 `occupying`（「收尾之后」第 3 步用的占用名额线程数与标题）和候选线程。候选线程已剔除子代理线程、「代码审查 · PR #N」线程（Fast Ship 平台自动触发、自动回收）和本线程；每个带 `link`、`status`、`updatedAt`、`prs`、最近 3 次 run、`pendingRequestCount`、`task`（首条用户消息）和 `tail`（最后 4 条消息，每条保留开头和结尾共 600 字：代理常在长汇报末尾才提问，结尾比开头重要）；`status` 为 running 的另带空转迹象：`distinctRecentCommands`（最近 30 个工具调用里不同命令的个数）、`sampleCommand`、`minutesSinceLastMessage`。
 - 用 `jq` 或 `read` 按环境分段读这个文件，不要整份 `cat`。某个线程的 `tail` 不够判断时，再单独用 `t3_thread_read` 补读那一个线程（`afterPosition` 取 `itemCount - 60`，`limit` 10，`maxCharsPerItem` 1500）。
 - 以往运行巡检的线程也会出现在候选里（标题含 t3-patrol 或巡检），判定时跳过。
 - 脚本退出码 2 表示缺 `T3_MCP_URL`/`T3_MCP_BEARER_TOKEN`：改用 `t3_thread_list`（`allProjects:true`、`settled:false`，按 `nextCursor` 翻完）和上面的 `t3_thread_read` 参数手工取证，取到的每条只记判定要用的字段。
@@ -58,9 +60,11 @@ node <技能目录>/scripts/patrol-snapshot.mjs --self <本线程 id> > /tmp/t3-
 | 正在运行，但在空转：`distinctRecentCommands` 小于 5，或 `minutesSinceLastMessage` 超过 60 | 先看重复的命令在查什么，能查到答案就自己查。陷入循环的 run 不一定理会插话：用 `t3_thread_interrupt` 打断当前 run，再用 `t3_thread_send`（`mode:"auto"`；打断后排队事件可能先唤醒它，消息会插进新 run）发「【巡检】你在重复执行同一类命令（例：<sampleCommand>），已打断。<查到的答案或判断>。下一步只做 <一件事>，不要再调查；同一条命令连续得到相同结果两次就换思路或下结论」 |
 | 正在运行（有活跃 run），且 `updatedAt` 在 30 分钟以内 | 不打扰 |
 | 上一条消息是 `【巡检】`，之后线程没有新的提交或实质进展 | 不再重复推，列进「需要你决定」，附上卡住的原因 |
+| 空等：PR 仍 open，线程已停（没有活跃 run）超过 30 分钟，且 PR 标了 `(unwatched)`，或最新 HEAD 上已没有在途的审查者和检查。这种线程不会再被任何事件唤醒，不能判「不打扰」或「已交付」 | 按尾部分流，一律发消息：已收敛（含「等你合并」「要不要合并」「已置 done」）→ 发「【巡检】使用 $pr-finish 技能收尾」，合并本线程自己的 PR 属于原任务范围；在问技术取舍或遗留项怎么办 → 按下面对应行作答；仍有未处理的审查意见 → 按「监听可能掉了」那行处理 |
 | 最近一次 run 是 failed / interrupted / cancelled，尾部是 `Connection error`、`model_usage_exhausted` 这类报错，或者没有活跃 run、最新 run 却停在 queued 超过 30 分钟 | 发「【巡检】继续」 |
 | 在等用户做**产品决策**：用户看得见的行为、文案、交互要改，需求和项目文档都没有给出答案 | 不代答，列进「需要你决定」，附上它给出的选项 |
 | 在请求原任务已经覆盖的授权：提交、推送、按模板建 PR、请求复审、重新挂监听 | 发「【巡检】同意，按原任务继续，后续同类步骤不用再问」 |
+| 在问遗留项怎么办（flaky、范围外缺陷、要不要跟进） | 发「【巡检】遗留项按性质处理：flaky 和基线问题记进仓库的登记文档（如 flaky 登记），之后统一处理；独立的问题在仓库用的问题追踪里各建一条（如 fast-ship issue），PR 汇报里附上链接；属于本需求后续段的才写交接提示词。处理完继续原流程」 |
 | 在问技术取舍（方案、范围、修在哪个 PR、要不要结构整改） | 发「【巡检】按根治方向：选长期更干净正确的方案，在当前 PR 内处理；拿不准就咨询方向顾问后自行推进（用 `route.mjs select --task design` 选人，第二位带 `--exclude-model`）」 |
 | 说在等 PR 审查，线程却没有关联这个 PR（`pullRequests` 为空或不含它），或快照里 PR 标了 `(unwatched)`：没有 PR 监听，审查结论到了也不会唤醒它 | 发「【巡检】本线程没有关联 PR #N，也没有挂 PR 监听，审查结论到了不会唤醒你。请用 `link_pull_request` 关联 <PR URL>，用 `watch_pull_request` 挂上审查与 CI 监听（工具不在列表里先用 tool_search 搜一次），然后立即重读最新审查意见与检查状态，按 pr-review-loop 继续」，PR 号从它最近的汇报里取。**巡逻线程本地有 `watch_pull_request` 时，直接代挂**（传 `threadId`+`environmentId`+`url`），比让远程线程自己找更可靠——它所在 harness 的工具集可能搜不到这个工具 |
 | 说在等审查或等子任务，但 PR 上在它最后一条消息之后已经有新的审查结论或 CI 结果，线程却没被唤醒 | 发「【巡检】监听可能掉了：重新读取最新审查意见与检查状态，按 pr-review-loop 继续，并重新挂上监听」 |
@@ -69,7 +73,7 @@ node <技能目录>/scripts/patrol-snapshot.mjs --self <本线程 id> > /tmp/t3-
 | 在等监听或子任务，没有过期迹象：线程已停（没有活跃 run）超过 30 分钟时，必须用 PR 实况证明还有审查者在途（最新 HEAD 上有审查者没出结论、且触发发出未超 40 分钟，或检查还在跑），否则按「停滞」处理 | 不打扰 |
 | 等某个审查者出结论，但触发已发出超过 40 分钟仍无结果（评论/review 区没有新条目、check 还是 `fail` 或 null），可能是触发没落上去或 bot 挂了 | 发「【巡检】<审查者>的复核似乎没回来（触发已过 X 分钟）。请 `gh pr checks` 确认检查状态；若仍无结果就重新触发一次，并说明如果长时间仍不回来就按收敛处理」 |
 | 停滞：线程已停超过 30 分钟，最后一条代理消息在问你、在等你的回复，或者说在等审查但 PR 上已经没有在途的审查者 | 先套上面各行（收敛→收尾、问技术取舍→按根治推进、问授权→同意）；都不适用才列进「需要你决定」，附上它在问什么 |
-| 没有 PR 的线程（排查、配置、问答、文档修改等；PR 已合并的不算），代理已经交付结论，用户还没回复 | 不打扰，列进报告的「已交付」一节，由用户自己决定是否 settle |
+| 没有 PR 的线程（排查、配置、问答、文档修改等；PR 已合并的不算；PR 仍 open 的走「空等」行），代理已经交付结论，用户还没回复 | 不打扰，列进报告的「已交付」一节，由用户自己决定是否 settle |
 
 **每轮都按本轮快照重新判定**。上一轮的报告、已发过的提醒和 PR 描述只是线索：判定一个线程前先看本轮快照里它的 `tail` 和最近 run，事实以最新一条代理消息为准。比如上一轮发过收敛审计、本轮 PR 描述里已有交付范围，只能说明路径落地了，不能说明线程还在推进。
 
@@ -87,8 +91,8 @@ node <技能目录>/scripts/patrol-snapshot.mjs --self <本线程 id> > /tmp/t3-
 
 2. **查重**：在目标环境用 `t3_thread_search` 搜 PR 号和来源线程 id，已有线程接过这段工作就跳过新建。
 3. **看容量**：远程环境拿不到负载和磁盘信息，以占用名额的线程数为准（快照里的 `activeTopLevel`，`occupying` 列出是哪些）。占用名额的是：有活跃 run 的顶层线程（含「代码审查 · PR #N」线程，不含子代理线程），以及 PR 仍 open、最近一次 run 在 2 小时内结束的线程——等审查的线程在两轮之间会暂时 completed，但工作树和编译资源还占着。PR 已合并或关闭（工作树已回收）、没有 PR 又没在跑的线程不占名额，所以来源线程本身通常不算。不要按 `updatedAt` 数，同步会批量刷新它。已达 5 个就本轮不建。目标是本机时另外跑 `df -h ~` 看剩余空间，不足 20 GB 也不建。满了就把这次交接记成「等待空位」：来源线程先不 settle，下一轮重新检查；同一环境有多个交接在等时，按来源线程收尾的先后顺序建，建到上限为止。
-4. **新建线程**：`t3_thread_launch` 带上目标环境的 `environmentId`；`projectId` 取目标环境里同一仓库的项目（`t3_thread_list` 找同仓库的近期线程，用它的 `projectId`）；`modelSelection` 取 `{instanceId:<该项目最近一个顶层线程的 providerInstanceId>, model:<它的 model>}`；`workspaceStrategy` 取 `{type:"worktree", baseRef:<仓库默认分支>, startFromOrigin:true}`；标题用一句话写清这段工作，用该项目以往标题的语言和写法。`message` 原样贴交接提示词，开头如有斜杠命令就保持在第一行，末尾另起一行写 `> 交接自 <来源线程 link>`。交接写的是多段接力（如「先发 A 设备，合并后换新 PR 号再发 B 设备」），本轮只建第一段，并在 message 末尾再加一行 `> 后续：合并后按同一提示词换新 PR 号交接给 <下一台设备>`，让新线程收尾时给出下一段的交接。
-5. **settle 来源线程**：交接线程建好，或者收尾汇报里本来就没有交接，就用 `t3_thread_organize`（`action:"settle"`，带来源环境的 `environmentId`）settle 来源线程。收尾汇报里提到的遗留事项照抄进报告，由用户决定要不要建 issue。
+4. **新建线程**（前提：第 3 步写出了目标环境的 `activeTopLevel`，且小于 5）：`t3_thread_launch` 带上目标环境的 `environmentId`；`projectId` 取目标环境里同一仓库的项目（`t3_thread_list` 找同仓库的近期线程，用它的 `projectId`）；`modelSelection` 取 `{instanceId:<该项目最近一个顶层线程的 providerInstanceId>, model:<它的 model>}`；`workspaceStrategy` 取 `{type:"worktree", baseRef:<仓库默认分支>, startFromOrigin:true}`；标题用一句话写清这段工作，用该项目以往标题的语言和写法。`message` 原样贴交接提示词，开头如有斜杠命令就保持在第一行，末尾另起一行写 `> 交接自 <来源线程 link>`。交接写的是多段接力（如「先发 A 设备，合并后换新 PR 号再发 B 设备」），本轮只建第一段，并在 message 末尾再加一行 `> 后续：合并后按同一提示词换新 PR 号交接给 <下一台设备>`，让新线程收尾时给出下一段的交接。
+5. **settle 来源线程**：交接线程建好，或者收尾汇报里本来就没有交接，就用 `t3_thread_organize`（`action:"settle"`，带来源环境的 `environmentId`）settle 来源线程。收尾汇报里提到的遗留事项照抄进报告，并写明各自去向（登记文档、新建 issue 链接、交接线程）；还没有去向的，先按「在问遗留项怎么办」那行发给来源线程，来源线程本轮不 settle。
 
 ## 4. 汇报
 
