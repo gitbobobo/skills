@@ -34,12 +34,12 @@ description: 跨 T3 环境巡检未结线程：概括各线程在做什么，按
 node <技能目录>/scripts/patrol-snapshot.mjs --self <本线程 id> > /tmp/t3-patrol-snapshot.json
 ```
 
-- 输出每个环境的 `activeTopLevel` 与 `occupying`（「收尾之后」第 3 步用的占用名额线程数与标题）和候选线程。候选线程已剔除子代理线程、「代码审查 · PR #N」线程（Fast Ship 平台自动触发、自动回收）和本线程；每个带 `link`、`status`、`updatedAt`、`prs`、最近 3 次 run、`pendingRequestCount`、`task`（首条用户消息）和 `tail`（最后 4 条消息，每条保留开头和结尾共 600 字：代理常在长汇报末尾才提问，结尾比开头重要）；`status` 为 running 的另带空转迹象：`distinctRecentCommands`（最近 30 个工具调用里不同命令的个数）、`sampleCommand`、`minutesSinceLastMessage`。
+- 输出每个环境的 `activeTopLevel` 与 `occupying`（「收尾之后」第 3 步用的占用名额线程数与标题）和候选线程清单 `environments[].candidates`（已剔除子代理线程、「代码审查 · PR #N」线程（Fast Ship 平台自动触发、自动回收）和本线程）；每个候选带 `link`、`status`、`updatedAt`、`prs`、最近 3 次 run、`pendingRequestCount`、`task`（首条用户消息）和 `tail`（最后 4 条消息，每条保留开头和结尾共 600 字：代理常在长汇报末尾才提问，结尾比开头重要）；`status` 为 running 的另带空转迹象：`distinctRecentCommands`（最近 30 个工具调用里不同命令的个数）、`sampleCommand`、`minutesSinceLastMessage`。
 - 用 `jq` 或 `read` 按环境分段读这个文件，不要整份 `cat`。某个线程的 `tail` 不够判断时，再单独用 `t3_thread_read` 补读那一个线程（`afterPosition` 取 `itemCount - 60`，`limit` 10，`maxCharsPerItem` 1500）。
 - 以往运行巡检的线程也会出现在候选里（标题含 t3-patrol 或巡检），判定时跳过。
 - 脚本退出码 2 表示缺 `T3_MCP_URL`/`T3_MCP_BEARER_TOKEN`：改用 `t3_thread_list`（`allProjects:true`、`settled:false`，按 `nextCursor` 翻完）和上面的 `t3_thread_read` 参数手工取证，取到的每条只记判定要用的字段。
 
-**完成标准**：每个可达环境都有快照，失败的环境或线程（`error` 字段）已用 MCP 工具补读或记进报告。
+**完成标准**：每个可达环境的 `candidates` 数组都已取出并数过个数（判定表要覆盖数组里每一个线程；拿到空数组前先确认字段名没读错）；带 `error` 的环境或线程已用 MCP 工具补读或记进报告。
 
 ## 2. 写清每个线程在做什么
 
@@ -61,7 +61,7 @@ node <技能目录>/scripts/patrol-snapshot.mjs --self <本线程 id> > /tmp/t3-
 | 正在运行（有活跃 run），且 `updatedAt` 在 30 分钟以内 | 不打扰 |
 | 上一条消息是 `【巡检】`，之后线程没有新的提交或实质进展 | 不再重复推，列进「需要你决定」，附上卡住的原因 |
 | 空等：PR 仍 open，线程已停（没有活跃 run）超过 30 分钟，且 PR 标了 `(unwatched)`，或最新 HEAD 上已没有在途的审查者和检查。这种线程不会再被任何事件唤醒，不能判「不打扰」或「已交付」 | 按尾部分流，一律发消息：已收敛（含「等你合并」「要不要合并」「已置 done」）→ 发「【巡检】使用 $pr-finish 技能收尾」，合并本线程自己的 PR 属于原任务范围；在问技术取舍或遗留项怎么办 → 按下面对应行作答；仍有未处理的审查意见 → 按「监听可能掉了」那行处理 |
-| 最近一次 run 是 failed / interrupted / cancelled，尾部是 `Connection error`、`model_usage_exhausted` 这类报错，或者没有活跃 run、最新 run 却停在 queued 超过 30 分钟 | 发「【巡检】继续」 |
+| 最近一次 run 是 failed / interrupted / cancelled，尾部是 `Connection error`、`model_usage_exhausted` 这类报错，或者没有活跃 run、最新 run 却停在 queued 超过 30 分钟 | 先看 `runs` 分流：**连续两个 run 都 failed**，或报错是上下文/额度耗尽类（`model_usage_exhausted`、context length、quota）——对同一个模型发「继续」只会原地再失败一次：先 `t3_thread_configure`（带 `threadId`、`environmentId`、`modelSelection`）给它换模型，`model` 取快照里同环境其他线程在用的，再发「【巡检】已切换模型到 <model>，继续：<一句恢复要点>」；换过模型仍失败才列「需要你决定」。其余瞬时失败发「【巡检】继续」 |
 | 在等用户做**产品决策**：用户看得见的行为、文案、交互要改，需求和项目文档都没有给出答案 | 不代答，列进「需要你决定」，附上它给出的选项 |
 | 在请求原任务已经覆盖的授权：提交、推送、按模板建 PR、请求复审、重新挂监听 | 发「【巡检】同意，按原任务继续，后续同类步骤不用再问」 |
 | 在问遗留项怎么办（flaky、范围外缺陷、要不要跟进） | 发「【巡检】遗留项按性质处理：flaky 和基线问题记进仓库的登记文档（如 flaky 登记），之后统一处理；独立的问题在仓库用的问题追踪里各建一条（如 fast-ship issue），PR 汇报里附上链接；属于本需求后续段的才写交接提示词。处理完继续原流程」 |
@@ -106,4 +106,4 @@ node <技能目录>/scripts/patrol-snapshot.mjs --self <本线程 id> > /tmp/t3-
 
 首次运行或环境有增减时，在报告开头附上环境对照表。
 
-最后单列一节「需要你决定」：只放产品决策、超出授权的动作、待确认的环境、交接目标定不下来的线程和重复推过仍不动的线程，每条写清楚需要用户回答什么。没有就写「无」。环境不可达、整个环境没有候选线程，各写一行带过。
+最后单列一节「需要你决定」：只放产品决策、超出授权的动作、待确认的环境、交接目标定不下来的线程和重复推过仍不动的线程，每条写清楚需要用户回答什么。没有就写「无」。环境不可达写一行带过；没有候选线程的环境写「<label>：0 个候选」，数量必须是从 `candidates` 数组数出来的，不是印象。

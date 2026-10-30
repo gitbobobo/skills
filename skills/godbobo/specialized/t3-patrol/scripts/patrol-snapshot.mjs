@@ -122,7 +122,7 @@ async function snapshotEnv(env) {
   const all = await listAll(env.isLocal ? null : env.environmentId);
   const top = all.filter((t) => !isSubagent(t));
   const candidates = top.filter((t) => !isReviewBot(t) && t.threadId !== SELF);
-  const threads = await Promise.all(
+  const enriched = await Promise.all(
     candidates.map(async (t) => {
       const base = {
         id: t.threadId,
@@ -145,7 +145,7 @@ async function snapshotEnv(env) {
   // 占用名额的线程：有活跃 run 的（含 Fast Ship 审查线程），或 PR 仍 open、最近 2 小时内跑过的（两轮审查之间
   // 线程会暂时 completed，但工作树和编译资源还占着）。PR 已合并/关闭、没有 PR 又没在跑的线程不占名额。
   // 不用 updatedAt：同步会批量刷新它。
-  const byId = new Map(threads.map((x) => [x.id, x]));
+  const byId = new Map(enriched.map((x) => [x.id, x]));
   const occupying = top.filter((t) => {
     if (LIVE.has(t.status)) return true;
     const prs = t.pullRequests ?? [];
@@ -155,7 +155,7 @@ async function snapshotEnv(env) {
   });
   const active = occupying.length;
   const occupyingTitles = occupying.map((t) => clip(t.title, 40));
-  return { environmentId: env.environmentId, label: env.label, activeTopLevel: active, occupying: occupyingTitles, threads };
+  return { environmentId: env.environmentId, label: env.label, activeTopLevel: active, occupying: occupyingTitles, candidates: enriched };
 }
 
 async function main() {
