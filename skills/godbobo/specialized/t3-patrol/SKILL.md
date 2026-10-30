@@ -45,7 +45,7 @@ node <技能目录>/scripts/patrol-snapshot.mjs --self <本线程 id> > /tmp/t3-
 
 1. `pendingRequestCount` 大于 0 时，用 `t3_pending_request`（`action:"list"`，带 `threadId` 和 `environmentId`）读出待答问题。
 2. 从 `task` 和 `tail` 里，用一句**具体的话**写清它在做什么：哪个 issue/PR、要解决什么问题（例如「PR #636：把 Android 的 test-hygiene 门禁对齐到桌面和 OHOS」）。只写「实施 Fast Ship 问题 157d51e8」这种话，用户没法判断。
-3. 怀疑监听掉了时才查 PR，只取最新一条审查和评论的时间，和线程最后一条消息比较：`gh pr view <N> --repo <owner/repo> --json headRefOid,reviews,comments,statusCheckRollup --jq '{head:.headRefOid, review:(.reviews|last|.submittedAt), comment:(.comments|last|.createdAt), checks:[.statusCheckRollup[]|.conclusion]|unique}'`。
+3. 有 PR 且需要查实况时（包括所有「自称在等审查」的线程，快照 `prs` 里的 `(unwatched)` 标记只覆盖监听状态，不说明还有没有审查者在途）：`gh pr view <N> --repo <owner/repo> --json headRefOid,reviews,comments,statusCheckRollup --jq '{head:.headRefOid, review:(.reviews|last|.submittedAt), comment:(.comments|last|.createdAt), checks:[.statusCheckRollup[]|.conclusion]|unique}'`，和线程最后一条消息比较。代理自称在等不能当证据——「等审查」是靠事件唤醒的机制，判断它正不正常必须看实况。
 
 ## 3. 判定并行动
 
@@ -70,7 +70,7 @@ node <技能目录>/scripts/patrol-snapshot.mjs --self <本线程 id> > /tmp/t3-
 | 说在等审查或等子任务，但 PR 上在它最后一条消息之后已经有新的审查结论或 CI 结果，线程却没被唤醒 | 发「【巡检】监听可能掉了：重新读取最新审查意见与检查状态，按 pr-review-loop 继续，并重新挂上监听」 |
 | PR 已经收敛：最新 HEAD 上所有在等的审查者都给出了通过结论、检查全绿，主代理在等合并或收尾。尾部出现「交还给你」「要不要 unwatch」「等你合并」这类话也算；英文线程里 `ready for merge`、`waiting for merge`、`converged`、总结收尾清单（What was done / Final state）同样算收敛信号——CONFLICTING 只是 main 前进的计数/文档冲突也按收敛处理 | 发「【巡检】使用 $pr-finish 技能收尾」 |
 | PR 已合并，`$pr-finish` 已跑完（尾部是收尾汇报，或后续消息里给过交接提示词） | 按下节「收尾之后」交接并 settle。PR 已合并的线程一律走这一行，不归入「已交付」；它上一轮被记为「等待空位」也是这一行，每轮重新看容量 |
-| 在等监听或子任务，没有过期迹象：线程已停（没有活跃 run）超过 30 分钟时，必须用 PR 实况证明还有审查者在途（最新 HEAD 上有审查者没出结论、且触发发出未超 40 分钟，或检查还在跑），否则按「停滞」处理 | 不打扰 |
+| 在等监听或子任务：先核 PR 实况——`prs` 标 `(unwatched)` 的先按「代挂监听」那行处理，再核审查者在不在途。有审查者在途（最新 HEAD 上有审查者没出结论、触发未超 40 分钟，或检查还在跑）→ 不打扰；没有 → 按「停滞」处理 | 不打扰 |
 | 等某个审查者出结论，但触发已发出超过 40 分钟仍无结果（评论/review 区没有新条目、check 还是 `fail` 或 null），可能是触发没落上去或 bot 挂了 | 发「【巡检】<审查者>的复核似乎没回来（触发已过 X 分钟）。请 `gh pr checks` 确认检查状态；若仍无结果就重新触发一次，并说明如果长时间仍不回来就按收敛处理」 |
 | 停滞：线程已停超过 30 分钟，最后一条代理消息在问你、在等你的回复，或者说在等审查但 PR 上已经没有在途的审查者 | 先套上面各行（收敛→收尾、问技术取舍→按根治推进、问授权→同意）；都不适用才列进「需要你决定」，附上它在问什么 |
 | 没有 PR 的线程（排查、配置、问答、文档修改等；PR 已合并的不算；PR 仍 open 的走「空等」行），代理已经交付结论，用户还没回复 | 不打扰，列进报告的「已交付」一节，由用户自己决定是否 settle |

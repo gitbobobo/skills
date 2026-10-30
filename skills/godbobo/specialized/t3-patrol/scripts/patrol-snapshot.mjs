@@ -136,7 +136,14 @@ async function snapshotEnv(env) {
         prs: (t.pullRequests ?? []).map((p) => `${p.repository}#${p.number}:${p.state}${p.watching === false ? "(unwatched)" : ""}`),
       };
       try {
-        return { ...base, ...(await tailOf(env.isLocal ? null : env.environmentId, t)) };
+        // watching 状态以 list_thread_pull_requests 为准：t3_thread_list 的快照字段会漏标，
+        // 「PR open 但没挂监听」是高频故障，每轮都要显式采。
+        const tail = await tailOf(env.isLocal ? null : env.environmentId, t);
+        const livePrs = (await call("list_thread_pull_requests", { threadId: t.threadId, ...(env.isLocal ? {} : { environmentId: env.environmentId }) }).catch(() => null))?.pullRequests;
+        const prs = livePrs
+          ? livePrs.map((p) => `${p.repository}#${p.number}:${p.state}${p.watching === false ? "(unwatched)" : ""}`)
+          : base.prs;
+        return { ...base, prs, ...tail };
       } catch (e) {
         return { ...base, error: String(e.message ?? e) };
       }
