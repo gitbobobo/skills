@@ -140,6 +140,14 @@ async function spinOf(environmentId, t, lastMsgAt) {
   };
 }
 
+// 监听体检：open PR 却不再监听的，事件到了也不会唤醒它。线程收轮时 unwatch 是常态，
+// 靠人眼在摘要里交叉判定会漏（PR #687 就是这么漏的），所以显式算成字段；
+// 正在跑的也算（代挂不改变线程状态，提前挂上避免它收轮后掉进没人唤醒的窗口）。
+function needsWatchOf(prs) {
+  const unwatched = (prs ?? []).filter((p) => p.includes(":open(unwatched)"));
+  return unwatched.length ? { needsWatch: true, needsWatchPrs: unwatched } : { needsWatch: false };
+}
+
 async function snapshotEnv(env) {
   const now = Date.now();
   const all = await listAll(env.isLocal ? null : env.environmentId);
@@ -178,7 +186,7 @@ async function snapshotEnv(env) {
               }),
             )
           : base.prs;
-        return { ...base, prs, ...tail };
+        return { ...base, prs, ...tail, ...needsWatchOf(prs) };
       } catch (e) {
         return { ...base, error: String(e.message ?? e) };
       }
