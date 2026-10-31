@@ -34,7 +34,7 @@ description: 跨 T3 环境巡检未结线程：概括各线程在做什么，按
 node <技能目录>/scripts/patrol-snapshot.mjs --self <本线程 id> > /tmp/t3-patrol-snapshot.json
 ```
 
-- 输出每个环境的 `activeTopLevel` 与 `occupying`（「收尾之后」第 3 步用的占用名额线程数与标题）和候选线程清单 `environments[].candidates`（已剔除子代理线程、「代码审查 · PR #N」线程（Fast Ship 平台自动触发、自动回收）和本线程）；每个候选带 `link`、`status`、`updatedAt`、`prs`、`lastMsgAt`、最近 3 次 run、`pendingRequestCount`、`task`（首条用户消息）和 `tail`（最后 4 条消息，每条保留开头和结尾共 600 字：代理常在长汇报末尾才提问，结尾比开头重要）；`status` 为 running 的另带空转迹象：`distinctRecentCommands`（最近 30 个工具调用里不同命令的个数）、`sampleCommand`、`minutesSinceLastMessage`。`prs` 里除 `(unwatched)` 外还可能标 `(stale)`——挂了监听的 open PR 上、最新 review/评论时间晚于线程 `lastMsgAt`，说明新结论到了而线程没醒，按「监听掉了」那行处理（订阅存在 ≠ 事件真的唤醒了线程，必须对账）。`needsWatch` 为 true 的候选（有 open PR 却 `(unwatched)`，不论是否在跑）列在 `needsWatchPrs` 里，见下节「监听体检」。
+- 输出每个环境的 `activeTopLevel` 与 `occupying`（「收尾之后」第 3 步用的占用名额线程数与标题）和候选线程清单 `environments[].candidates`（已剔除子代理线程、「代码审查 · PR #N」线程（Fast Ship 平台自动触发、自动回收）和本线程）；每个候选带 `link`、`status`、`updatedAt`、`prs`、`lastMsgAt`、最近 3 次 run、`pendingRequestCount`、`task`（首条用户消息）和 `tail`（最后 4 条消息，每条保留开头和结尾共 600 字：代理常在长汇报末尾才提问，结尾比开头重要）；`status` 为 running 的另带空转迹象：`distinctRecentCommands`（最近 30 个工具调用里不同命令的个数）、`sampleCommand`、`minutesSinceLastMessage`。`prs` 里除 `(unwatched)` 外还可能标 `(stale)`——挂了监听的 open PR 上、最新 review/评论时间晚于线程 `lastMsgAt`，说明新结论到了而线程没醒，按「监听掉了」那行处理（订阅存在 ≠ 事件真的唤醒了线程，必须对账）。`needsWatch` 为 true 的候选（有 open PR 却 `(unwatched)`，不论是否在跑）列在 `needsWatchPrs` 里，见下节「监听体检」。`needsConvergenceAudit` 为 true 的候选（PR 开了 >48h 或审查轮次 >20，且 24h 内仍有 P0–P2 行内意见）列在 `convergenceAuditPrs` 里，带现成的时长/轮次/当日 P0–P2 条数，直接当审计取证的题头用。
 - 用 `jq` 或 `read` 按环境分段读这个文件，不要整份 `cat`。某个线程的 `tail` 不够判断时，再单独用 `t3_thread_read` 补读那一个线程（`afterPosition` 取 `itemCount - 60`，`limit` 10，`maxCharsPerItem` 1500）。
 - 以往运行巡检的线程也会出现在候选里（标题含 t3-patrol 或巡检），判定时跳过。
 - 脚本退出码 2 表示缺 `T3_MCP_URL`/`T3_MCP_BEARER_TOKEN`：改用 `t3_thread_list`（`allProjects:true`、`settled:false`，按 `nextCursor` 翻完）和上面的 `t3_thread_read` 参数手工取证，取到的每条只记判定要用的字段。
@@ -60,9 +60,9 @@ node <技能目录>/scripts/patrol-snapshot.mjs --self <本线程 id> > /tmp/t3-
 | 现状 | 动作 |
 | --- | --- |
 | 本线程收到过「【巡检】收敛审计」，但之后 PR 描述里仍没有「交付范围」一节，或者它仍在逐条修审计划为范围外的意见（审计只交了建议、没有执行） | 第一次：发「【巡检】收敛路径没有落地：<它审计时定的范围与拆分结论>，但 PR 描述未更新、<仍在修的范围外意见>。这些拆分不涉及产品决策，由你直接执行，不要等我确认：本轮内按 pr-review-loop 把交付范围写进 PR 描述、拆出范围外改动、在账本记下收敛路径，然后再处理审查意见；范围外意见一律按 Consider 回复」。再次命中就列进「需要你决定」 |
-| PR 开了超过 48 小时，或审查超过 20 轮，最近 24 小时仍有新的 P0–P2 行内意见，且本线程 24 小时内没收到过「【巡检】收敛审计」 | 先取证：统计非本账号行内意见按文件和日期的分布（`gh api --paginate repos/<owner>/<repo>/pulls/<N>/comments --jq '.[]\|[.created_at[0:10],.path]\|@tsv'`），再看 PR 规模和标题。发「【巡检】收敛审计：<开了多久、多少意见、集中在哪些文件、最近的意见长什么样>。请暂停逐条修复，按 pr-review-loop 方向审计的定性（有限清单/开放反例/范围扩张）重新判断；定性后本轮内直接把路径落地（PR 描述写交付范围、拆出范围外改动、账本记收敛路径），不要只给建议、不要等我确认，落地后再继续处理审查意见」；你有倾向的判断也写进去。报告里单列 |
+| 快照 `needsConvergenceAudit` 为 true（PR 开了超过 48 小时或审查超过 20 轮，且 24 小时内仍有 P0–P2 行内意见），且本线程 24 小时内没收到过「【巡检】收敛审计」 | 数字直接取 `convergenceAuditPrs`（时长/轮次/条数），再补取证：统计非本账号行内意见按文件和日期的分布（`gh api --paginate repos/<owner>/<repo>/pulls/<N>/comments --jq '.[]\|[.created_at[0:10],.path]\|@tsv'`），再看 PR 规模和标题。发「【巡检】收敛审计：<开了多久、多少意见、集中在哪些文件、最近的意见长什么样>。请暂停逐条修复，按 pr-review-loop 方向审计的定性（有限清单/开放反例/范围扩张）重新判断；定性后本轮内直接把路径落地（PR 描述写交付范围、拆出范围外改动、账本记收敛路径），不要只给建议、不要等我确认，落地后再继续处理审查意见」；你有倾向的判断也写进去。报告里单列 |
 | 正在运行，但在空转：`distinctRecentCommands` 小于 5，或 `minutesSinceLastMessage` 超过 60 | 先看重复的命令在查什么，能查到答案就自己查。陷入循环的 run 不一定理会插话：用 `t3_thread_interrupt` 打断当前 run，再用 `t3_thread_send`（`mode:"auto"`；打断后排队事件可能先唤醒它，消息会插进新 run）发「【巡检】你在重复执行同一类命令（例：<sampleCommand>），已打断。<查到的答案或判断>。下一步只做 <一件事>，不要再调查；同一条命令连续得到相同结果两次就换思路或下结论」 |
-| 正在运行（有活跃 run），且 `updatedAt` 在 30 分钟以内 | 不打扰 |
+| 正在运行（有活跃 run），且 `updatedAt` 在 30 分钟以内 | 不打扰，但仅限 `needsConvergenceAudit` 不为 true 时——久审不收敛的线程恰恰“看起来最健康”（一直在跑、一直有新结论），旧规则下它们永远命中这一档、从未被审计过 |
 | 上一条消息是 `【巡检】`，之后线程没有新的提交或实质进展 | 不再重复推，列进「需要你决定」，附上卡住的原因 |
 | 空等：PR 仍 open，线程已停（没有活跃 run）超过 30 分钟，且最新 HEAD 上已没有在途的审查者和检查（`needsWatch` 的监听缺口已在前置体检里代挂，这里只看审查实况）。这种线程不会再被任何事件唤醒，不能判「不打扰」或「已交付」 | 按尾部分流，一律发消息：已收敛（含「等你合并」「要不要合并」「已置 done」）→ 发「【巡检】使用 $pr-finish 技能收尾」，合并本线程自己的 PR 属于原任务范围；在问技术取舍或遗留项怎么办 → 按下面对应行作答；仍有未处理的审查意见 → 按「监听可能掉了」那行处理 |
 | 最近一次 run 是 failed / interrupted / cancelled，尾部是 `Connection error`、`model_usage_exhausted` 这类报错，或者没有活跃 run、最新 run 却停在 queued 超过 30 分钟 | 先看 `runs` 分流：**连续两个 run 都 failed**，或报错是上下文/额度耗尽类（`model_usage_exhausted`、context length、quota）——对同一个模型发「继续」只会原地再失败一次：先 `t3_thread_configure`（带 `threadId`、`environmentId`、`modelSelection`）给它换模型，`model` 优先用户指定为备用的额度稳定型号（`cliproxyapi/deepseek-v4.1-flash`），否则取快照里同环境其他线程在用的；同一轮多个线程因额度失败时统一换成同一个，不要逐个试，再发「【巡检】已切换模型到 <model>，继续：<一句恢复要点>」；换过模型仍失败才列「需要你决定」。其余瞬时失败发「【巡检】继续」 |
@@ -83,7 +83,7 @@ node <技能目录>/scripts/patrol-snapshot.mjs --self <本线程 id> > /tmp/t3-
 
 **拿不准时**：「需要你决定」是例外出口，不是默认归宿——先按上一行那套规则找依据，有依据就定案并落地。规则之间冲突、或者要改用户可见的行为又没有任何先例可循，才交给用户。授权超出原任务（合并原任务之外的 PR、删数据、动生产环境、往主分支直推）一律交给用户。
 
-**完成标准**：候选清单上每个线程都有一个判定和一个动作（「不打扰」也算），`needsWatch` 为 true 的都已代挂监听，发出的每条消息都已成功返回。
+**完成标准**：候选清单上每个线程都有一个判定和一个动作（「不打扰」也算），`needsWatch` 为 true 的都已代挂监听，`needsConvergenceAudit` 为 true 的都发了收敛审计（或已有审计在落地中），发出的每条消息都已成功返回。
 
 ### 收尾之后
 

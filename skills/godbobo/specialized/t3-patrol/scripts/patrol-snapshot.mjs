@@ -19,6 +19,8 @@ const CHARS = Number(opt("chars", 600));
 const ACTIVE_MS = 2 * 3600 * 1000; // 有在审 PR 的线程，最近一次 run 结束多久内仍算占用
 const LIVE = new Set(["preparing", "queued", "starting", "running", "waiting"]);
 
+const DEBUG = !!process.env.T3_PATROL_DEBUG;
+
 const URL_ = process.env.T3_MCP_URL;
 const TOKEN = process.env.T3_MCP_BEARER_TOKEN;
 
@@ -103,26 +105,67 @@ async function tailOf(environmentId, t) {
   };
 }
 
-// PR 实况：open PR 的最新 review 时间与失败检查。watching=true 只代表订阅存在，
-// 不代表事件真的唤醒了线程——必须拿 PR 最新结论时间和线程最后消息对账，
+// PR 实况：open PR 的最新 review 时间、失败检查，以及“审了多久 / 多少轮 / 今天还在冒意见”这组收敛信号。
+// watching=true 只代表订阅存在，不代表事件真的唤醒了线程——必须拿 PR 最新结论时间和线程最后消息对账，
 // 才能发现「挂了监听但事件没投递到/投递后线程没醒」的漏唤醒。
+// 轮次/时长/当日行内意见过去全靠每轮现算，结果是不算（线程看起来一直在动就当成健康），
+// 久审不收敛的线程因此从未被审计过——这里算成字段，让异常自己冒出来。
+const ROUNDS_JQ =
+  '{createdAt, review:(.reviews|last|.submittedAt), comment:(.comments|last|.createdAt),' +
+  ' rounds:([((.reviews[]?.body // ""), (.comments[]?.body // "")) | try (capture("第\\\\s*(?<n>[0-9]+)\\\\s*轮").n) catch null, try (capture("[Rr]ound\\\\s*(?<n>[0-9]+)").n) catch null] | map(select(. != null) | tonumber) | max),' +
+  ' failChecks:[.statusCheckRollup[]|select(.conclusion=="FAILURE")|.name], pendingChecks:[.statusCheckRollup[]|select(.conclusion=="")|.name]|length}';
+
 async function prLiveOf(pr) {
-  const m = String(pr).match(/^(.+?)(#\d+):open/);
+  const m = String(pr).match(/^(.+?)#(\d+):open/);
   if (!m) return null;
   const repo = m[1];
-  const num = m[2].slice(1);
+  const num = m[2];
+  const { execFileSync } = await import("node:child_process");
+  const gh = (args) => execFileSync("gh", args, { encoding: "utf8", timeout: 30000, maxBuffer: 64 * 1024 * 1024, stdio: ["pipe", "pipe", "pipe"] });
+  let base;
   try {
-    const { execFileSync } = await import("node:child_process");
-    const out = execFileSync("gh", [
-      "pr", "view", num, "--repo", repo,
-      "--json", "reviews,statusCheckRollup",
-      "--jq", "{review:(.reviews|last|.submittedAt), comment:(.comments|last|.createdAt), failChecks:[.statusCheckRollup[]|select(.conclusion==\"FAILURE\")|.name], pendingChecks:[.statusCheckRollup[]|select(.conclusion==\"\")|.name]|length}",
-    ], { encoding: "utf8", timeout: 20000, stdio: ["pipe", "pipe", "pipe"] });
-    const r = JSON.parse(out || "{}");
-    return { repo, num, latestAt: r.review ?? r.comment ?? null, failChecks: r.failChecks ?? [], pendingChecks: r.pendingChecks ?? 0 };
-  } catch {
+    base = JSON.parse(gh(["pr", "view", num, "--repo", repo, "--json", "createdAt,reviews,comments,statusCheckRollup", "--jq", ROUNDS_JQ]) || "{}");
+  } catch (e) {
+    if (DEBUG) console.error("pr view failed", pr, String(e.message ?? e).slice(0, 300));
     return null;
   }
+  const openHours = base.createdAt ? Math.round((Date.now() - Date.parse(base.createdAt)) / 36000) / 100 : null;
+  // 行内意见单独走 API：review 的 body 不包含行内意见。只翻最后几页（关心的是 24h 内），
+  // 一页全部早于窗口就停；统计在 gh 端用 jq 做完，避免大输出撑爆缓冲区（曾因 ENOBUFS 静默丢统计）。
+  let inline24h = null;
+  let inlineP0P2 = null;
+  try {
+    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const total = Number(gh(["api", `repos/${repo}/pulls/${num}`, "--jq", ".review_comments"]).trim()) || 0;
+    const lastPage = Math.max(1, Math.ceil(total / 100));
+    const pageJq = `{n:length, oldest:(.[0].created_at), n24:([.[]|select(.created_at > "${since}")]|length), p0p2:([.[]|select(.created_at > "${since}")|select((.body // "")|test("\\\\bP[0-2]\\\\b"))]|length)}`;
+    let n24 = 0;
+    let p0p2 = 0;
+    for (let page = lastPage; page > Math.max(0, lastPage - 5); page--) {
+      const r = JSON.parse(gh(["api", `repos/${repo}/pulls/${num}/comments?per_page=100&page=${page}`, "--jq", pageJq]) || "{}");
+      n24 += r.n24 ?? 0;
+      p0p2 += r.p0p2 ?? 0;
+      if (!r.n || (r.oldest && r.oldest <= since)) break;
+    }
+    if (DEBUG) console.error("health", pr, { total, n24, p0p2 });
+    inline24h = n24;
+    inlineP0P2 = p0p2;
+  } catch (e) {
+    if (DEBUG) console.error("inline stats failed", pr, String(e.message ?? e).slice(0, 300));
+  }
+  const reviewRounds = base.rounds ?? null;
+  return {
+    repo,
+    num: Number(num),
+    latestAt: base.review ?? base.comment ?? null,
+    failChecks: base.failChecks ?? [],
+    pendingChecks: base.pendingChecks ?? 0,
+    openHours,
+    reviewRounds,
+    inline24h,
+    inlineP0P2,
+    needsConvergenceAudit: Boolean(((openHours ?? 0) > 48 || (reviewRounds ?? 0) > 20) && (inlineP0P2 ?? 0) > 0),
+  };
 }
 
 // 在跑线程的空转迹象：最近 30 个工具调用里有几种不同命令、距最后一条消息多少分钟。
@@ -146,6 +189,17 @@ async function spinOf(environmentId, t, lastMsgAt) {
 function needsWatchOf(prs) {
   const unwatched = (prs ?? []).filter((p) => p.includes(":open(unwatched)"));
   return unwatched.length ? { needsWatch: true, needsWatchPrs: unwatched } : { needsWatch: false };
+}
+
+// 久审未收敛：开放时长或轮次越线、且 24 小时内还有 P0–P2 行内意见。
+// 这类线程看起来最健康（一直在跑、一直有新结论），却正是最该发收敛审计的。
+function convergenceOf(health) {
+  const hit = (health ?? []).filter((h) => h?.needsConvergenceAudit);
+  if (!hit.length) return { needsConvergenceAudit: false };
+  return {
+    needsConvergenceAudit: true,
+    convergenceAuditPrs: hit.map((h) => `#${h.num}(${h.openHours}h/${h.reviewRounds ?? "?"}轮/${h.inlineP0P2}条P0-P2@24h/${h.repo})`),
+  };
 }
 
 async function snapshotEnv(env) {
@@ -174,19 +228,21 @@ async function snapshotEnv(env) {
         // 挂了监听的 open PR 仍要对账：订阅存在 ≠ 事件真的唤醒了线程。
         // latestAt 晚于线程最后消息说明有新结论而线程没反应——标 (stale)，按「监听掉了」处理。
         const lastMsgMs = Date.parse(tail.lastMsgAt ?? "") || 0;
+        const health = [];
         const prs = livePrs
           ? await Promise.all(
               livePrs.map(async (p) => {
                 let tag = `${p.repository}#${p.number}:${p.state}${p.watching === false ? "(unwatched)" : ""}`;
-                if (p.state === "open" && p.watching !== false) {
-                  const live = await prLiveOf(tag);
-                  if (live?.latestAt && Date.parse(live.latestAt) > lastMsgMs) tag += "(stale)";
-                }
+                if (p.state !== "open") return tag;
+                const live = await prLiveOf(tag);
+                if (!live) return tag;
+                health.push(live);
+                if (p.watching !== false && live.latestAt && Date.parse(live.latestAt) > lastMsgMs) tag += "(stale)";
                 return tag;
               }),
             )
           : base.prs;
-        return { ...base, prs, ...tail, ...needsWatchOf(prs) };
+        return { ...base, prs, ...tail, ...needsWatchOf(prs), ...convergenceOf(health) };
       } catch (e) {
         return { ...base, error: String(e.message ?? e) };
       }
