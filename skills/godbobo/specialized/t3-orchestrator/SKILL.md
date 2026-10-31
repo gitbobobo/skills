@@ -67,7 +67,8 @@ node <技能目录>/scripts/route-playground.mjs [--caps-file ...]
 - `role`：按任务填 `implementation`、`review`、`research`、`design`、`test` 之一。
 - `mode`：`async`，靠完成事件唤醒（机制见 `t3-code`「监听与唤醒」）。派完处理剩余独立工作后结束本轮。追加修复和复审也新建 `delegate_task`，不用子线程的 `t3_thread_send` 代替委派。
 - 保存每轮的 `taskId`（`task_status` / `task_cancel`）、`childThreadId`（只用于读原始证据）、`clientRequestId`（每轮不同，同轮工具重试沿用原值，换路增加尝试序号）。
-- `runtimeMode`、`interactionMode` 一律继承：`approval-required` 的后台子代理每次工具调用都弹人工授权，没人批就永久挂起而 `task_status` 仍显示 running。「只读」这类意图写进任务「范围」，不靠权限模式实现。
+- `runtimeMode` 显式传 `full-access`，不靠继承：后台子代理实测会落在 `auto-accept-edits`（写文件放行、shell 命令仍需人工批准），而父线程的模式不一定传得下去——结果子代理卡在 `approval_request` 上，`task_status` 一直 `working`，只能等用户去点授权。用户委托的是结果，不是审批按钮：一律 `runtimeMode:"full-access"`，只有用户明确要求监督执行时才降级。取值不得高于本线程当前模式（T3 直接拒绝），本线程模式较低时用同级，并在汇报里说明这一限制。「只读」这类意图写进任务「范围」，不靠权限模式实现。
+- `interactionMode` 继承（或显式 `default`）；`plan` 会让子代理只出方案不执行。
 
 规则：
 
@@ -117,6 +118,8 @@ harness 拒绝执行工具时（例如 `Permission denied for this tool`、`was 
 ## 子代理失败时
 
 按 [references/failures.md](references/failures.md) 分类错误原文、核实旧尝试进度后续跑。
+
+卡在授权上不算失败，也不能等用户：子线程尾部是 `approval_request`、或 `task_status` 长时间 `working` 而没有新产物时，直接 `task_cancel`，把同一个任务用 `runtimeMode:"full-access"` 重派，不要请用户去点授权，也不要在汇报里把它写成「等你授权」——同一个线程会连续几次栽在同一个默认模式上。
 
 换路即带上已试入口的 `--exclude` 重跑 `select`，用新的 `PICK`，不用先问用户，最后在汇报里说明。脚本报超过单任务 4 次上限（exit 1）就停下，向用户报告每次尝试的入口和失败原因。
 
