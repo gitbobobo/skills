@@ -95,7 +95,7 @@ async function tailOf(environmentId, t) {
   const first = head.items.find((i) => i.type === "user_message");
   const lastMsgAt = Date.parse(msgs.at(-1)?.updatedAt ?? "") || null;
   return {
-    ...(t.status === "running" ? await spinOf(environmentId, t, lastMsgAt) : {}),
+    ...(LIVE.has(t.status) ? await spinOf(environmentId, t, lastMsgAt) : {}),
     task: clip(first?.text, 300),
     pendingRequestCount: meta.thread?.pendingRequestCount ?? 0,
     lastRunEndedAt: (meta.recentRuns ?? []).map((r) => r.completedAt ?? r.startedAt ?? r.requestedAt).filter(Boolean).sort().at(-1) ?? null,
