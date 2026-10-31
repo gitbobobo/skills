@@ -1016,10 +1016,14 @@ API Key 管理（仅 JWT）
 | `items[].description` | string | 是 |  |
 | `items[].github_owner` | string | 是 |  |
 | `items[].github_repo` | string | 是 |  |
+| `items[].repository_url` | string（可空） | 是 | 公开仓页面地址（INT-166）。无公开仓（owner/repo 缺一）为 null；github_host='github.com' 为 https://github.com/{owner}/{repo}，空串（本部署 GitHub/GHE）按部署 GitHub Web 基址拼。编辑表单据此回填，不自行拼主机 |
 | `items[].code_github_owner` | string | 是 | 代码仓库（PR 审查用）owner；未单独配置为空串，表示与公开仓库相同 |
 | `items[].code_github_repo` | string | 是 | 代码仓库（PR 审查用）repo 名；未单独配置为空串，表示与公开仓库相同 |
 | `items[].public_github_token_id` | string | 是 | 公开仓库 Token 引用；未配置为空串 |
 | `items[].code_github_token_id` | string | 是 | 代码仓库 Token 引用；未配置为空串 |
+| `items[].code_integration_id` | string（可空） | 是 | 代码仓集成引用（INT-166）；null 或空串 = 内置 github-default。写入接线由后续任务完成，本期只随响应带出 |
+| `items[].public_integration_id` | string（可空） | 是 | 公开仓库集成引用（INT-166）；null 或空串 = 内置 github-default。写入接线由后续任务完成，本期只随响应带出 |
+| `items[].code_repo_url` | string（可空） | 是 | 代码仓页面地址（INT-166）。无代码仓（owner/repo 缺一）为 null；内置 github 集成为 https://github.com/{owner}/{repo}；forgejo 集成为 {base_url}/{owner}/{repo}；绑定的集成行已删除时为 null（不回落 github.com，避免私有仓库地址外发） |
 | `items[].latest_version` | object | 否 | omitempty，仅在列表项中出现 |
 | `items[].latest_version.id` | string | 是 |  |
 | `items[].latest_version.version_number` | string | 是 |  |
@@ -1037,6 +1041,9 @@ API Key 管理（仅 JWT）
 | `items[].issue_sync.last_synced_at` | string（date-time） | 否 | omitempty |
 | `items[].issue_sync.last_successful_sync_at` | string（date-time） | 否 | omitempty |
 | `items[].issue_sync.last_error` | string | 是 |  |
+| `items[].shelved_at` | string（date-time，可空） | 是 | 搁置开始时间；null 表示未搁置（INT-165） |
+| `items[].shelved_until` | string（date-time，可空） | 是 | 搁置截止时间；null 表示无限期或未搁置（INT-165） |
+| `items[].is_shelved` | boolean | 是 | 响应生成时刻是否处于搁置中；到期自动恢复，无后台任务（INT-165） |
 | `items[].created_at` | string（date-time） | 是 |  |
 | `items[].updated_at` | string（date-time） | 是 |  |
 | `total` | integer（int64） | 是 | 符合条件的总条数 |
@@ -1084,10 +1091,14 @@ API Key 管理（仅 JWT）
 | `description` | string | 是 |  |
 | `github_owner` | string | 是 |  |
 | `github_repo` | string | 是 |  |
+| `repository_url` | string（可空） | 是 | 公开仓页面地址（INT-166）。无公开仓（owner/repo 缺一）为 null；github_host='github.com' 为 https://github.com/{owner}/{repo}，空串（本部署 GitHub/GHE）按部署 GitHub Web 基址拼。编辑表单据此回填，不自行拼主机 |
 | `code_github_owner` | string | 是 | 代码仓库（PR 审查用）owner；未单独配置为空串，表示与公开仓库相同 |
 | `code_github_repo` | string | 是 | 代码仓库（PR 审查用）repo 名；未单独配置为空串，表示与公开仓库相同 |
 | `public_github_token_id` | string | 是 | 公开仓库 Token 引用；未配置为空串 |
 | `code_github_token_id` | string | 是 | 代码仓库 Token 引用；未配置为空串 |
+| `code_integration_id` | string（可空） | 是 | 代码仓集成引用（INT-166）；null 或空串 = 内置 github-default。写入接线由后续任务完成，本期只随响应带出 |
+| `public_integration_id` | string（可空） | 是 | 公开仓库集成引用（INT-166）；null 或空串 = 内置 github-default。写入接线由后续任务完成，本期只随响应带出 |
+| `code_repo_url` | string（可空） | 是 | 代码仓页面地址（INT-166）。无代码仓（owner/repo 缺一）为 null；内置 github 集成为 https://github.com/{owner}/{repo}；forgejo 集成为 {base_url}/{owner}/{repo}；绑定的集成行已删除时为 null（不回落 github.com，避免私有仓库地址外发） |
 | `latest_version` | object | 否 | omitempty，仅在列表项中出现 |
 | `latest_version.id` | string | 是 |  |
 | `latest_version.version_number` | string | 是 |  |
@@ -1105,6 +1116,9 @@ API Key 管理（仅 JWT）
 | `issue_sync.last_synced_at` | string（date-time） | 否 | omitempty |
 | `issue_sync.last_successful_sync_at` | string（date-time） | 否 | omitempty |
 | `issue_sync.last_error` | string | 是 |  |
+| `shelved_at` | string（date-time，可空） | 是 | 搁置开始时间；null 表示未搁置（INT-165） |
+| `shelved_until` | string（date-time，可空） | 是 | 搁置截止时间；null 表示无限期或未搁置（INT-165） |
+| `is_shelved` | boolean | 是 | 响应生成时刻是否处于搁置中；到期自动恢复，无后台任务（INT-165） |
 | `created_at` | string（date-time） | 是 |  |
 | `updated_at` | string（date-time） | 是 |  |
 
@@ -1146,10 +1160,14 @@ API Key 管理（仅 JWT）
 | `description` | string | 是 |  |
 | `github_owner` | string | 是 |  |
 | `github_repo` | string | 是 |  |
+| `repository_url` | string（可空） | 是 | 公开仓页面地址（INT-166）。无公开仓（owner/repo 缺一）为 null；github_host='github.com' 为 https://github.com/{owner}/{repo}，空串（本部署 GitHub/GHE）按部署 GitHub Web 基址拼。编辑表单据此回填，不自行拼主机 |
 | `code_github_owner` | string | 是 | 代码仓库（PR 审查用）owner；未单独配置为空串，表示与公开仓库相同 |
 | `code_github_repo` | string | 是 | 代码仓库（PR 审查用）repo 名；未单独配置为空串，表示与公开仓库相同 |
 | `public_github_token_id` | string | 是 | 公开仓库 Token 引用；未配置为空串 |
 | `code_github_token_id` | string | 是 | 代码仓库 Token 引用；未配置为空串 |
+| `code_integration_id` | string（可空） | 是 | 代码仓集成引用（INT-166）；null 或空串 = 内置 github-default。写入接线由后续任务完成，本期只随响应带出 |
+| `public_integration_id` | string（可空） | 是 | 公开仓库集成引用（INT-166）；null 或空串 = 内置 github-default。写入接线由后续任务完成，本期只随响应带出 |
+| `code_repo_url` | string（可空） | 是 | 代码仓页面地址（INT-166）。无代码仓（owner/repo 缺一）为 null；内置 github 集成为 https://github.com/{owner}/{repo}；forgejo 集成为 {base_url}/{owner}/{repo}；绑定的集成行已删除时为 null（不回落 github.com，避免私有仓库地址外发） |
 | `latest_version` | object | 否 | omitempty，仅在列表项中出现 |
 | `latest_version.id` | string | 是 |  |
 | `latest_version.version_number` | string | 是 |  |
@@ -1167,6 +1185,9 @@ API Key 管理（仅 JWT）
 | `issue_sync.last_synced_at` | string（date-time） | 否 | omitempty |
 | `issue_sync.last_successful_sync_at` | string（date-time） | 否 | omitempty |
 | `issue_sync.last_error` | string | 是 |  |
+| `shelved_at` | string（date-time，可空） | 是 | 搁置开始时间；null 表示未搁置（INT-165） |
+| `shelved_until` | string（date-time，可空） | 是 | 搁置截止时间；null 表示无限期或未搁置（INT-165） |
+| `is_shelved` | boolean | 是 | 响应生成时刻是否处于搁置中；到期自动恢复，无后台任务（INT-165） |
 | `created_at` | string（date-time） | 是 |  |
 | `updated_at` | string（date-time） | 是 |  |
 
@@ -1218,10 +1239,14 @@ API Key 管理（仅 JWT）
 | `description` | string | 是 |  |
 | `github_owner` | string | 是 |  |
 | `github_repo` | string | 是 |  |
+| `repository_url` | string（可空） | 是 | 公开仓页面地址（INT-166）。无公开仓（owner/repo 缺一）为 null；github_host='github.com' 为 https://github.com/{owner}/{repo}，空串（本部署 GitHub/GHE）按部署 GitHub Web 基址拼。编辑表单据此回填，不自行拼主机 |
 | `code_github_owner` | string | 是 | 代码仓库（PR 审查用）owner；未单独配置为空串，表示与公开仓库相同 |
 | `code_github_repo` | string | 是 | 代码仓库（PR 审查用）repo 名；未单独配置为空串，表示与公开仓库相同 |
 | `public_github_token_id` | string | 是 | 公开仓库 Token 引用；未配置为空串 |
 | `code_github_token_id` | string | 是 | 代码仓库 Token 引用；未配置为空串 |
+| `code_integration_id` | string（可空） | 是 | 代码仓集成引用（INT-166）；null 或空串 = 内置 github-default。写入接线由后续任务完成，本期只随响应带出 |
+| `public_integration_id` | string（可空） | 是 | 公开仓库集成引用（INT-166）；null 或空串 = 内置 github-default。写入接线由后续任务完成，本期只随响应带出 |
+| `code_repo_url` | string（可空） | 是 | 代码仓页面地址（INT-166）。无代码仓（owner/repo 缺一）为 null；内置 github 集成为 https://github.com/{owner}/{repo}；forgejo 集成为 {base_url}/{owner}/{repo}；绑定的集成行已删除时为 null（不回落 github.com，避免私有仓库地址外发） |
 | `latest_version` | object | 否 | omitempty，仅在列表项中出现 |
 | `latest_version.id` | string | 是 |  |
 | `latest_version.version_number` | string | 是 |  |
@@ -1239,6 +1264,9 @@ API Key 管理（仅 JWT）
 | `issue_sync.last_synced_at` | string（date-time） | 否 | omitempty |
 | `issue_sync.last_successful_sync_at` | string（date-time） | 否 | omitempty |
 | `issue_sync.last_error` | string | 是 |  |
+| `shelved_at` | string（date-time，可空） | 是 | 搁置开始时间；null 表示未搁置（INT-165） |
+| `shelved_until` | string（date-time，可空） | 是 | 搁置截止时间；null 表示无限期或未搁置（INT-165） |
+| `is_shelved` | boolean | 是 | 响应生成时刻是否处于搁置中；到期自动恢复，无后台任务（INT-165） |
 | `created_at` | string（date-time） | 是 |  |
 | `updated_at` | string（date-time） | 是 |  |
 
@@ -1272,6 +1300,151 @@ API Key 管理（仅 JWT）
 **200** 操作成功（data 为 null）
 
 `data` 为 null。
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 403 | 已认证但无权限（40300-40399；40301=API Key 越权，40303=仅限 API Key） |
+| 404 | 资源不存在（40400-40499） |
+| 500 | 服务器内部错误（50000） |
+
+### POST `/api/projects/{id}/shelve`
+
+<!-- operationId: shelveProject -->
+
+搁置项目（仅 JWT）。body 可省略或为空对象表示无限期；until 提供时必须晚于当前时间（INT-165）
+
+**鉴权**：仅 JWT
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | 是 | 项目 ID（UUID） |
+
+**请求体**
+
+`application/json`，可选。
+
+搁置项目请求体；整包可省略或为空对象，表示无限期搁置（INT-165）
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `until` | string（date-time） | 否 | 搁置截止时间（RFC3339）；提供时必须晚于当前时间，缺省表示无限期 |
+
+**成功响应**
+
+**200** 搁置后的项目
+
+`data`：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | 是 |  |
+| `name` | string | 是 |  |
+| `description` | string | 是 |  |
+| `github_owner` | string | 是 |  |
+| `github_repo` | string | 是 |  |
+| `repository_url` | string（可空） | 是 | 公开仓页面地址（INT-166）。无公开仓（owner/repo 缺一）为 null；github_host='github.com' 为 https://github.com/{owner}/{repo}，空串（本部署 GitHub/GHE）按部署 GitHub Web 基址拼。编辑表单据此回填，不自行拼主机 |
+| `code_github_owner` | string | 是 | 代码仓库（PR 审查用）owner；未单独配置为空串，表示与公开仓库相同 |
+| `code_github_repo` | string | 是 | 代码仓库（PR 审查用）repo 名；未单独配置为空串，表示与公开仓库相同 |
+| `public_github_token_id` | string | 是 | 公开仓库 Token 引用；未配置为空串 |
+| `code_github_token_id` | string | 是 | 代码仓库 Token 引用；未配置为空串 |
+| `code_integration_id` | string（可空） | 是 | 代码仓集成引用（INT-166）；null 或空串 = 内置 github-default。写入接线由后续任务完成，本期只随响应带出 |
+| `public_integration_id` | string（可空） | 是 | 公开仓库集成引用（INT-166）；null 或空串 = 内置 github-default。写入接线由后续任务完成，本期只随响应带出 |
+| `code_repo_url` | string（可空） | 是 | 代码仓页面地址（INT-166）。无代码仓（owner/repo 缺一）为 null；内置 github 集成为 https://github.com/{owner}/{repo}；forgejo 集成为 {base_url}/{owner}/{repo}；绑定的集成行已删除时为 null（不回落 github.com，避免私有仓库地址外发） |
+| `latest_version` | object | 否 | omitempty，仅在列表项中出现 |
+| `latest_version.id` | string | 是 |  |
+| `latest_version.version_number` | string | 是 |  |
+| `latest_version.status` | string（enum: pending \| shipped） | 是 |  |
+| `latest_version.created_at` | string（date-time） | 是 |  |
+| `issue_count` | integer | 否 | omitempty，仅在列表项中出现；项目 Issue 总数（不区分状态） |
+| `issue_workflow_counts` | object | 否 | omitempty，仅在列表项中出现；仅统计 state=open 的 Issue，按内部状态分组 |
+| `issue_workflow_counts.unset` | integer | 是 | 未设置内部状态的 Issue 数（含无 internal meta 行的 Issue） |
+| `issue_workflow_counts.todo` | integer | 是 |  |
+| `issue_workflow_counts.in_progress` | integer | 是 |  |
+| `issue_workflow_counts.done` | integer | 是 |  |
+| `issue_sync` | object | 否 | omitempty，项目 GitHub 同步状态 |
+| `issue_sync.status` | string（enum: idle \| running \| failed \| completed） | 是 |  |
+| `issue_sync.last_issue_updated_at` | string（date-time） | 否 | omitempty |
+| `issue_sync.last_synced_at` | string（date-time） | 否 | omitempty |
+| `issue_sync.last_successful_sync_at` | string（date-time） | 否 | omitempty |
+| `issue_sync.last_error` | string | 是 |  |
+| `shelved_at` | string（date-time，可空） | 是 | 搁置开始时间；null 表示未搁置（INT-165） |
+| `shelved_until` | string（date-time，可空） | 是 | 搁置截止时间；null 表示无限期或未搁置（INT-165） |
+| `is_shelved` | boolean | 是 | 响应生成时刻是否处于搁置中；到期自动恢复，无后台任务（INT-165） |
+| `created_at` | string（date-time） | 是 |  |
+| `updated_at` | string（date-time） | 是 |  |
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 400 | 请求参数无效（40001-40099） |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 403 | 已认证但无权限（40300-40399；40301=API Key 越权，40303=仅限 API Key） |
+| 404 | 资源不存在（40400-40499） |
+| 500 | 服务器内部错误（50000） |
+
+### DELETE `/api/projects/{id}/shelve`
+
+<!-- operationId: unshelveProject -->
+
+取消项目搁置（仅 JWT）；幂等，未搁置的项目也返回 200（INT-165）
+
+**鉴权**：仅 JWT
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | 是 | 项目 ID（UUID） |
+
+**成功响应**
+
+**200** 取消搁置后的项目
+
+`data`：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | 是 |  |
+| `name` | string | 是 |  |
+| `description` | string | 是 |  |
+| `github_owner` | string | 是 |  |
+| `github_repo` | string | 是 |  |
+| `repository_url` | string（可空） | 是 | 公开仓页面地址（INT-166）。无公开仓（owner/repo 缺一）为 null；github_host='github.com' 为 https://github.com/{owner}/{repo}，空串（本部署 GitHub/GHE）按部署 GitHub Web 基址拼。编辑表单据此回填，不自行拼主机 |
+| `code_github_owner` | string | 是 | 代码仓库（PR 审查用）owner；未单独配置为空串，表示与公开仓库相同 |
+| `code_github_repo` | string | 是 | 代码仓库（PR 审查用）repo 名；未单独配置为空串，表示与公开仓库相同 |
+| `public_github_token_id` | string | 是 | 公开仓库 Token 引用；未配置为空串 |
+| `code_github_token_id` | string | 是 | 代码仓库 Token 引用；未配置为空串 |
+| `code_integration_id` | string（可空） | 是 | 代码仓集成引用（INT-166）；null 或空串 = 内置 github-default。写入接线由后续任务完成，本期只随响应带出 |
+| `public_integration_id` | string（可空） | 是 | 公开仓库集成引用（INT-166）；null 或空串 = 内置 github-default。写入接线由后续任务完成，本期只随响应带出 |
+| `code_repo_url` | string（可空） | 是 | 代码仓页面地址（INT-166）。无代码仓（owner/repo 缺一）为 null；内置 github 集成为 https://github.com/{owner}/{repo}；forgejo 集成为 {base_url}/{owner}/{repo}；绑定的集成行已删除时为 null（不回落 github.com，避免私有仓库地址外发） |
+| `latest_version` | object | 否 | omitempty，仅在列表项中出现 |
+| `latest_version.id` | string | 是 |  |
+| `latest_version.version_number` | string | 是 |  |
+| `latest_version.status` | string（enum: pending \| shipped） | 是 |  |
+| `latest_version.created_at` | string（date-time） | 是 |  |
+| `issue_count` | integer | 否 | omitempty，仅在列表项中出现；项目 Issue 总数（不区分状态） |
+| `issue_workflow_counts` | object | 否 | omitempty，仅在列表项中出现；仅统计 state=open 的 Issue，按内部状态分组 |
+| `issue_workflow_counts.unset` | integer | 是 | 未设置内部状态的 Issue 数（含无 internal meta 行的 Issue） |
+| `issue_workflow_counts.todo` | integer | 是 |  |
+| `issue_workflow_counts.in_progress` | integer | 是 |  |
+| `issue_workflow_counts.done` | integer | 是 |  |
+| `issue_sync` | object | 否 | omitempty，项目 GitHub 同步状态 |
+| `issue_sync.status` | string（enum: idle \| running \| failed \| completed） | 是 |  |
+| `issue_sync.last_issue_updated_at` | string（date-time） | 否 | omitempty |
+| `issue_sync.last_synced_at` | string（date-time） | 否 | omitempty |
+| `issue_sync.last_successful_sync_at` | string（date-time） | 否 | omitempty |
+| `issue_sync.last_error` | string | 是 |  |
+| `shelved_at` | string（date-time，可空） | 是 | 搁置开始时间；null 表示未搁置（INT-165） |
+| `shelved_until` | string（date-time，可空） | 是 | 搁置截止时间；null 表示无限期或未搁置（INT-165） |
+| `is_shelved` | boolean | 是 | 响应生成时刻是否处于搁置中；到期自动恢复，无后台任务（INT-165） |
+| `created_at` | string（date-time） | 是 |  |
+| `updated_at` | string（date-time） | 是 |  |
 
 **错误**
 
@@ -6093,7 +6266,7 @@ ThreadItem 列表；条目 ID 由 `sourceThreadId + "::" + T3 原始条目 id` �
 | `activity.active_run_status` | string | 否 | 活动 run 状态；静止时缺省 |
 | `activity.stopping` | boolean | 是 | 停止请求已下发且尚未落定：活动 run 的最近一条 run_interrupt_request 条目晚于同 run 的最近一条 run_interrupt_result |
 | `activity.has_pending_requests` | boolean | 是 | 有等待用户处理的运行时请求（审批/提问/代答 secret） |
-| `activity.pending_background_task_count` | integer | 是 | 根 run 结束后仍在跑的后台工作条数（command 类不占完成位；上游缺省时为 0） |
+| `activity.pending_background_task_count` | integer | 是 | 根 run 结束后仍在跑且占完成位的后台工作条数（awaited=true 的 command 也占；command/monitor 默认不占，subagent/background_task/未知/缺省 kind 占；上游缺省时为 0） |
 | `access` | string（enum: read-only \| operate） | 是 | 会话能力：仅当精确持有 `orchestration:operate` scope 时为 `operate`， 否则 `read-only`。唯一判定依据是精确 token 的 scope 列； `read-only` 环境调用任何写入口返回 40300（重新配对后可操作） |
 
 **错误**
@@ -6280,10 +6453,12 @@ user_input_request（提问）/ secret_request（密钥，绝不携带密钥值�
 读取线程启动器选项（项目表 + 服务器配置 + 设置）
 
 一次 WS 会话内取 T3 `orchestration.subscribeShell` 首快照（项目表）+
-`server.getConfig` + `server.getSettings`。`projects` 为归一化项目表
+`server.getConfig`。`projects` 为归一化项目表
 （snake_case，含 workspace_root 供 workspace-options 解析 cwd）；
-`config`/`settings` 为上游 `server.getConfig`/`server.getSettings`
-响应原样透传（camelCase，字段随 T3 版本演进，客户端按需读取）。
+`config` 为上游 `server.getConfig` 响应原样透传、`settings` 为其
+内嵌 `settings` 子对象（上游 #26238 起 `server.getSettings` 已删除，
+设置改由 getConfig.settings 携带；旧上游无该字段时为空对象），
+camelCase，字段随 T3 版本演进，客户端按需读取。
 
 **鉴权**：公开
 
@@ -6314,7 +6489,7 @@ user_input_request（提问）/ secret_request（密钥，绝不携带密钥值�
 | `projects[].default_model_selection.options[].id` | string | 是 |  |
 | `projects[].default_model_selection.options[].value` | string | 是 | 字符串或布尔（T3 ProviderOptionSelectionValue）。JSON 原样透传， 布尔选项发 JSON boolean 而非字符串。 |
 | `config` | object | 是 | T3 `server.getConfig` 响应原样透传（camelCase，含 providers 等启动器所需的全部配置） |
-| `settings` | object | 是 | T3 `server.getSettings` 响应原样透传（camelCase，含 newWorktreesStartFromOrigin 等设置） |
+| `settings` | object | 是 | T3 `server.getConfig` 响应内嵌 `settings` 子对象原样透传（camelCase，含 newWorktreesStartFromOrigin 等设置；上游 `server.getSettings` 已删除，旧上游无该字段时为空对象） |
 
 **错误**
 
@@ -6531,12 +6706,14 @@ dispatchCommand 受理结果（sequence 为 T3 投影事件序号）
 
 停止线程当前活动（并挂起队列）
 
-经 WS RPC `orchestration.dispatchCommand` 下发 `run.interrupt`
-（holdQueue=true，T3 Stop 按钮口径：同时挂起队列）。目标 run 由
-服务端选择：活动 run（preparing/starting/running/waiting 的最近一个），
-否则仍有后台工作的最近 run（对齐 T3 客户端 stopThread 的选择逻辑）。
-没有可停止的 run 时按 T3 口径视为无操作，返回 stopped=false，
-不杜撰内部 thread.stop 命令。
+能力驱动的两条路径：环境在 `server.getConfig` 声明
+`environment.capabilities.threadStop`（新上游）时下发公开命令
+`thread.stop`，由服务端选择停止目标并挂起队列——受理即
+stopped=true，run_id 此路径不返回。能力缺失（旧上游）走回退：
+本地读可信 shell 自选 run 后下发 `run.interrupt`（holdQueue=true），
+目标 run 取活动 run（preparing/starting/running/waiting 的最近
+一个），否则仍有后台工作的最近 run；没有可停止的 run 时按 T3
+口径视为无操作，返回 stopped=false。
 
 **鉴权**：公开
 
@@ -6553,12 +6730,12 @@ dispatchCommand 受理结果（sequence 为 T3 投影事件序号）
 
 `data`：
 
-停止结果；无可停止运行时按 T3 口径视为无操作（stopped=false）
+停止结果；回退路径（旧上游）无可停止运行时按 T3 口径视为无操作（stopped=false）
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `stopped` | boolean | 是 |  |
-| `run_id` | string | 否 | 被中断的 run；无可停止运行时缺省 |
+| `run_id` | string | 否 | 被中断的 run；仅在 run.interrupt 回退路径回填（thread.stop 路径由服务端选目标，不返回 run_id） |
 
 **错误**
 
@@ -7390,7 +7567,7 @@ PR 审查（INT-135，仅 JWT）：项目级审查设置、审查总览与审查
 | `rounds` | object[] | 是 |  |
 | `rounds[].round_number` | integer | 是 |  |
 | `rounds[].head_sha` | string | 是 |  |
-| `rounds[].trigger_action` | string（enum: opened \| synchronize \| ready_for_review \| reopened \| manual \| visual \| unknown） | 是 | 触发方式（该轮第一条代码 run 的 trigger_action；没有代码 run 时为 unknown） |
+| `rounds[].trigger_action` | string（enum: opened \| synchronize \| ready_for_review \| reopened \| manual \| comment \| visual \| unknown） | 是 | 触发方式（该轮第一条代码 run 的 trigger_action；没有代码 run 时为 unknown） |
 | `rounds[].created_at` | string | 是 |  |
 | `rounds[].code_runs` | object[] | 是 |  |
 | `rounds[].code_runs[].id` | string | 是 |  |
@@ -7672,7 +7849,7 @@ PR 审查（INT-135，仅 JWT）：项目级审查设置、审查总览与审查
 | `items[].rounds` | object[] | 是 |  |
 | `items[].rounds[].round_number` | integer | 是 |  |
 | `items[].rounds[].head_sha` | string | 是 |  |
-| `items[].rounds[].trigger_action` | string（enum: opened \| synchronize \| ready_for_review \| reopened \| manual \| visual \| unknown） | 是 | 触发方式（该轮第一条代码 run 的 trigger_action；没有代码 run 时为 unknown） |
+| `items[].rounds[].trigger_action` | string（enum: opened \| synchronize \| ready_for_review \| reopened \| manual \| comment \| visual \| unknown） | 是 | 触发方式（该轮第一条代码 run 的 trigger_action；没有代码 run 时为 unknown） |
 | `items[].rounds[].created_at` | string | 是 |  |
 | `items[].rounds[].code_runs` | object[] | 是 |  |
 | `items[].rounds[].code_runs[].id` | string | 是 |  |
@@ -7822,7 +7999,7 @@ PR 审查（INT-135，仅 JWT）：项目级审查设置、审查总览与审查
 | --- | --- | --- | --- |
 | `items` | object[] | 是 |  |
 | `items[].id` | string | 是 |  |
-| `items[].kind` | string（enum: review_dispatch_failed \| review_run_timeout \| review_cleanup_failed \| review_redelivery_failed） | 是 |  |
+| `items[].kind` | string（enum: review_dispatch_failed \| review_run_timeout \| review_cleanup_failed \| review_redelivery_failed \| bot_budget_threshold） | 是 |  |
 | `items[].title` | string | 是 |  |
 | `items[].body` | string | 是 |  |
 | `items[].environment_id` | string（可空） | 否 |  |
@@ -7922,15 +8099,18 @@ PR 审查（INT-135，仅 JWT）：项目级审查设置、审查总览与审查
 
 <!-- operationId: receiveGitHubWebhook -->
 
-接收 GitHub App webhook（pull_request opened/synchronize/ready_for_review/reopened）
+接收 GitHub App webhook（pull_request 触发审查 + issue_comment 评论唤醒）
 
 公开端点（无 JWT），以 `X-Hub-Signature-256`（HMAC-SHA256）按部署唯一的
 webhook 密钥验签。验签密钥取部署级 GitHub App 身份（INT-129：每套部署
 一个 App，没有用户级候选集）——以 `deployment_settings` 行内的密钥为准，
 行为空即视为未配置、不回落 config；仅当部署没有数据库 App 身份时用
 `github_app.webhook_secret` 兜底。密钥为空 → 503（50300）拒收；签名缺失
-或不匹配 → 401（40107）。只处理 pull_request 的 opened/synchronize/ready_for_review/reopened；
-draft 与 fork 一律 202 忽略。仓库必须已与本部署的 Fast Ship 项目关联
+或不匹配 → 401（40107）。处理 pull_request 的 opened/synchronize/ready_for_review/reopened；
+draft 与 fork 一律 202 忽略。同时受理 issue_comment 的 created（INT-179 评论唤醒）：
+PR 顶层评论正文包含 `@fast-ship-bot`（大小写不敏感）时按评论唤醒开新一轮审查
+（trigger_action=comment，同 head 也恒开新轮；同 head 已有在途审查时不重开）；编辑/删除动作与普通 Issue 评论
+202 忽略。仓库必须已与本部署的 Fast Ship 项目关联
 才会进入防抖/开轮。同一 `X-GitHub-Delivery` 幂等（重复投递返回 202 且
 不再开轮）。
 
@@ -7948,7 +8128,7 @@ draft 与 fork 一律 202 忽略。仓库必须已与本部署的 Fast Ship 项�
 
 `application/json`，必填。
 
-GitHub 官方 pull_request 事件 payload（原样验签，服务端只取 owner/repo、PR 号、head SHA、draft/fork 标记与 installation id）
+GitHub 官方 pull_request / issue_comment 事件 payload（原样验签，服务端只取 owner/repo、PR 号、head SHA、draft/fork 标记、评论正文与 installation id）
 
 **成功响应**
 
@@ -7963,15 +8143,21 @@ GitHub 官方 pull_request 事件 payload（原样验签，服务端只取 owner
 | 500 | 服务器内部错误（50000） |
 | 503 | 部署未配置 webhook 验签密钥（50300），拒绝接受请求 |
 
-### GET `/api/review-agent/pull-request`
+### GET `/api/review-agent/runs/{runId}/pull-request`
 
 <!-- operationId: reviewAgentPullRequest -->
 
 本运行审查的 PR 元数据
 
-只接受运行令牌；PR 身份全部取自运行行，不接受请求参数。
+只接受运行令牌；PR 身份全部取自运行行，不接受请求参数。路径中的 runId 必须与令牌所属运行一致（错配 40307）。
 
 **鉴权**：runTokenAuth
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `runId` | string | 是 | 审查运行 ID |
 
 **成功响应**
 
@@ -7998,15 +8184,21 @@ GitHub 官方 pull_request 事件 payload（原样验签，服务端只取 owner
 | 403 | 已认证但无权限（40300-40399；40301=API Key 越权，40303=仅限 API Key） |
 | 500 | 服务器内部错误（50000） |
 
-### GET `/api/review-agent/pull-request/diff`
+### GET `/api/review-agent/runs/{runId}/pull-request/diff`
 
 <!-- operationId: reviewAgentPullRequestDiff -->
 
 本运行的 PR diff
 
-超过 1MB 截断并标记 truncated。
+超过 1MB 截断并标记 truncated。路径中的 runId 必须与令牌所属运行一致（错配 40307）。
 
 **鉴权**：runTokenAuth
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `runId` | string | 是 | 审查运行 ID |
 
 **成功响应**
 
@@ -8027,16 +8219,22 @@ GitHub 官方 pull_request 事件 payload（原样验签，服务端只取 owner
 | 403 | 已认证但无权限（40300-40399；40301=API Key 越权，40303=仅限 API Key） |
 | 500 | 服务器内部错误（50000） |
 
-### GET `/api/review-agent/history`
+### GET `/api/review-agent/runs/{runId}/history`
 
 <!-- operationId: reviewAgentHistory -->
 
 历史处置上下文（系统生成 Markdown）
 
 代码审查：上一轮各组合的结构化发现 + 上一轮结论之后的新评论/行内回复；首次审查给全部讨论。
-视觉审查：上一轮视觉发现与 unmeasurable。只识别本系统自己发的结论。
+视觉审查：上一轮视觉发现与 unmeasurable。只识别本系统自己发的结论。路径中的 runId 必须与令牌所属运行一致（错配 40307）。
 
 **鉴权**：runTokenAuth
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `runId` | string | 是 | 审查运行 ID |
 
 **成功响应**
 
@@ -8056,15 +8254,21 @@ GitHub 官方 pull_request 事件 payload（原样验签，服务端只取 owner
 | 403 | 已认证但无权限（40300-40399；40301=API Key 越权，40303=仅限 API Key） |
 | 500 | 服务器内部错误（50000） |
 
-### GET `/api/review-agent/screenshots`
+### GET `/api/review-agent/runs/{runId}/screenshots`
 
 <!-- operationId: reviewAgentScreenshots -->
 
 视觉审查截图清单
 
-只有视觉审查运行可调用；图片本体走下面的图片端点。
+只有视觉审查运行可调用；图片本体走下面的图片端点。路径中的 runId 必须与令牌所属运行一致（错配 40307）。
 
 **鉴权**：runTokenAuth
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `runId` | string | 是 | 审查运行 ID |
 
 **成功响应**
 
@@ -8089,13 +8293,13 @@ GitHub 官方 pull_request 事件 payload（原样验签，服务端只取 owner
 | 403 | 已认证但无权限（40300-40399；40301=API Key 越权，40303=仅限 API Key） |
 | 500 | 服务器内部错误（50000） |
 
-### GET `/api/review-agent/screenshots/{assetId}`
+### GET `/api/review-agent/runs/{runId}/screenshots/{assetId}`
 
 <!-- operationId: reviewAgentScreenshotImage -->
 
 截图图片本体
 
-按运行所属 PR/SHA 校验；返回原始字节与 Content-Type。
+按运行所属 PR/SHA 校验；返回原始字节与 Content-Type。路径中的 runId 必须与令牌所属运行一致（错配 40307）。
 
 **鉴权**：runTokenAuth
 
@@ -8103,6 +8307,7 @@ GitHub 官方 pull_request 事件 payload（原样验签，服务端只取 owner
 
 | 名称 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
+| `runId` | string | 是 | 审查运行 ID |
 | `assetId` | string | 是 |  |
 
 **成功响应**
@@ -8119,7 +8324,7 @@ GitHub 官方 pull_request 事件 payload（原样验签，服务端只取 owner
 | 403 | 已认证但无权限（40300-40399；40301=API Key 越权，40303=仅限 API Key） |
 | 404 | 资源不存在（40400-40499） |
 
-### POST `/api/review-agent/result`
+### POST `/api/review-agent/runs/{runId}/result`
 
 <!-- operationId: reviewAgentSubmitResult -->
 
@@ -8127,8 +8332,16 @@ GitHub 官方 pull_request 事件 payload（原样验签，服务端只取 owner
 
 请求体按运行类型二选一：代码审查 `ReviewCodeResult`、视觉审查 `ReviewVisualResult`（字段校验失败返回 400，
 提示修正重交；PR HEAD 与运行绑定 SHA 不一致返回 40920 并作废本轮）。
+路径中的 runId 必须与令牌所属运行一致（错配 40307，不写结果、不消费令牌、不推进状态）。
+代码审查 findings 的文件必须存在于本运行 head_sha 的仓库树中，不存在的路径返回 40004。
 
 **鉴权**：runTokenAuth
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `runId` | string | 是 | 审查运行 ID |
 
 **请求体**
 
@@ -8556,6 +8769,343 @@ streaming 与 tool_call 两项检查分别返回；HTTP 200 且 ok=false 表示
 | 404 | 资源不存在（40400-40499） |
 | 500 | 服务器内部错误（50000） |
 
+### GET `/api/bots/usage`
+
+<!-- operationId: getBotUsage -->
+
+花费总览（按天 / 按机器人 / 按定时任务，INT-162）
+
+历史日期读按天汇总表（bot_usage_daily），今天与缺失/脏日期实时扫描
+现有账本（bot_runs / bot_model_requests / bot_maintenance_*）。窗口
+按 users.timezone 切日，空值回退部署配置 bots.memory.timezone，再回退
+UTC。金额为请求级实收优先（COALESCE(provider_cost, cost_estimate)，
+INT-164）：提供商回报的置信 USD 实收覆盖目录价估算；两者皆空的请求
+为「未计价」——金额字段缺省为 null（缺失 ≠ 0），未计价请求计入
+unpriced_requests。
+归属：session_kind='schedule' 的 run 按 schedule_task_id 归定时任务；
+触发来源 schedule_event 的主线 run 经 trigger_key 反查任务，计入该
+任务 linked_main_cost（近似，一次主线 run 可能同时处理多条输入），
+解析不出时计入主线；维护请求经 parent_run_id 计入所属 run 的显示
+成本，无父 run 的计入机器人维护项。仅返回当前用户自己的机器人数据。
+
+**鉴权**：仅 JWT
+
+**Query 参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `range` | string（enum: today \| 7d \| 30d，默认 7d） | 否 | 统计窗口；today = 生效时区的当天 |
+| `bot_id` | string | 否 | 限定单个机器人（须属于当前用户）；缺省为全部机器人总览 |
+
+**成功响应**
+
+**200** 花费总览
+
+`data`：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `range` | string（enum: today \| 7d \| 30d） | 是 |  |
+| `timezone` | string | 是 | 实际生效的切日时区（IANA） |
+| `start` | string（date-time） | 是 | 统计窗口起点 UTC（含） |
+| `end` | string（date-time） | 是 | 统计窗口终点 UTC（不含，即查询时刻） |
+| `totals` | object | 是 |  |
+| `totals.cost` | number（double，可空） | 是 | 窗口内显示成本合计（USD，请求级实收优先）；无任何金额请求为 null（缺失 ≠ 0） |
+| `totals.daily_average` | number（double，可空） | 是 | cost / 窗口天数；cost 为 null 时同 null |
+| `totals.total_requests` | integer（int64） | 是 | 模型请求总数（主线/定时 + 维护） |
+| `totals.priced_requests` | integer（int64） | 是 | 有金额请求数（估算或实收任一非空） |
+| `totals.unpriced_requests` | integer（int64） | 是 | 无金额请求数（估算与实收都为空：自定义提供商、目录无价、缺 usage、v0.1.63 前旧记录） |
+| `days` | object[] | 是 |  |
+| `days[].date` | string | 是 | 生效时区的当地日期 YYYY-MM-DD；窗口内每天一行（含无数据日） |
+| `days[].cost` | number（double） | 是 | 当日显示成本合计（请求级实收优先）；全无金额或无记录为 0 |
+| `days[].bots` | object[] | 是 | 当日有模型请求（含未计价）的机器人 |
+| `days[].bots[].bot_id` | string | 是 |  |
+| `days[].bots[].cost` | number（double） | 是 |  |
+| `bots` | object[] | 是 |  |
+| `bots[].bot_id` | string | 是 |  |
+| `bots[].name` | string | 是 |  |
+| `bots[].deleted` | boolean | 否 | omitempty；true = 机器人已删除——明细已级联清理，name 是删除时快照，历史维度读按天汇总表（INT-164） |
+| `bots[].cost` | number（double，可空） | 是 | 显示成本合计 = cost_main + cost_schedule + cost_maintenance（请求级实收优先） |
+| `bots[].cost_main` | number（double，可空） | 是 | 主线桶：非 schedule_event 触发的 main run（自身成本+关联维护） |
+| `bots[].cost_schedule` | number（double，可空） | 是 | 定时任务桶：schedule run（自身+关联维护）+ schedule_event 连带主线成本 |
+| `bots[].cost_schedule_linked_approx` | number（double，可空） | 是 | cost_schedule 中连带主线成本部分（近似，UI 标注） |
+| `bots[].cost_maintenance` | number（double，可空） | 是 | 无父 run 的维护请求合计（如夜间整理） |
+| `bots[].runs` | integer（int64） | 是 | 窗口内 run 数（main + schedule） |
+| `bots[].avg_run_cost` | number（double，可空） | 是 | 单次运行平均显示成本（自身+关联维护）；只统计有已计价成本的 run |
+| `bots[].max_run_cost` | number（double，可空） | 是 |  |
+| `bots[].p90_run_cost` | number（double，可空） | 是 | 单次运行显示成本的 P90（nearest-rank，与 avg/max 同一已计价 run 集合）；无已计价 run 为 null |
+| `bots[].cache_hit_rate` | number（double，可空） | 是 | cached / prompt，只算 usage 完整的请求；无完整 usage 为 null |
+| `bots[].budget_set` | boolean | 否 | omitempty；true = 该机器人设有 bot 级预算（行内状态提示，INT-164） |
+| `bots[].budget_exceeded` | boolean | 否 | omitempty；true = 任一已设预算周期当前花费 ≥ 预算金额 |
+| `bots[].unpriced_requests` | integer（int64） | 是 |  |
+| `schedule_tasks` | object[] | 是 |  |
+| `schedule_tasks[].task_id` | string | 是 | 聚合键；已删除任务仍取其运行记录上的 schedule_task_id |
+| `schedule_tasks[].bot_id` | string | 是 |  |
+| `schedule_tasks[].bot_name` | string | 是 |  |
+| `schedule_tasks[].name` | string | 是 | 现存任务名；已删除任务为空串（UI 显示「已删除的任务」） |
+| `schedule_tasks[].deleted` | boolean | 是 |  |
+| `schedule_tasks[].enabled` | boolean | 是 | 已删除任务恒 false |
+| `schedule_tasks[].cron_expression` | string | 是 | 已删除任务为空串 |
+| `schedule_tasks[].timezone` | string | 是 | 任务 IANA 时区；空串 = UTC |
+| `schedule_tasks[].runs` | integer（int64） | 是 |  |
+| `schedule_tasks[].failed` | integer（int64） | 是 |  |
+| `schedule_tasks[].skipped` | integer（int64） | 是 |  |
+| `schedule_tasks[].cost` | number（double，可空） | 是 | schedule run 自身+关联维护已计价合计（不含连带主线） |
+| `schedule_tasks[].avg_run_cost` | number（double，可空） | 是 |  |
+| `schedule_tasks[].max_run_cost` | number（double，可空） | 是 |  |
+| `schedule_tasks[].p90_run_cost` | number（double，可空） | 是 | 单次运行显示成本的 P90（nearest-rank，与 avg/max 同一已计价 run 集合）；无已计价 run 为 null |
+| `schedule_tasks[].linked_main_cost` | number（double，可空） | 是 | schedule_event 主线 run 的连带成本（近似） |
+| `schedule_tasks[].estimated_monthly_cost` | number（double，可空） | 是 | （单次定时运行平均 + 每次触发摊到的连带主线成本）× 未来 30 天触发次数（parseScheduleCron）；单次统计取最近 30 个当地日的固定窗口，与所选 range 无关；停用、已删除、无已计价平均或 cron 解析失败为 null |
+| `schedule_tasks[].budget_set` | boolean | 否 | omitempty；true = 该任务设有任务级预算（行内状态提示，INT-164） |
+| `schedule_tasks[].budget_exceeded` | boolean | 否 | omitempty；true = 任一已设预算周期当前花费 ≥ 预算金额 |
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 400 | 请求参数无效（40001-40099） |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 404 | 资源不存在（40400-40499） |
+| 500 | 服务器内部错误（50000） |
+
+### GET `/api/bots/usage/insights`
+
+<!-- operationId: getBotUsageInsights -->
+
+花费优化参考（上下文增长 / 缓存命中 / 工具定义占比 / 维护占比 / 失败重试浪费 / 空转 / 换模型差价，INT-163）
+
+与花费总览同一窗口、同一机器人集合的只读聚合，回答「钱花在哪、怎么省」。
+全部指标复用现有账本实时计算：展示金额与总览同口径（请求级实收优先，
+缺失 ≠ 0）；换模型差价是假设对比，按目录单价估算。token 估算列
+（input_tokens_estimate / tools_tokens_estimate）标 estimated。
+口径要点：
+- 缓存命中率：cached / prompt，只统计 usage 完整的请求；按天维度把请求
+  计入所属 run（或维护运行）自身 created_at 的当地日，与总览记日一致。
+- 工具定义占比：tools_tokens_estimate / prompt_tokens，同一 usage 完整
+  请求集合；分子是按 schema 字节的估算值。
+- 维护占比：窗口内全部维护请求显示花费（含挂到 run 名下的，口径大于
+  总览「维护」桶）占该机器人总花费（总览三桶之和）的比例，按用途拆分。
+- 失败和重试浪费：status=failed 的请求行中显示金额、status=failed 的
+  run 的显示成本合计、重复 request_hash 的重试次数；按 error_code 分组。
+- 空转：非 skipped 的终态 schedule run 中满足任一条件即算空转——
+  silent=true、整次运行没有任何工具调用行、没有任何写操作调用（写操作
+  按当前工具注册表 ReadOnly 之外的 action 判定，未知动作按写处理）。
+- 换模型差价：按 run 冻结快照的目录归属分组，用同一批 usage 完整请求的
+  token 数按同目录其他模型单价重算，取最便宜至多 3 个候选；只按价格
+  重算，不代表效果一样，也不考虑不同模型 tokenizer 的差异。
+
+**鉴权**：仅 JWT
+
+**Query 参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `range` | string（enum: today \| 7d \| 30d，默认 7d） | 否 | 统计窗口；today = 生效时区的当天 |
+| `bot_id` | string | 否 | 限定单个机器人（须属于当前用户）；缺省为全部机器人总览 |
+
+**成功响应**
+
+**200** 花费优化参考
+
+`data`：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `range` | string（enum: today \| 7d \| 30d） | 是 |  |
+| `timezone` | string | 是 | 实际生效的切日时区（IANA） |
+| `start` | string（date-time） | 是 | 统计窗口起点 UTC（含） |
+| `end` | string（date-time） | 是 | 统计窗口终点 UTC（不含，即查询时刻） |
+| `cache_hit_by_day` | object[] | 是 | 按天缓存命中率（窗口内每天一行） |
+| `cache_hit_by_day[].date` | string | 是 | 生效时区的当地日期 YYYY-MM-DD；窗口内每天一行（含无数据日） |
+| `cache_hit_by_day[].rate` | number（double，可空） | 是 | 当日 cached / prompt；只统计 usage 完整的请求（按所属 run/维护运行自身 created_at 记日），当日无完整 usage 请求为 null |
+| `bots` | object[] | 是 | 查询集合内每个机器人一行（含无数据机器人），按总花费降序 |
+| `bots[].bot_id` | string | 是 |  |
+| `bots[].name` | string | 是 |  |
+| `bots[].cache_hit_rate` | number（double，可空） | 是 | cached / prompt（主线/定时 + 维护请求的完整 usage 合计）；与总览同口径 |
+| `bots[].tools` | object | 是 |  |
+| `bots[].tools.prompt_tokens` | integer（int64） | 是 | 分母：主线/定时 run 中 usage 完整请求的 prompt 合计（维护请求无工具定义列，不参与） |
+| `bots[].tools.tools_tokens_estimate` | integer（int64） | 是 | 分子：同一请求集合的 tools_tokens_estimate 合计（按 schema 字节的估算值，非精确 token 数） |
+| `bots[].tools.share` | number（double，可空） | 是 | tools_tokens_estimate / prompt_tokens；分母为 0（无完整 usage 请求）时 null |
+| `bots[].maintenance` | object | 是 |  |
+| `bots[].maintenance.cost` | number（double，可空） | 是 | 窗口内该机器人全部维护请求显示成本合计（实收优先，含挂到 run 名下的压缩/归档，口径大于总览「维护」桶） |
+| `bots[].maintenance.share` | number（double，可空） | 是 | cost / 该机器人总花费（总览三桶之和）；任一未计价或总花费为 0 时为 null |
+| `bots[].maintenance.by_purpose` | object[] | 是 | 按用途拆分，按 cost 降序 |
+| `bots[].maintenance.by_purpose[].purpose` | string | 是 | 维护用途：summary / archive / nightly（窗口内出现过的才列出） |
+| `bots[].maintenance.by_purpose[].cost` | number（double，可空） | 是 | 该用途下显示成本合计（实收优先）；全无金额为 null（缺失 ≠ 0） |
+| `bots[].failures` | object | 是 |  |
+| `bots[].failures.failed_requests` | integer（int64） | 是 | status=failed 的模型请求行数（bot_model_requests + bot_maintenance_requests） |
+| `bots[].failures.failed_requests_cost` | number（double，可空） | 是 | 失败请求中显示金额合计（实收优先）——重试浪费口径：失败尝试若有金额，其花费即浪费 |
+| `bots[].failures.failed_runs` | integer（int64） | 是 | status=failed 的 bot_runs 数（main + schedule） |
+| `bots[].failures.failed_runs_cost` | number（double，可空） | 是 | 失败 run 的显示成本合计（自身 + 关联维护，实收优先） |
+| `bots[].failures.retried_requests` | integer（int64） | 是 | 与同 run 内更早请求 request_hash 相同的请求行数（每次重复尝试计 1，含最终成功那次） |
+| `bots[].failures.by_error` | object[] | 是 | 失败请求按 error_code 分组，按 cost 降序（null 组排最后） |
+| `bots[].failures.by_error[].error_code` | string（可空） | 是 | 失败请求的 error_code；无错误码的失败归到 null 一组 |
+| `bots[].failures.by_error[].requests` | integer（int64） | 是 |  |
+| `bots[].failures.by_error[].cost` | number（double，可空） | 是 | 该组失败请求中显示金额合计（实收优先） |
+| `bots[].context_growth` | object[] | 是 | 每次运行第一次请求的输入 token 随时间变化（升序）；有请求的 run 才有点 |
+| `bots[].context_growth[].run_id` | string | 是 | 产生该点的 run ID（前端可链接到运行明细） |
+| `bots[].context_growth[].at` | string（date-time） | 是 | run.created_at（UTC） |
+| `bots[].context_growth[].input_tokens` | integer（int64） | 是 | 该 run 第一次请求的输入 token；estimated=false 取 prompt_tokens，否则取 input_tokens_estimate |
+| `bots[].context_growth[].estimated` | boolean | 是 | true = 数值为服务端估算（该请求缺 usage），UI 须标注 |
+| `bots[].context_growth[].session_kind` | string | 是 | main / schedule |
+| `bots[].context_growth_truncated` | boolean | 是 | run 数超过每机器人点数上限（200）时为 true，已保留最新点 |
+| `bots[].model_alternatives` | object[] | 是 | 按（目录归属, 模型）分组的换模型差价；没有已计价请求的组不出现；维护请求不参与 |
+| `bots[].model_alternatives[].catalog_id` | string | 是 | run 冻结快照的目录归属；快照缺 catalog_id 或 model 的 run 不参与分组（旧账无法证明目录） |
+| `bots[].model_alternatives[].model` | string | 是 | 该组 run 实际使用的模型 |
+| `bots[].model_alternatives[].requests` | integer（int64） | 是 | 参与重算的请求数（只含 usage 完整且当前模型已计价的请求） |
+| `bots[].model_alternatives[].actual_cost` | number（double） | 是 | 这批请求在当前模型下的已计价合计（与重算同分母） |
+| `bots[].model_alternatives[].candidates` | object[] | 是 | 同目录内单价完整（input+output 非空）的其他模型按同一 token 数重算，最便宜至多 3 个；只按价格重算，不代表效果一样 |
+| `bots[].model_alternatives[].candidates[].model` | string | 是 | 同目录内的候选模型名 |
+| `bots[].model_alternatives[].candidates[].cost` | number（double） | 是 | 同一批请求的 token 数按该模型目录单价重算的总价（缓存命中按 cache_read，缺失回退 input） |
+| `bots[].model_alternatives[].candidates[].saving` | number（double） | 是 | actual_cost − cost；正值 = 省钱，负值 = 更贵 |
+| `schedule_tasks` | object[] | 是 | 窗口内有 schedule run 的任务一行（已删除任务保留） |
+| `schedule_tasks[].task_id` | string | 是 |  |
+| `schedule_tasks[].bot_id` | string | 是 |  |
+| `schedule_tasks[].bot_name` | string | 是 |  |
+| `schedule_tasks[].name` | string | 是 | 现存任务名；已删除任务为空串 |
+| `schedule_tasks[].deleted` | boolean | 是 |  |
+| `schedule_tasks[].enabled` | boolean | 是 |  |
+| `schedule_tasks[].evaluated_runs` | integer（int64） | 是 | 空转判定分母：非 skipped 的终态 schedule run（completed/failed/stopped）；进行中与排队不计 |
+| `schedule_tasks[].idle_runs` | integer（int64） | 是 | 满足任一空转条件的 run 数（各条件可叠加命中） |
+| `schedule_tasks[].idle_rate` | number（double，可空） | 是 | idle_runs / evaluated_runs；分母为 0 时 null |
+| `schedule_tasks[].idle_cost` | number（double，可空） | 是 | 空转 run 的显示成本合计（自身 + 关联维护，实收优先） |
+| `schedule_tasks[].silent_runs` | integer（int64） | 是 | 条件一：silent=true（静默哨兵）的 run 数 |
+| `schedule_tasks[].no_tool_call_runs` | integer（int64） | 是 | 条件二：整次运行没有任何工具调用行的 run 数（调用行各状态都计） |
+| `schedule_tasks[].no_write_call_runs` | integer（int64） | 是 | 条件三：没有任何有效写操作调用的 run 数；写操作 = 当前工具注册表 ReadOnly 之外的 action（未知动作按写处理），且仅 status=succeeded 或 effect_may_have_occurred 的调用算有效——被拒/取消/失败/未执行的写调用不计 |
+| `schedule_tasks[].cache_hit_rate` | number（double，可空） | 是 | 该任务 schedule run 名下 usage 完整请求的 cached / prompt；无完整 usage 为 null |
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 400 | 请求参数无效（40001-40099） |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 404 | 资源不存在（40400-40499） |
+| 500 | 服务器内部错误（50000） |
+
+### GET `/api/bots/usage/runs/{runId}`
+
+<!-- operationId: getBotUsageRun -->
+
+单次运行花费明细（INT-162）
+
+单次 run 的完整账单：每次模型请求（含失败重试）及其工具调用、关联的
+压缩/维护运行与请求。金额均为请求级实收优先（provider_cost 覆盖
+cost_estimate）：display_cost = 自身 + 关联维护的显示成本合计；
+不改写 run 的 cost_estimate 列（保持目录价快照语义）。
+
+**鉴权**：仅 JWT
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `runId` | string | 是 |  |
+
+**成功响应**
+
+**200** 运行花费明细
+
+`data`：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `run` | object | 是 |  |
+| `run.id` | string | 是 |  |
+| `run.bot_id` | string | 是 |  |
+| `run.bot_name` | string | 是 |  |
+| `run.session_kind` | string | 是 | main / schedule |
+| `run.schedule_task_id` | string（可空） | 否 |  |
+| `run.schedule_task_name` | string（可空） | 否 | 现存任务名；任务已删除或无关联时为 null |
+| `run.trigger_source` | string | 是 |  |
+| `run.trigger_key` | string | 是 |  |
+| `run.status` | string | 是 |  |
+| `run.summary` | string | 是 |  |
+| `run.silent` | boolean | 是 |  |
+| `run.scheduled_for` | string（date-time，可空） | 否 |  |
+| `run.prompt_tokens` | integer（int64，可空） | 否 |  |
+| `run.completion_tokens` | integer（int64，可空） | 否 |  |
+| `run.total_tokens` | integer（int64，可空） | 否 |  |
+| `run.cached_tokens` | integer（int64，可空） | 否 |  |
+| `run.usage_complete` | boolean | 是 |  |
+| `run.cost_estimate` | number（double，可空） | 是 |  |
+| `run.cost_source` | string（可空） | 是 |  |
+| `run.maintenance_cost` | number（double，可空） | 是 | 关联维护运行显示成本合计（实收优先） |
+| `run.display_cost` | number（double，可空） | 是 | cost_estimate + maintenance_cost；都为 null 时为 null |
+| `run.error_code` | string（可空） | 否 |  |
+| `run.error_message` | string（可空） | 否 |  |
+| `run.created_at` | string（date-time） | 是 |  |
+| `run.started_at` | string（date-time，可空） | 否 |  |
+| `run.finished_at` | string（date-time，可空） | 否 |  |
+| `requests` | object[] | 是 | run 的每次模型请求（含失败重试），按 ordinal 正序；超过上限时截断 |
+| `requests[].id` | string | 是 |  |
+| `requests[].ordinal` | integer（int64） | 是 |  |
+| `requests[].status` | string | 是 | running / succeeded / failed |
+| `requests[].is_retry` | boolean | 是 | 与同 run 更早请求 request_hash 相同即视为重试（每次重试单独一行） |
+| `requests[].input_through_seq` | integer（int64） | 是 |  |
+| `requests[].input_tokens_estimate` | integer（int64） | 是 |  |
+| `requests[].input_estimator` | string | 是 |  |
+| `requests[].prompt_tokens` | integer（int64，可空） | 否 |  |
+| `requests[].cached_tokens` | integer（int64，可空） | 否 |  |
+| `requests[].completion_tokens` | integer（int64，可空） | 否 |  |
+| `requests[].total_tokens` | integer（int64，可空） | 否 |  |
+| `requests[].reasoning_tokens` | integer（int64，可空） | 否 | completion_tokens_details.reasoning_tokens；供应商未返回为 null |
+| `requests[].provider_cost` | number（double，可空） | 否 | 供应商 usage 返回的实际金额（USD）；仅币别置信 USD 时落库并返回，否则 null |
+| `requests[].tools_tokens_estimate` | integer（int64） | 是 |  |
+| `requests[].usage_complete` | boolean | 是 |  |
+| `requests[].cost_estimate` | number（double，可空） | 是 |  |
+| `requests[].cost_source` | string（可空） | 是 |  |
+| `requests[].started_at` | string（date-time） | 是 |  |
+| `requests[].first_delta_at` | string（date-time，可空） | 否 |  |
+| `requests[].finished_at` | string（date-time，可空） | 否 |  |
+| `requests[].error_code` | string（可空） | 否 |  |
+| `requests[].error_message` | string（可空） | 否 |  |
+| `requests[].tool_calls` | object[] | 是 |  |
+| `requests[].tool_calls[].id` | string | 是 |  |
+| `requests[].tool_calls[].tool_name` | string | 是 |  |
+| `requests[].tool_calls[].action` | string | 是 |  |
+| `requests[].tool_calls[].status` | string | 是 |  |
+| `requests[].tool_calls[].error_code` | string（可空） | 否 |  |
+| `requests[].tool_calls[].error_message` | string（可空） | 否 |  |
+| `requests[].tool_calls[].created_at` | string（date-time） | 是 |  |
+| `requests[].tool_calls[].finished_at` | string（date-time，可空） | 否 |  |
+| `requests_truncated` | boolean | 是 | 请求数超过上限（500）被截断时为 true |
+| `maintenance_runs` | object[] | 是 | parent_run_id 指向本 run 的维护运行及其请求 |
+| `maintenance_runs[].id` | string | 是 |  |
+| `maintenance_runs[].kind` | string | 是 | compaction / nightly |
+| `maintenance_runs[].status` | string | 是 | running / succeeded / failed |
+| `maintenance_runs[].created_at` | string（date-time） | 是 |  |
+| `maintenance_runs[].started_at` | string（date-time，可空） | 否 |  |
+| `maintenance_runs[].finished_at` | string（date-time，可空） | 否 |  |
+| `maintenance_runs[].cost_estimate` | number（double，可空） | 是 | 本维护运行显示成本合计（请求级实收优先） |
+| `maintenance_runs[].requests` | object[] | 是 |  |
+| `maintenance_runs[].requests[].id` | string | 是 |  |
+| `maintenance_runs[].requests[].ordinal` | integer（int64） | 是 |  |
+| `maintenance_runs[].requests[].purpose` | string | 是 | summary / archive / nightly |
+| `maintenance_runs[].requests[].model` | string | 是 |  |
+| `maintenance_runs[].requests[].status` | string | 是 | running / succeeded / failed |
+| `maintenance_runs[].requests[].usage_complete` | boolean | 是 |  |
+| `maintenance_runs[].requests[].prompt_tokens` | integer（int64，可空） | 否 |  |
+| `maintenance_runs[].requests[].cached_tokens` | integer（int64，可空） | 否 |  |
+| `maintenance_runs[].requests[].completion_tokens` | integer（int64，可空） | 否 |  |
+| `maintenance_runs[].requests[].total_tokens` | integer（int64，可空） | 否 |  |
+| `maintenance_runs[].requests[].reasoning_tokens` | integer（int64，可空） | 否 | completion_tokens_details.reasoning_tokens；供应商未返回为 null |
+| `maintenance_runs[].requests[].provider_cost` | number（double，可空） | 否 | 供应商 usage 返回的实际金额（USD）；仅币别置信 USD 时落库并返回，否则 null |
+| `maintenance_runs[].requests[].cost_estimate` | number（double，可空） | 是 |  |
+| `maintenance_runs[].requests[].cost_source` | string（可空） | 是 |  |
+| `maintenance_runs[].requests[].error_code` | string（可空） | 否 |  |
+| `maintenance_runs[].requests[].error_message` | string（可空） | 否 |  |
+| `maintenance_runs[].requests[].started_at` | string（date-time） | 是 |  |
+| `maintenance_runs[].requests[].finished_at` | string（date-time，可空） | 否 |  |
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 404 | 资源不存在（40400-40499） |
+| 500 | 服务器内部错误（50000） |
+
 ### GET `/api/bots/{id}`
 
 <!-- operationId: getBot -->
@@ -8773,6 +9323,7 @@ before_seq/after_seq 都是排他 seq 边界，页内按 seq 正序；不使用 
 | `calls[].decided_at` | string（date-time，可空） | 否 |  |
 | `calls[].authorization_id` | string（可空） | 否 |  |
 | `calls[].execution_context` | object | 是 | 服务端生成的执行身份（T3 command/thread/message ID 等）与授权范围 |
+| `calls[].policy` | object | 否 | 分级放行评估结论（INT-160）：{tier, rule_id?, auto, source, facts?, downgrade_reason?, expiry?, schedule_denied?}。凡经过策略评估的写 调用都有：自动执行（auto=true）、确认卡（含降级原因与过期时间）、 定时任务会话 tier3 同步拒绝三类；历史行为空即「策略上线前」 |
 | `calls[].cancel_requested` | boolean | 否 |  |
 | `calls[].result_preview` | object | 否 | 进入模型上下文的受限结果（完整结果走 result 端点） |
 | `calls[].result_chars` | integer（int64） | 是 |  |
@@ -8854,6 +9405,7 @@ client_message_id 必填（幂等键）：同键同正文返回已有消息；�
 | `run.usage_complete` | boolean | 是 | false 表示上游未报 usage（缺失与零严格区分） |
 | `run.cost_estimate` | number（double，可空） | 否 | 本 run 已计价请求的成本累计（USD，含送过 usage 的失败请求）；目录无价/全缺 usage 时为 null（缺失 ≠ 0，INT-139） |
 | `run.cost_source` | string（可空） | 否 | 计价来源（catalog）；cost_estimate 为 null 时同 null |
+| `run.display_cost_estimate` | number（double，可空） | 是 | 显示口径成本（INT-162）：本 run + 关联维护运行的显示成本合计（请求级实收优先，INT-164）；两者都为 null 时为 null。cost_estimate 列本身口径不变 |
 | `run.error_code` | string（可空） | 否 |  |
 | `run.error_message` | string（可空） | 否 |  |
 | `run.created_at` | string（date-time） | 是 |  |
@@ -8951,6 +9503,7 @@ client_message_id 必填（幂等键）：同键同正文返回已有消息；�
 | `calls[].decided_at` | string（date-time，可空） | 否 |  |
 | `calls[].authorization_id` | string（可空） | 否 |  |
 | `calls[].execution_context` | object | 是 | 服务端生成的执行身份（T3 command/thread/message ID 等）与授权范围 |
+| `calls[].policy` | object | 否 | 分级放行评估结论（INT-160）：{tier, rule_id?, auto, source, facts?, downgrade_reason?, expiry?, schedule_denied?}。凡经过策略评估的写 调用都有：自动执行（auto=true）、确认卡（含降级原因与过期时间）、 定时任务会话 tier3 同步拒绝三类；历史行为空即「策略上线前」 |
 | `calls[].cancel_requested` | boolean | 否 |  |
 | `calls[].result_preview` | object | 否 | 进入模型上下文的受限结果（完整结果走 result 端点） |
 | `calls[].result_chars` | integer（int64） | 是 |  |
@@ -8977,6 +9530,7 @@ client_message_id 必填（幂等键）：同键同正文返回已有消息；�
 | `runs[].usage_complete` | boolean | 是 | false 表示上游未报 usage（缺失与零严格区分） |
 | `runs[].cost_estimate` | number（double，可空） | 否 | 本 run 已计价请求的成本累计（USD，含送过 usage 的失败请求）；目录无价/全缺 usage 时为 null（缺失 ≠ 0，INT-139） |
 | `runs[].cost_source` | string（可空） | 否 | 计价来源（catalog）；cost_estimate 为 null 时同 null |
+| `runs[].display_cost_estimate` | number（double，可空） | 是 | 显示口径成本（INT-162）：本 run + 关联维护运行的显示成本合计（请求级实收优先，INT-164）；两者都为 null 时为 null。cost_estimate 列本身口径不变 |
 | `runs[].error_code` | string（可空） | 否 |  |
 | `runs[].error_message` | string（可空） | 否 |  |
 | `runs[].created_at` | string（date-time） | 是 |  |
@@ -9109,6 +9663,7 @@ done 携带 run 终态，error 携带 code/message（顺序固定 error → done
 | `items[].usage_complete` | boolean | 是 | false 表示上游未报 usage（缺失与零严格区分） |
 | `items[].cost_estimate` | number（double，可空） | 否 | 本 run 已计价请求的成本累计（USD，含送过 usage 的失败请求）；目录无价/全缺 usage 时为 null（缺失 ≠ 0，INT-139） |
 | `items[].cost_source` | string（可空） | 否 | 计价来源（catalog）；cost_estimate 为 null 时同 null |
+| `items[].display_cost_estimate` | number（double，可空） | 是 | 显示口径成本（INT-162）：本 run + 关联维护运行的显示成本合计（请求级实收优先，INT-164）；两者都为 null 时为 null。cost_estimate 列本身口径不变 |
 | `items[].error_code` | string（可空） | 否 |  |
 | `items[].error_message` | string（可空） | 否 |  |
 | `items[].created_at` | string（date-time） | 是 |  |
@@ -9161,6 +9716,7 @@ done 携带 run 终态，error 携带 code/message（顺序固定 error → done
 | `usage_complete` | boolean | 是 | false 表示上游未报 usage（缺失与零严格区分） |
 | `cost_estimate` | number（double，可空） | 否 | 本 run 已计价请求的成本累计（USD，含送过 usage 的失败请求）；目录无价/全缺 usage 时为 null（缺失 ≠ 0，INT-139） |
 | `cost_source` | string（可空） | 否 | 计价来源（catalog）；cost_estimate 为 null 时同 null |
+| `display_cost_estimate` | number（double，可空） | 是 | 显示口径成本（INT-162）：本 run + 关联维护运行的显示成本合计（请求级实收优先，INT-164）；两者都为 null 时为 null。cost_estimate 列本身口径不变 |
 | `error_code` | string（可空） | 否 |  |
 | `error_message` | string（可空） | 否 |  |
 | `created_at` | string（date-time） | 是 |  |
@@ -9220,6 +9776,7 @@ stop:<runId> 幂等）并唤醒机器人，由它结合上下文决定后续动�
 | `usage_complete` | boolean | 是 | false 表示上游未报 usage（缺失与零严格区分） |
 | `cost_estimate` | number（double，可空） | 否 | 本 run 已计价请求的成本累计（USD，含送过 usage 的失败请求）；目录无价/全缺 usage 时为 null（缺失 ≠ 0，INT-139） |
 | `cost_source` | string（可空） | 否 | 计价来源（catalog）；cost_estimate 为 null 时同 null |
+| `display_cost_estimate` | number（double，可空） | 是 | 显示口径成本（INT-162）：本 run + 关联维护运行的显示成本合计（请求级实收优先，INT-164）；两者都为 null 时为 null。cost_estimate 列本身口径不变 |
 | `error_code` | string（可空） | 否 |  |
 | `error_message` | string（可空） | 否 |  |
 | `created_at` | string（date-time） | 是 |  |
@@ -9272,6 +9829,7 @@ stop:<runId> 幂等）并唤醒机器人，由它结合上下文决定后续动�
 | `items[].next_run_at` | string（date-time，可空） | 是 | 下一次计划触发时间（UTC）；停用或调度暂停时为 null |
 | `items[].state` | string（可空） | 是 | 任务小状态的原始 JSON 文本（INT-123，无损；无状态为 null）。写入只经机器人 fs_schedule 的 state_set，用户只能经 DELETE .../state 清空 |
 | `items[].state_updated_at` | string（date-time，可空） | 是 | 状态最近一次写入时间（UTC）；无状态为 null |
+| `items[].cost_last_7d` | number（double，可空） | 是 | 近 7 天该任务显示成本合计（schedule run 自身+关联维护 + 连带主线成本，请求级实收优先，INT-162/164）；无金额记录为 null |
 | `items[].created_at` | string（date-time） | 是 |  |
 | `items[].updated_at` | string（date-time） | 是 |  |
 | `items[].last_run` | object（可空） | 是 |  |
@@ -9292,6 +9850,7 @@ stop:<runId> 幂等）并唤醒机器人，由它结合上下文决定后续动�
 | `items[].last_run.total_tokens` | integer（int64） | 否 |  |
 | `items[].last_run.cost_estimate` | number（double） | 否 | 本 run 已计价请求的成本累计（USD，含送过 usage 的失败请求）；目录无价时缺省（缺失 ≠ 0，INT-139） |
 | `items[].last_run.cost_source` | string | 否 | 计价来源（catalog） |
+| `items[].last_run.display_cost_estimate` | number（double，可空） | 是 | 显示口径成本（INT-162）：本 run + 关联维护运行的显示成本合计（请求级实收优先，INT-164）；两者都为 null 时为 null |
 
 **错误**
 
@@ -9336,6 +9895,7 @@ stop:<runId> 幂等）并唤醒机器人，由它结合上下文决定后续动�
 | `next_run_at` | string（date-time，可空） | 是 | 下一次计划触发时间（UTC）；停用或调度暂停时为 null |
 | `state` | string（可空） | 是 | 任务小状态的原始 JSON 文本（INT-123，无损；无状态为 null）。写入只经机器人 fs_schedule 的 state_set，用户只能经 DELETE .../state 清空 |
 | `state_updated_at` | string（date-time，可空） | 是 | 状态最近一次写入时间（UTC）；无状态为 null |
+| `cost_last_7d` | number（double，可空） | 是 | 近 7 天该任务显示成本合计（schedule run 自身+关联维护 + 连带主线成本，请求级实收优先，INT-162/164）；无金额记录为 null |
 | `created_at` | string（date-time） | 是 |  |
 | `updated_at` | string（date-time） | 是 |  |
 | `last_run` | object（可空） | 是 |  |
@@ -9356,6 +9916,7 @@ stop:<runId> 幂等）并唤醒机器人，由它结合上下文决定后续动�
 | `last_run.total_tokens` | integer（int64） | 否 |  |
 | `last_run.cost_estimate` | number（double） | 否 | 本 run 已计价请求的成本累计（USD，含送过 usage 的失败请求）；目录无价时缺省（缺失 ≠ 0，INT-139） |
 | `last_run.cost_source` | string | 否 | 计价来源（catalog） |
+| `last_run.display_cost_estimate` | number（double，可空） | 是 | 显示口径成本（INT-162）：本 run + 关联维护运行的显示成本合计（请求级实收优先，INT-164）；两者都为 null 时为 null |
 
 **错误**
 
@@ -9413,6 +9974,7 @@ stop:<runId> 幂等）并唤醒机器人，由它结合上下文决定后续动�
 | `items[].total_tokens` | integer（int64） | 否 |  |
 | `items[].cost_estimate` | number（double） | 否 | 本 run 已计价请求的成本累计（USD，含送过 usage 的失败请求）；目录无价时缺省（缺失 ≠ 0，INT-139） |
 | `items[].cost_source` | string | 否 | 计价来源（catalog） |
+| `items[].display_cost_estimate` | number（double，可空） | 是 | 显示口径成本（INT-162）：本 run + 关联维护运行的显示成本合计（请求级实收优先，INT-164）；两者都为 null 时为 null |
 
 **错误**
 
@@ -9466,6 +10028,7 @@ stopped，不追加主线事件（用户主动停止不是需要汇报的运行�
 | `usage_complete` | boolean | 是 | false 表示上游未报 usage（缺失与零严格区分） |
 | `cost_estimate` | number（double，可空） | 否 | 本 run 已计价请求的成本累计（USD，含送过 usage 的失败请求）；目录无价/全缺 usage 时为 null（缺失 ≠ 0，INT-139） |
 | `cost_source` | string（可空） | 否 | 计价来源（catalog）；cost_estimate 为 null 时同 null |
+| `display_cost_estimate` | number（double，可空） | 是 | 显示口径成本（INT-162）：本 run + 关联维护运行的显示成本合计（请求级实收优先，INT-164）；两者都为 null 时为 null。cost_estimate 列本身口径不变 |
 | `error_code` | string（可空） | 否 |  |
 | `error_message` | string（可空） | 否 |  |
 | `created_at` | string（date-time） | 是 |  |
@@ -9527,6 +10090,7 @@ stopped，不追加主线事件（用户主动停止不是需要汇报的运行�
 | `next_run_at` | string（date-time，可空） | 是 | 下一次计划触发时间（UTC）；停用或调度暂停时为 null |
 | `state` | string（可空） | 是 | 任务小状态的原始 JSON 文本（INT-123，无损；无状态为 null）。写入只经机器人 fs_schedule 的 state_set，用户只能经 DELETE .../state 清空 |
 | `state_updated_at` | string（date-time，可空） | 是 | 状态最近一次写入时间（UTC）；无状态为 null |
+| `cost_last_7d` | number（double，可空） | 是 | 近 7 天该任务显示成本合计（schedule run 自身+关联维护 + 连带主线成本，请求级实收优先，INT-162/164）；无金额记录为 null |
 | `created_at` | string（date-time） | 是 |  |
 | `updated_at` | string（date-time） | 是 |  |
 | `last_run` | object（可空） | 是 |  |
@@ -9547,6 +10111,7 @@ stopped，不追加主线事件（用户主动停止不是需要汇报的运行�
 | `last_run.total_tokens` | integer（int64） | 否 |  |
 | `last_run.cost_estimate` | number（double） | 否 | 本 run 已计价请求的成本累计（USD，含送过 usage 的失败请求）；目录无价时缺省（缺失 ≠ 0，INT-139） |
 | `last_run.cost_source` | string | 否 | 计价来源（catalog） |
+| `last_run.display_cost_estimate` | number（double，可空） | 是 | 显示口径成本（INT-162）：本 run + 关联维护运行的显示成本合计（请求级实收优先，INT-164）；两者都为 null 时为 null |
 
 **错误**
 
@@ -9596,6 +10161,7 @@ stopped，不追加主线事件（用户主动停止不是需要汇报的运行�
 | `next_run_at` | string（date-time，可空） | 是 | 下一次计划触发时间（UTC）；停用或调度暂停时为 null |
 | `state` | string（可空） | 是 | 任务小状态的原始 JSON 文本（INT-123，无损；无状态为 null）。写入只经机器人 fs_schedule 的 state_set，用户只能经 DELETE .../state 清空 |
 | `state_updated_at` | string（date-time，可空） | 是 | 状态最近一次写入时间（UTC）；无状态为 null |
+| `cost_last_7d` | number（double，可空） | 是 | 近 7 天该任务显示成本合计（schedule run 自身+关联维护 + 连带主线成本，请求级实收优先，INT-162/164）；无金额记录为 null |
 | `created_at` | string（date-time） | 是 |  |
 | `updated_at` | string（date-time） | 是 |  |
 | `last_run` | object（可空） | 是 |  |
@@ -9616,6 +10182,281 @@ stopped，不追加主线事件（用户主动停止不是需要汇报的运行�
 | `last_run.total_tokens` | integer（int64） | 否 |  |
 | `last_run.cost_estimate` | number（double） | 否 | 本 run 已计价请求的成本累计（USD，含送过 usage 的失败请求）；目录无价时缺省（缺失 ≠ 0，INT-139） |
 | `last_run.cost_source` | string | 否 | 计价来源（catalog） |
+| `last_run.display_cost_estimate` | number（double，可空） | 是 | 显示口径成本（INT-162）：本 run + 关联维护运行的显示成本合计（请求级实收优先，INT-164）；两者都为 null 时为 null |
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 404 | 资源不存在（40400-40499） |
+| 500 | 服务器内部错误（50000） |
+
+### GET `/api/bots/{id}/budgets`
+
+<!-- operationId: listBotBudgets -->
+
+机器人周期预算列表（INT-164）
+
+返回该机器人的预算（每日/每月各至多一条）与当前周期的已计价花费。
+花费为实收优先（provider_cost 覆盖 cost_estimate，与花费页展示同
+口径，未计价请求不计入），周期按用户有效时区切日/切月。未设置预算
+时返回空列表，系统行为与没有预算完全一致。
+
+**鉴权**：仅 JWT
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | 是 | API Key ID |
+
+**成功响应**
+
+**200** 预算列表
+
+`data`：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `items` | object[] | 是 |  |
+| `items[].id` | string | 是 |  |
+| `items[].period` | string（enum: daily \| monthly） | 是 | 预算周期；每日按用户有效时区的当地日，每月按当地月 |
+| `items[].amount_usd` | number（double） | 是 | 预算金额（美元，大于 0） |
+| `items[].thresholds` | number[]（double） | 是 | 告警阈值（相对预算金额的比例，0.8 = 80%、1 = 100%；服务端规范化去重升序） |
+| `items[].spend_usd` | number（double） | 是 | 当前周期花费（USD）；实收优先（provider_cost 覆盖 cost_estimate），无金额请求不计入，无花费为 0 |
+| `items[].period_key` | string | 是 | 当前周期的规范键（daily = 当地日期 2006-01-02，monthly = 2006-01） |
+| `items[].spend_window_start` | string（date-time） | 是 | 当前周期统计窗口起点（UTC） |
+| `items[].spend_window_end` | string（date-time） | 是 | 当前周期统计窗口终点（UTC，= 评估时刻） |
+| `items[].created_at` | string（date-time） | 是 |  |
+| `items[].updated_at` | string（date-time） | 是 |  |
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 404 | 资源不存在（40400-40499） |
+| 500 | 服务器内部错误（50000） |
+
+### PUT `/api/bots/{id}/budgets/{period}`
+
+<!-- operationId: upsertBotBudget -->
+
+设置机器人预算（按周期覆盖）
+
+覆盖该机器人某周期的预算。阈值是相对预算金额的比例（0.8 = 80%，
+1 = 100%，允许大于 1）；服务端规范化（去重、升序、整数基点）后保存。
+越过阈值只发站内通知与主线事件，不停止运行；同一周期同一阈值只告警
+一次。
+
+**鉴权**：仅 JWT
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | 是 | API Key ID |
+| `period` | string（enum: daily \| monthly） | 是 |  |
+
+**请求体**
+
+`application/json`，必填。
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `amount_usd` | number（double） | 是 | 预算金额（美元，必须大于 0） |
+| `thresholds` | number[]（double） | 是 | 告警阈值（(0, 100]，1 = 100%，允许超过 100% 的档位；至少一个，服务端去重升序） |
+
+**成功响应**
+
+**200** 保存后的预算与当前周期花费
+
+`data`：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | 是 |  |
+| `period` | string（enum: daily \| monthly） | 是 | 预算周期；每日按用户有效时区的当地日，每月按当地月 |
+| `amount_usd` | number（double） | 是 | 预算金额（美元，大于 0） |
+| `thresholds` | number[]（double） | 是 | 告警阈值（相对预算金额的比例，0.8 = 80%、1 = 100%；服务端规范化去重升序） |
+| `spend_usd` | number（double） | 是 | 当前周期花费（USD）；实收优先（provider_cost 覆盖 cost_estimate），无金额请求不计入，无花费为 0 |
+| `period_key` | string | 是 | 当前周期的规范键（daily = 当地日期 2006-01-02，monthly = 2006-01） |
+| `spend_window_start` | string（date-time） | 是 | 当前周期统计窗口起点（UTC） |
+| `spend_window_end` | string（date-time） | 是 | 当前周期统计窗口终点（UTC，= 评估时刻） |
+| `created_at` | string（date-time） | 是 |  |
+| `updated_at` | string（date-time） | 是 |  |
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 400 | 请求参数无效（40001-40099） |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 404 | 资源不存在（40400-40499） |
+| 500 | 服务器内部错误（50000） |
+
+### DELETE `/api/bots/{id}/budgets/{period}`
+
+<!-- operationId: deleteBotBudget -->
+
+删除机器人预算
+
+删除该机器人某周期的预算；不存在也算成功（幂等）。
+
+**鉴权**：仅 JWT
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | 是 | API Key ID |
+| `period` | string（enum: daily \| monthly） | 是 |  |
+
+**成功响应**
+
+**200** 删除成功
+
+`data`：any
+
+响应负载；形状随端点而变，由 allOf 组合的兄弟 schema 收窄
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 404 | 资源不存在（40400-40499） |
+| 500 | 服务器内部错误（50000） |
+
+### GET `/api/bots/{id}/schedule-tasks/{taskId}/budgets`
+
+<!-- operationId: listBotScheduleTaskBudgets -->
+
+定时任务周期预算列表（INT-164）
+
+返回该定时任务的预算与当前周期花费。任务花费只算任务口径：该任务的
+schedule run、解析到该任务的 schedule_event 连带主线 run 及它们的关联
+维护；未计价请求不计入。
+
+**鉴权**：仅 JWT
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | 是 | API Key ID |
+| `taskId` | string | 是 |  |
+
+**成功响应**
+
+**200** 预算列表
+
+`data`：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `items` | object[] | 是 |  |
+| `items[].id` | string | 是 |  |
+| `items[].period` | string（enum: daily \| monthly） | 是 | 预算周期；每日按用户有效时区的当地日，每月按当地月 |
+| `items[].amount_usd` | number（double） | 是 | 预算金额（美元，大于 0） |
+| `items[].thresholds` | number[]（double） | 是 | 告警阈值（相对预算金额的比例，0.8 = 80%、1 = 100%；服务端规范化去重升序） |
+| `items[].spend_usd` | number（double） | 是 | 当前周期花费（USD）；实收优先（provider_cost 覆盖 cost_estimate），无金额请求不计入，无花费为 0 |
+| `items[].period_key` | string | 是 | 当前周期的规范键（daily = 当地日期 2006-01-02，monthly = 2006-01） |
+| `items[].spend_window_start` | string（date-time） | 是 | 当前周期统计窗口起点（UTC） |
+| `items[].spend_window_end` | string（date-time） | 是 | 当前周期统计窗口终点（UTC，= 评估时刻） |
+| `items[].created_at` | string（date-time） | 是 |  |
+| `items[].updated_at` | string（date-time） | 是 |  |
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 404 | 资源不存在（40400-40499） |
+| 500 | 服务器内部错误（50000） |
+
+### PUT `/api/bots/{id}/schedule-tasks/{taskId}/budgets/{period}`
+
+<!-- operationId: upsertBotScheduleTaskBudget -->
+
+设置定时任务预算（按周期覆盖）
+
+覆盖该定时任务某周期的预算；阈值语义同机器人预算。任务必须属于该
+机器人（否则 404），机器人与任务都必须属于当前用户。
+
+**鉴权**：仅 JWT
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | 是 | API Key ID |
+| `taskId` | string | 是 |  |
+| `period` | string（enum: daily \| monthly） | 是 |  |
+
+**请求体**
+
+`application/json`，必填。
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `amount_usd` | number（double） | 是 | 预算金额（美元，必须大于 0） |
+| `thresholds` | number[]（double） | 是 | 告警阈值（(0, 100]，1 = 100%，允许超过 100% 的档位；至少一个，服务端去重升序） |
+
+**成功响应**
+
+**200** 保存后的预算与当前周期花费
+
+`data`：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | 是 |  |
+| `period` | string（enum: daily \| monthly） | 是 | 预算周期；每日按用户有效时区的当地日，每月按当地月 |
+| `amount_usd` | number（double） | 是 | 预算金额（美元，大于 0） |
+| `thresholds` | number[]（double） | 是 | 告警阈值（相对预算金额的比例，0.8 = 80%、1 = 100%；服务端规范化去重升序） |
+| `spend_usd` | number（double） | 是 | 当前周期花费（USD）；实收优先（provider_cost 覆盖 cost_estimate），无金额请求不计入，无花费为 0 |
+| `period_key` | string | 是 | 当前周期的规范键（daily = 当地日期 2006-01-02，monthly = 2006-01） |
+| `spend_window_start` | string（date-time） | 是 | 当前周期统计窗口起点（UTC） |
+| `spend_window_end` | string（date-time） | 是 | 当前周期统计窗口终点（UTC，= 评估时刻） |
+| `created_at` | string（date-time） | 是 |  |
+| `updated_at` | string（date-time） | 是 |  |
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 400 | 请求参数无效（40001-40099） |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 404 | 资源不存在（40400-40499） |
+| 500 | 服务器内部错误（50000） |
+
+### DELETE `/api/bots/{id}/schedule-tasks/{taskId}/budgets/{period}`
+
+<!-- operationId: deleteBotScheduleTaskBudget -->
+
+删除定时任务预算
+
+删除该定时任务某周期的预算；不存在也算成功（幂等）。
+
+**鉴权**：仅 JWT
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | 是 | API Key ID |
+| `taskId` | string | 是 |  |
+| `period` | string（enum: daily \| monthly） | 是 |  |
+
+**成功响应**
+
+**200** 删除成功
+
+`data`：any
+
+响应负载；形状随端点而变，由 allOf 组合的兄弟 schema 收窄
 
 **错误**
 
@@ -9671,6 +10512,7 @@ status 逗号分隔；常用 pending_confirmation 查待确认卡片、queued/ru
 | `items[].decided_at` | string（date-time，可空） | 否 |  |
 | `items[].authorization_id` | string（可空） | 否 |  |
 | `items[].execution_context` | object | 是 | 服务端生成的执行身份（T3 command/thread/message ID 等）与授权范围 |
+| `items[].policy` | object | 否 | 分级放行评估结论（INT-160）：{tier, rule_id?, auto, source, facts?, downgrade_reason?, expiry?, schedule_denied?}。凡经过策略评估的写 调用都有：自动执行（auto=true）、确认卡（含降级原因与过期时间）、 定时任务会话 tier3 同步拒绝三类；历史行为空即「策略上线前」 |
 | `items[].cancel_requested` | boolean | 否 |  |
 | `items[].result_preview` | object | 否 | 进入模型上下文的受限结果（完整结果走 result 端点） |
 | `items[].result_chars` | integer（int64） | 是 |  |
@@ -9727,6 +10569,7 @@ status 逗号分隔；常用 pending_confirmation 查待确认卡片、queued/ru
 | `decided_at` | string（date-time，可空） | 否 |  |
 | `authorization_id` | string（可空） | 否 |  |
 | `execution_context` | object | 是 | 服务端生成的执行身份（T3 command/thread/message ID 等）与授权范围 |
+| `policy` | object | 否 | 分级放行评估结论（INT-160）：{tier, rule_id?, auto, source, facts?, downgrade_reason?, expiry?, schedule_denied?}。凡经过策略评估的写 调用都有：自动执行（auto=true）、确认卡（含降级原因与过期时间）、 定时任务会话 tier3 同步拒绝三类；历史行为空即「策略上线前」 |
 | `cancel_requested` | boolean | 否 |  |
 | `result_preview` | object | 否 | 进入模型上下文的受限结果（完整结果走 result 端点） |
 | `result_chars` | integer（int64） | 是 |  |
@@ -9835,6 +10678,7 @@ status 逗号分隔；常用 pending_confirmation 查待确认卡片、queued/ru
 | `decided_at` | string（date-time，可空） | 否 |  |
 | `authorization_id` | string（可空） | 否 |  |
 | `execution_context` | object | 是 | 服务端生成的执行身份（T3 command/thread/message ID 等）与授权范围 |
+| `policy` | object | 否 | 分级放行评估结论（INT-160）：{tier, rule_id?, auto, source, facts?, downgrade_reason?, expiry?, schedule_denied?}。凡经过策略评估的写 调用都有：自动执行（auto=true）、确认卡（含降级原因与过期时间）、 定时任务会话 tier3 同步拒绝三类；历史行为空即「策略上线前」 |
 | `cancel_requested` | boolean | 否 |  |
 | `result_preview` | object | 否 | 进入模型上下文的受限结果（完整结果走 result 端点） |
 | `result_chars` | integer（int64） | 是 |  |
@@ -9897,6 +10741,7 @@ effect_may_have_occurred=true（不声称回滚）。已终结调用幂等返回
 | `decided_at` | string（date-time，可空） | 否 |  |
 | `authorization_id` | string（可空） | 否 |  |
 | `execution_context` | object | 是 | 服务端生成的执行身份（T3 command/thread/message ID 等）与授权范围 |
+| `policy` | object | 否 | 分级放行评估结论（INT-160）：{tier, rule_id?, auto, source, facts?, downgrade_reason?, expiry?, schedule_denied?}。凡经过策略评估的写 调用都有：自动执行（auto=true）、确认卡（含降级原因与过期时间）、 定时任务会话 tier3 同步拒绝三类；历史行为空即「策略上线前」 |
 | `cancel_requested` | boolean | 否 |  |
 | `result_preview` | object | 否 | 进入模型上下文的受限结果（完整结果走 result 端点） |
 | `result_chars` | integer（int64） | 是 |  |
@@ -9953,6 +10798,7 @@ effect_may_have_occurred=true（不声称回滚）。已终结调用幂等返回
 | `items[].environment_id` | string（可空） | 否 |  |
 | `items[].constraints` | object | 是 | 规范化约束（如允许写入的字段集合 fields） |
 | `items[].created_at` | string（date-time） | 是 |  |
+| `items[].expires_at` | string（date-time，可空） | 否 | 到期时间（INT-160）：新建「始终允许」默认创建后 30 天；到期后不再命中（视为已失效，惰性补 revoked_at）。历史行可能为 null |
 | `items[].revoked_at` | string（date-time，可空） | 否 |  |
 
 **错误**
@@ -9991,6 +10837,99 @@ effect_may_have_occurred=true（不声称回滚）。已终结调用幂等返回
 
 | HTTP | 说明 |
 | --- | --- |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 404 | 资源不存在（40400-40499） |
+| 500 | 服务器内部错误（50000） |
+
+### GET `/api/bots/{id}/policy-rules`
+
+<!-- operationId: listBotWritePolicyRules -->
+
+分级放行规则清单（tier1 规则开关与误判状态，INT-160）
+
+**鉴权**：仅 JWT
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | 是 | API Key ID |
+
+**成功响应**
+
+**200** 规则清单（静态目录全量，行缺失按启用）
+
+`data`：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `items` | object[] | 是 |  |
+| `items[].rule_id` | string | 是 | 规则 ID（thread_send_continue / thread_settle_idle / thread_unsettle） |
+| `items[].name` | string | 是 |  |
+| `items[].description` | string | 是 |  |
+| `items[].enabled` | boolean | 是 | 行不存在即启用；误判自动降级或手动关闭后为 false |
+| `items[].false_positive_count_24h` | integer | 是 | 24 小时窗口内的误判次数（用户反向操作按事实计数） |
+| `items[].auto_disabled_at` | string（date-time，可空） | 否 | 误判自动降级的落库时间；手动重新启用后清空 |
+| `items[].updated_at` | string（date-time，可空） | 否 |  |
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 404 | 资源不存在（40400-40499） |
+| 500 | 服务器内部错误（50000） |
+
+### PUT `/api/bots/{id}/policy-rules/{ruleId}`
+
+<!-- operationId: setBotWritePolicyRuleEnabled -->
+
+开关一条分级放行规则（INT-160）
+
+开关 tier1 规则；行不存在则落行。手动重新启用会清空自动降级时间戳
+与误判计数（窗口重新开始）。误判自动降级（24 小时内 2 次用户反向
+操作）也会写本开关并给主线追加生命周期消息。
+
+**鉴权**：仅 JWT
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | 是 | API Key ID |
+| `ruleId` | string | 是 |  |
+
+**请求体**
+
+`application/json`，必填。
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `enabled` | boolean | 是 |  |
+
+**成功响应**
+
+**200** 开关后的规则状态
+
+`data`：
+
+分级放行 tier1 规则的独立开关与误判状态（INT-160）。分档与前置条件由服务端按「动作+参数+目标线程内存状态」计算，本端点只暴露开关
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `rule_id` | string | 是 | 规则 ID（thread_send_continue / thread_settle_idle / thread_unsettle） |
+| `name` | string | 是 |  |
+| `description` | string | 是 |  |
+| `enabled` | boolean | 是 | 行不存在即启用；误判自动降级或手动关闭后为 false |
+| `false_positive_count_24h` | integer | 是 | 24 小时窗口内的误判次数（用户反向操作按事实计数） |
+| `auto_disabled_at` | string（date-time，可空） | 否 | 误判自动降级的落库时间；手动重新启用后清空 |
+| `updated_at` | string（date-time，可空） | 否 |  |
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 400 | 请求参数无效（40001-40099） |
 | 401 | 未提供或提供无效凭证（40100-40199） |
 | 404 | 资源不存在（40400-40499） |
 | 500 | 服务器内部错误（50000） |
@@ -11286,7 +12225,7 @@ public_url 组装 manifest（原样 POST 给 GitHub 的形状），返回 GitHub
 | `manifest.redirect_url` | string | 是 | 创建完成回跳地址 = {public_url}/settings/integrations/github/callback |
 | `manifest.setup_url` | string | 是 | 安装后跳转地址 = {public_url}/settings/integrations |
 | `manifest.public` | boolean | 是 | 恒为 false（非公开 App；同上不用 enum[false] 避免生成撞名常量） |
-| `manifest.default_events` | string[]（enum: pull_request） | 是 |  |
+| `manifest.default_events` | string[]（enum: pull_request \| issue_comment） | 是 | 默认订阅 pull_request 与 issue_comment（INT-179 评论唤醒需要后者） |
 | `manifest.default_permissions` | object | 是 | PR 审查所需的最小权限集（结论用 commit status，不用 Checks API） |
 | `manifest.default_permissions.pull_requests` | string（enum: write） | 是 |  |
 | `manifest.default_permissions.issues` | string（enum: write） | 是 |  |
@@ -11354,3 +12293,350 @@ B 轮实现。GitHub 创建 App 后回跳 `/settings/integrations/github/callbac
 | 403 | 非管理员（40305） |
 | 500 | 服务器内部错误（50000） |
 | 502 | GitHub App Manifest 转换失败（50205） |
+
+### GET `/api/deployment/integrations`
+
+<!-- operationId: listForgeIntegrations -->
+
+列出部署级代码仓集成（仅管理员）
+
+INT-166 实现。首条恒为内置 `github-default`（只读映射到部署级 GitHub App
+配置，builtin=true），后接 forgejo 集成行。token 与 webhook_secret 本体
+永不回显，只回「是否已设置」标记。
+
+**鉴权**：仅 JWT
+
+**成功响应**
+
+**200** 集成列表（首条 github-default）
+
+`data` 为数组。
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | 是 | 内置集成固定为 github-default；forgejo 行为 forge_integrations 行 ID |
+| `kind` | string（enum: github \| forgejo） | 是 | github=内置 GitHub App（只读映射）；forgejo=机器人账号 + 仓库范围 PAT |
+| `name` | string | 是 | 显示名 |
+| `base_url` | string | 是 | Forgejo 实例基址（内置集成为 https://github.com） |
+| `api_base_url` | string | 是 | API 基址（forgejo 保存时已推导展开；内置集成为部署 GitHub App 的 api_base_url） |
+| `api_base_url_derived` | boolean | 是 | true=api_base_url 是按 {base_url}/api/v1 推导的展开值（改 base_url 时跟随 重新推导）；false=管理员显式钉死的端点（不随 base_url 变化）。内置集成恒 false。 |
+| `token_set` | boolean | 是 | 凭证是否已配置（内置=GitHub App 身份可用；本体永不回显） |
+| `webhook_secret_set` | boolean | 是 | webhook 验签密钥是否已配置（本体永不回显） |
+| `has_ca_cert` | boolean | 是 | 是否配置了自定义 CA（本体永不回显） |
+| `allow_private_network` | boolean | 是 | 是否放行本集成配置主机解析到私网地址（http 同样仅在开启时可用） |
+| `builtin` | boolean | 是 | 内置集成恒为 true，不可修改、不可删除、不可走 test 端点 |
+| `unavailable` | boolean | 否 | omitempty；仅内置 github-default 可能出现：true 表示内置投影读取 失败（如 App 密文解不开），该条目仅作占位展示、凭证状态不可信， 请检查部署级 GitHub App 配置。forgejo 行恒无此字段。 |
+| `created_at` | string（date-time，可空） | 是 | 创建时间；内置集成无落库行，为 null |
+| `updated_at` | string（date-time，可空） | 是 | 最近保存时间；内置集成为 null |
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 403 | 非管理员（40305） |
+| 500 | 服务器内部错误（50000） |
+
+### POST `/api/deployment/integrations`
+
+<!-- operationId: createForgeIntegration -->
+
+新建 forgejo 集成（仅管理员）
+
+仅管理员。本期只接受 forgejo 种类（内置 GitHub App 走 deployment/github-app
+端点，请求不设 kind 字段）。base_url 必填并做 SSRF 校验（含保存时 DNS
+解析校验）；api_base_url 省略时按 `{base_url}/api/v1` 推导；token 必填
+（仓库范围 PAT）；webhook_secret / ca_cert_pem 可选；token 与
+webhook_secret 加密落库、永不回显。allow_private_network=true 放行该
+集成配置主机解析到私网地址（http 基址同样只在开启时可用）。
+
+**鉴权**：仅 JWT
+
+**请求体**
+
+`application/json`，必填。
+
+新建 forgejo 集成请求；本期不接受 github 种类（内置 App 走 deployment/github-app）
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `name` | string | 是 | 显示名（必填） |
+| `base_url` | string | 是 | Forgejo 实例基址；必须 https（开启 allow_private_network 后可用 http）且解析不到内网地址 |
+| `api_base_url` | string（可空） | 否 | API 基址；省略或 null 按 {base_url}/api/v1 推导 |
+| `token` | string | 是 | 仓库范围 PAT（必填）；加密落库、只写不回显 |
+| `webhook_secret` | string（可空） | 否 | webhook 验签密钥（可选）；加密落库、只写不回显 |
+| `ca_cert_pem` | string（可空） | 否 | 自定义 CA（PEM，可选）；追加系统根证书池 |
+| `allow_private_network` | boolean | 否 | 放行该集成配置主机解析到私网地址；缺省 false |
+
+**成功响应**
+
+**200** 创建后的集成投影
+
+`data`：
+
+部署级代码仓集成投影（INT-166）；内置 github-default 与 forgejo 行同形
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | 是 | 内置集成固定为 github-default；forgejo 行为 forge_integrations 行 ID |
+| `kind` | string（enum: github \| forgejo） | 是 | github=内置 GitHub App（只读映射）；forgejo=机器人账号 + 仓库范围 PAT |
+| `name` | string | 是 | 显示名 |
+| `base_url` | string | 是 | Forgejo 实例基址（内置集成为 https://github.com） |
+| `api_base_url` | string | 是 | API 基址（forgejo 保存时已推导展开；内置集成为部署 GitHub App 的 api_base_url） |
+| `api_base_url_derived` | boolean | 是 | true=api_base_url 是按 {base_url}/api/v1 推导的展开值（改 base_url 时跟随 重新推导）；false=管理员显式钉死的端点（不随 base_url 变化）。内置集成恒 false。 |
+| `token_set` | boolean | 是 | 凭证是否已配置（内置=GitHub App 身份可用；本体永不回显） |
+| `webhook_secret_set` | boolean | 是 | webhook 验签密钥是否已配置（本体永不回显） |
+| `has_ca_cert` | boolean | 是 | 是否配置了自定义 CA（本体永不回显） |
+| `allow_private_network` | boolean | 是 | 是否放行本集成配置主机解析到私网地址（http 同样仅在开启时可用） |
+| `builtin` | boolean | 是 | 内置集成恒为 true，不可修改、不可删除、不可走 test 端点 |
+| `unavailable` | boolean | 否 | omitempty；仅内置 github-default 可能出现：true 表示内置投影读取 失败（如 App 密文解不开），该条目仅作占位展示、凭证状态不可信， 请检查部署级 GitHub App 配置。forgejo 行恒无此字段。 |
+| `created_at` | string（date-time，可空） | 是 | 创建时间；内置集成无落库行，为 null |
+| `updated_at` | string（date-time，可空） | 是 | 最近保存时间；内置集成为 null |
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 400 | 参数缺失或非法（40001）：name/token 缺失、基址不是合法 https 绝对 URL、基址解析到内网地址、CA PEM 不可解析等 |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 403 | 非管理员（40305） |
+| 500 | 服务器内部错误（50000） |
+
+### GET `/api/deployment/integrations/{id}`
+
+<!-- operationId: getForgeIntegration -->
+
+读取单个集成投影（仅管理员）
+
+**鉴权**：仅 JWT
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | 是 | 代码仓集成 ID（内置 github-default 或 forge_integrations 行 ID） |
+
+**成功响应**
+
+**200** 集成投影
+
+`data`：
+
+部署级代码仓集成投影（INT-166）；内置 github-default 与 forgejo 行同形
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | 是 | 内置集成固定为 github-default；forgejo 行为 forge_integrations 行 ID |
+| `kind` | string（enum: github \| forgejo） | 是 | github=内置 GitHub App（只读映射）；forgejo=机器人账号 + 仓库范围 PAT |
+| `name` | string | 是 | 显示名 |
+| `base_url` | string | 是 | Forgejo 实例基址（内置集成为 https://github.com） |
+| `api_base_url` | string | 是 | API 基址（forgejo 保存时已推导展开；内置集成为部署 GitHub App 的 api_base_url） |
+| `api_base_url_derived` | boolean | 是 | true=api_base_url 是按 {base_url}/api/v1 推导的展开值（改 base_url 时跟随 重新推导）；false=管理员显式钉死的端点（不随 base_url 变化）。内置集成恒 false。 |
+| `token_set` | boolean | 是 | 凭证是否已配置（内置=GitHub App 身份可用；本体永不回显） |
+| `webhook_secret_set` | boolean | 是 | webhook 验签密钥是否已配置（本体永不回显） |
+| `has_ca_cert` | boolean | 是 | 是否配置了自定义 CA（本体永不回显） |
+| `allow_private_network` | boolean | 是 | 是否放行本集成配置主机解析到私网地址（http 同样仅在开启时可用） |
+| `builtin` | boolean | 是 | 内置集成恒为 true，不可修改、不可删除、不可走 test 端点 |
+| `unavailable` | boolean | 否 | omitempty；仅内置 github-default 可能出现：true 表示内置投影读取 失败（如 App 密文解不开），该条目仅作占位展示、凭证状态不可信， 请检查部署级 GitHub App 配置。forgejo 行恒无此字段。 |
+| `created_at` | string（date-time，可空） | 是 | 创建时间；内置集成无落库行，为 null |
+| `updated_at` | string（date-time，可空） | 是 | 最近保存时间；内置集成为 null |
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 403 | 非管理员（40305） |
+| 404 | 集成不存在（40435） |
+| 500 | 服务器内部错误（50000） |
+
+### PUT `/api/deployment/integrations/{id}`
+
+<!-- operationId: updateForgeIntegration -->
+
+部分更新集成（仅管理员）
+
+仅管理员。部分更新：省略的字段保持不变。base_url / api_base_url 变更时
+重新做 SSRF 校验（含 DNS）；allow_private_network 关闭会按公网口径
+复核现有基址。token 省略/null = 保留、空串 = 40001（必需凭证不可清空）；
+webhook_secret / ca_cert_pem 省略或 null = 保留、空串 = 清空；
+api_base_url 空串 = 重置为
+`{base_url}/api/v1`。内置 github-default 不可通过本端点修改（40001）。
+base_url 归一主机变更等同迁移全部项目绑定：仍有项目引用时拒绝
+（40935，消息列引用项目名），须先解除项目绑定或走「新建集成 +
+项目逐个改绑」的显式迁移路径。
+
+**鉴权**：仅 JWT
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | 是 | 代码仓集成 ID（内置 github-default 或 forge_integrations 行 ID） |
+
+**请求体**
+
+`application/json`，必填。
+
+部分更新请求；省略的字段保持不变
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `name` | string（可空） | 否 | 显示名；null 或空串拒绝（name 不允许为空） |
+| `base_url` | string（可空） | 否 | 基址变更时重新校验（含 DNS）；null 保留 |
+| `api_base_url` | string（可空） | 否 | null 保留（存量恰为旧 base_url 推导值时随新 base_url 重新推导）；空串重置为 {base_url}/api/v1；其余重新校验 |
+| `token` | string（可空） | 否 | 新 PAT；省略或 null = 保留现值；空串 = 40001（必需凭证不可清空，需删除集成重建）；其余替换并加密落库 |
+| `webhook_secret` | string（可空） | 否 | 新验签密钥；省略或 null = 保留现值；空串 = 清空已存密钥；其余替换并加密落库 |
+| `ca_cert_pem` | string（可空） | 否 | null = 保留；空串 = 清空；其余替换并校验 PEM |
+| `allow_private_network` | boolean（可空） | 否 | null = 保留；变更后按新开关复核现有基址 |
+
+**成功响应**
+
+**200** 更新后的集成投影
+
+`data`：
+
+部署级代码仓集成投影（INT-166）；内置 github-default 与 forgejo 行同形
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | 是 | 内置集成固定为 github-default；forgejo 行为 forge_integrations 行 ID |
+| `kind` | string（enum: github \| forgejo） | 是 | github=内置 GitHub App（只读映射）；forgejo=机器人账号 + 仓库范围 PAT |
+| `name` | string | 是 | 显示名 |
+| `base_url` | string | 是 | Forgejo 实例基址（内置集成为 https://github.com） |
+| `api_base_url` | string | 是 | API 基址（forgejo 保存时已推导展开；内置集成为部署 GitHub App 的 api_base_url） |
+| `api_base_url_derived` | boolean | 是 | true=api_base_url 是按 {base_url}/api/v1 推导的展开值（改 base_url 时跟随 重新推导）；false=管理员显式钉死的端点（不随 base_url 变化）。内置集成恒 false。 |
+| `token_set` | boolean | 是 | 凭证是否已配置（内置=GitHub App 身份可用；本体永不回显） |
+| `webhook_secret_set` | boolean | 是 | webhook 验签密钥是否已配置（本体永不回显） |
+| `has_ca_cert` | boolean | 是 | 是否配置了自定义 CA（本体永不回显） |
+| `allow_private_network` | boolean | 是 | 是否放行本集成配置主机解析到私网地址（http 同样仅在开启时可用） |
+| `builtin` | boolean | 是 | 内置集成恒为 true，不可修改、不可删除、不可走 test 端点 |
+| `unavailable` | boolean | 否 | omitempty；仅内置 github-default 可能出现：true 表示内置投影读取 失败（如 App 密文解不开），该条目仅作占位展示、凭证状态不可信， 请检查部署级 GitHub App 配置。forgejo 行恒无此字段。 |
+| `created_at` | string（date-time，可空） | 是 | 创建时间；内置集成无落库行，为 null |
+| `updated_at` | string（date-time，可空） | 是 | 最近保存时间；内置集成为 null |
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 400 | 参数非法（40001）：内置集成不可修改、基址校验失败、CA PEM 不可解析等 |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 403 | 非管理员（40305） |
+| 404 | 集成不存在（40435） |
+| 500 | 服务器内部错误（50000） |
+
+### DELETE `/api/deployment/integrations/{id}`
+
+<!-- operationId: deleteForgeIntegration -->
+
+删除集成（仅管理员）
+
+仅管理员。内置 github-default 不可删除（40001）；仍被项目
+（code_integration_id / public_integration_id 任一）引用时拒绝（40935），
+消息列出引用项目名。
+
+**鉴权**：仅 JWT
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | 是 | 代码仓集成 ID（内置 github-default 或 forge_integrations 行 ID） |
+
+**成功响应**
+
+**200** 删除成功（data 为 null）
+
+`data`：any
+
+响应负载；形状随端点而变，由 allOf 组合的兄弟 schema 收窄
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 400 | 内置集成不可删除（40001） |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 403 | 非管理员（40305） |
+| 404 | 集成不存在（40435） |
+| 409 | 仍被项目引用（40935，消息含项目名） |
+| 500 | 服务器内部错误（50000） |
+
+### POST `/api/deployment/integrations/{id}/test`
+
+<!-- operationId: testForgeIntegration -->
+
+连接检测（仅管理员）
+
+仅管理员。用配置的 token 调 Forgejo `GET {api_base_url}/version` 与
+`GET {api_base_url}/user`，返回实例版本与机器人账号名。检测结论随响应
+返回、不落库；token 被拒绝时 status=invalid，网络/5xx 时 status=failed，
+都不是 500。内置 github-default 走本端点报错（40001），引导用已有的
+`POST /api/deployment/github-app/test`。
+
+**鉴权**：仅 JWT
+
+**路径参数**
+
+| 名称 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | 是 | 代码仓集成 ID（内置 github-default 或 forge_integrations 行 ID） |
+
+**成功响应**
+
+**200** 检测结论（status 含失败口径，非 500）
+
+`data`：
+
+Forgejo 连接检测结论；不落库，只随本次响应返回
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `status` | string（enum: unchecked \| ok \| invalid \| failed） | 是 | ok=version+user 均成功；invalid=凭证被拒（401/403）；failed=网络/5xx 等检测失败。unchecked 仅为口径对齐，本端点不会返回 |
+| `version` | string | 是 | Forgejo 实例版本（检测成功时非空） |
+| `username` | string | 是 | 机器人账号名（检测成功时非空） |
+| `detail` | string | 是 | 给人看的补充说明（失败原因等），不含任何密钥 |
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 400 | 内置集成不支持本端点（40001） |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 403 | 非管理员（40305） |
+| 404 | 集成不存在（40435） |
+| 500 | 服务器内部错误（50000） |
+
+### GET `/api/integrations`
+
+<!-- operationId: listIntegrationOptions -->
+
+列出可选代码仓集成（登录用户）
+
+INT-167 新增。项目编辑表单的代码仓集成选择器数据源：返回精简投影
+（id/kind/name/base_url/builtin），不含凭证标记等管理字段；首条恒为
+内置 github-default。所有登录用户可读——绑定项目只需知道集成存在
+与基址，写配置仍仅管理员（/api/deployment/integrations）。
+
+**鉴权**：仅 JWT
+
+**成功响应**
+
+**200** 可选项列表（首条 github-default）
+
+`data` 为数组。
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | 是 | 内置集成固定为 github-default；forgejo 行为 forge_integrations 行 ID |
+| `kind` | string（enum: github \| forgejo） | 是 | github=内置 GitHub App；forgejo=机器人账号 + 仓库范围 PAT |
+| `name` | string | 是 | 显示名 |
+| `base_url` | string | 是 | 实例基址（仓库 URL 按 {base_url}/{owner}/{repo} 解析到本集成） |
+| `builtin` | boolean | 是 | 内置集成恒为 true |
+
+**错误**
+
+| HTTP | 说明 |
+| --- | --- |
+| 401 | 未提供或提供无效凭证（40100-40199） |
+| 500 | 服务器内部错误（50000） |
